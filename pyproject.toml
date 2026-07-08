@@ -1,0 +1,51 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "universal-orchestrator"
+version = "0.1.0"
+description = "Host-agnostic, model-agnostic AI executive kernel and orchestration runtime."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Proprietary" }
+authors = [{ name = "Universal Orchestrator Team" }]
+dependencies = [
+  "pydantic>=2.6",
+]
+
+[project.optional-dependencies]
+pdf = [
+  "pdfplumber>=0.10",
+  "pypdf>=4.0",
+]
+daemon = [
+  "fastapi>=0.115",
+  "uvicorn>=0.30",
+]
+cli = [
+  "typer>=0.12",
+  "rich>=13.7",
+]
+dev = [
+  "pytest>=8.2",
+  "ruff>=0.5",
+  "mypy>=1.10",
+]
+
+[project.scripts]
+ai-team = "universal_orchestrator.cli:main"
+universal-orchestrator = "universal_orchestrator.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/universal_orchestrator"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+plugins = ["pydantic.mypy"]
+

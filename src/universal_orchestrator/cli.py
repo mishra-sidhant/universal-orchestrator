@@ -1,0 +1,150 @@
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from pathlib import Path
+
+from universal_orchestrator import __version__
+from universal_orchestrator.models import Host, HostInvocation, InputAttachment, UserOptions
+from universal_orchestrator.pipeline import Orchestrator
+from universal_orchestrator.routing import CapabilityRegistry
+from universal_orchestrator.utils import read_json
+
+
+def main(argv: list[str] | None = None) -> None:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    command = getattr(args, "command", None)
+    if command is None:
+        parser.print_help()
+        return
+    handler = getattr(args, "handler")
+    try:
+        handler(args)
+    except Exception as exc:  # pragma: no cover - CLI boundary
+        print(f"error: {exc}", file=sys.stderr)
+        raise SystemExit(1) from exc
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="ai-team", description="Universal AI Executive Kernel CLI")
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
+    sub = parser.add_subparsers(dest="command")
+
+    run_parser = sub.add_parser("run", help="Run the orchestrator on a prompt and optional paths")
+    _add_run_args(run_parser)
+    run_parser.set_defaults(handler=handle_run)
+
+    repo_parser = sub.add_parser("repo", help="Repo-focused shortcut for implementation or review tasks")
+    _add_run_args(repo_parser)
+    repo_parser.set_defaults(handler=handle_repo)
+
+    doctor_parser = sub.add_parser("doctor", help="Inspect local runtime readiness")
+    doctor_parser.set_defaults(handler=handle_doctor)
+
+    providers_parser = sub.add_parser("providers", help="List provider descriptors and health")
+    providers_parser.set_defaults(handler=handle_providers)
+
+    artifacts_parser = sub.add_parser("artifacts", help="List local run artifact directories")
+    artifacts_parser.add_argument("--root", default=".uo/runs")
+    artifacts_parser.set_defaults(handler=handle_artifacts)
+
+    status_parser = sub.add_parser("status", help="Show a run manifest")
+    status_parser.add_argument("run_id")
+    status_parser.add_argument("--root", default=".uo/runs")
+    status_parser.set_defaults(handler=handle_status)
+
+    return parser
+
+
+def _add_run_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("prompt")
+    parser.add_argument("paths", nargs="*", help="Files, folders, repos, or URLs to ingest")
+    parser.add_argument("--host", default=Host.TERMINAL.value, choices=[host.value for host in Host])
+    parser.add_argument("--quality", default="serious", choices=["fast", "standard", "serious", "max"])
+    parser.add_argument("--budget", default="balanced", choices=["cheap", "balanced", "premium", "unlimited"])
+    parser.add_argument("--artifact", action="append", default=[], help="Requested artifact type")
+    parser.add_argument("--allow-internet", action="store_true")
+    parser.add_argument("--allow-repo-writes", action="store_true")
+    parser.add_argument("--allow-shell", action="store_true")
+    parser.add_argument("--root", default=".uo/runs", help="Artifact root")
+
+
+def handle_run(args: argparse.Namespace) -> None:
+    invocation = _invocation_from_args(args, command="run")
+    result = Orchestrator(args.root).run(invocation)
+    _print_run_result(result.run_id, result.artifact_dir, result.quality.passed)
+
+
+def handle_repo(args: argparse.Namespace) -> None:
+    paths = args.paths or ["."]
+    args.paths = paths
+    invocation = _invocation_from_args(args, command="repo")
+    result = Orchestrator(args.root).run(invocation)
+    _print_run_result(result.run_id, result.artifact_dir, result.quality.passed)
+
+
+def handle_doctor(args: argparse.Namespace) -> None:
+    del args
+    checks = {
+        "python": sys.version.split()[0],
+        "pydantic": _module_available("pydantic"),
+        "pdfplumber": _module_available("pdfplumber"),
+        "pypdf": _module_available("pypdf"),
+        "fastapi_optional": _module_available("fastapi"),
+        "typer_optional": _module_available("typer"),
+    }
+    print(json.dumps(checks, indent=2, sort_keys=True))
+
+
+def handle_providers(args: argparse.Namespace) -> None:
+    del args
+    registry = CapabilityRegistry.from_environment()
+    payload = [provider.model_dump(mode="json") for provider in registry.providers]
+    print(json.dumps(payload, indent=2, sort_keys=True))
+
+
+def handle_artifacts(args: argparse.Namespace) -> None:
+    runs = Orchestrator(args.root).list_runs()
+    for run_dir in runs:
+        print(run_dir)
+
+
+def handle_status(args: argparse.Namespace) -> None:
+    path = Path(args.root) / args.run_id / "run_manifest.json"
+    print(json.dumps(read_json(path), indent=2, sort_keys=True))
+
+
+def _invocation_from_args(args: argparse.Namespace, command: str) -> HostInvocation:
+    options = UserOptions(
+        quality=args.quality,
+        budget_profile=args.budget,
+        artifact_types=args.artifact,
+        allow_internet=args.allow_internet,
+        allow_repo_writes=args.allow_repo_writes,
+        allow_shell=args.allow_shell,
+    )
+    return HostInvocation(
+        host=args.host,
+        command=command,
+        prompt=args.prompt,
+        cwd=str(Path.cwd()),
+        attachments=[InputAttachment(uri=path) for path in args.paths],
+        user_options=options,
+    )
+
+
+def _module_available(name: str) -> bool:
+    try:
+        __import__(name)
+    except Exception:
+        return False
+    return True
+
+
+def _print_run_result(run_id: str, artifact_dir: str, passed: bool) -> None:
+    print(f"run_id: {run_id}")
+    print(f"artifact_dir: {artifact_dir}")
+    print(f"quality_passed: {passed}")
+
