@@ -110,7 +110,15 @@ class ArtifactStore:
 
         lines.extend(["", "## Execution Results", ""])
         for result in results:
-            lines.append(f"- `{result.task_id}` `{result.status}` provider=`{result.provider_id}`")
+            worker_output = result.output.get("worker_output", {})
+            summary = worker_output.get("summary", result.output.get("summary", ""))
+            findings = len(worker_output.get("findings", [])) if isinstance(worker_output, dict) else 0
+            risks = worker_output.get("risks", []) if isinstance(worker_output, dict) else []
+            risk_text = f"; risks: {', '.join(risks)}" if risks else ""
+            lines.append(
+                f"- `{result.task_id}` `{result.status}` provider=`{result.provider_id}` "
+                f"findings={findings}{risk_text}: {summary}"
+            )
 
         if quality:
             lines.extend(["", "## Quality", ""])
@@ -133,4 +141,3 @@ class ArtifactStore:
             ]
         )
         return "\n".join(lines)
-

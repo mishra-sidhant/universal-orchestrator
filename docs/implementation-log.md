@@ -30,6 +30,18 @@ Date: July 8, 2026
 - Added optional FastAPI daemon surface.
 - Added unit tests.
 
+## Seven-Milestone Expansion
+
+Completed after the initial MVP baseline:
+
+1. Baseline commit: validated and committed `8ecda2d`.
+2. Provider execution layer: added deterministic, OpenAI Responses, Anthropic Messages, and Ollama adapters with dry-run-safe execution.
+3. Credential/config flow: added `.env.example`, `.env.local` convention, `configure`, and richer provider readiness checks in `doctor`.
+4. Structured task outputs: each execution result now includes findings, evidence refs, files, metrics, risks, and next actions.
+5. Targeted repair loop: quality failures create a repair DAG, route repair tasks, execute them, write repair artifacts, and re-run quality.
+6. Richer ingestion: added DOCX, PPTX, CSV/TSV/XLSX, image metadata, safe ZIP/TAR inventory, and permission-gated URL/API fetch.
+7. Host adapter surface: added a stdio JSON-RPC/MCP-style adapter exposing `ai_team.run`, `status`, `artifacts`, `providers`, `doctor`, `configure`, and `cancel`.
+
 ## Verification Commands Run
 
 ```bash
@@ -42,14 +54,14 @@ PYTHONPATH=src /Users/sidhantmishra/.cache/codex-runtimes/codex-primary-runtime/
 Latest observed test result:
 
 ```text
-Ran 6 tests
+Ran 20 tests
 OK
 ```
 
 Latest self-run package:
 
 ```text
-.uo/runs/run_20260708162951143877
+.uo/runs/run_20260708173959962906
 ```
 
 Quality result:

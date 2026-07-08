@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 
+from universal_orchestrator.config import load_env_file
 from universal_orchestrator.models import (
     CostTier,
     ProviderDescriptor,
@@ -11,6 +12,13 @@ from universal_orchestrator.models import (
     RoutingAction,
     RoutingDecision,
     TaskNode,
+)
+from universal_orchestrator.providers import (
+    AnthropicAdapter,
+    DeterministicToolsAdapter,
+    OllamaAdapter,
+    OpenAIResponsesAdapter,
+    ProviderAdapterRegistry,
 )
 
 
@@ -28,6 +36,7 @@ class CapabilityRegistry:
 
     @classmethod
     def from_environment(cls) -> "CapabilityRegistry":
+        load_env_file()
         providers = [
             ProviderDescriptor(
                 id="deterministic.tools",
@@ -142,6 +151,19 @@ class CapabilityRegistry:
             for provider in self.providers
             if provider.enabled and provider.health.status != ProviderStatus.UNAVAILABLE
         ]
+
+    def adapter_registry(self) -> ProviderAdapterRegistry:
+        adapters = []
+        for provider in self.providers:
+            if provider.id == "deterministic.tools":
+                adapters.append(DeterministicToolsAdapter(provider))
+            elif provider.id == "openai.configured":
+                adapters.append(OpenAIResponsesAdapter(provider))
+            elif provider.id == "anthropic.configured":
+                adapters.append(AnthropicAdapter(provider))
+            elif provider.id == "ollama.local":
+                adapters.append(OllamaAdapter(provider))
+        return ProviderAdapterRegistry(adapters)
 
 
 class AdaptiveRouter:

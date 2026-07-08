@@ -1,10 +1,34 @@
 from __future__ import annotations
 
-from universal_orchestrator.models import ExecutionResult, RoutingAction, RoutingDecision, TaskNode, TaskStatus
+from universal_orchestrator.models import (
+    ExecutionResult,
+    ProviderTask,
+    RoutingAction,
+    RoutingDecision,
+    TaskNode,
+    TaskStatus,
+)
+from universal_orchestrator.providers import ProviderAdapterRegistry
+from universal_orchestrator.workers import StructuredWorkerOutputBuilder
 
 
 class DeterministicExecutor:
-    """MVP executor that records structured outputs without calling external models."""
+    """Provider-aware executor with dry-run-safe external adapters."""
+
+    def __init__(
+        self,
+        adapters: ProviderAdapterRegistry | None = None,
+        prompt: str = "",
+        allow_network: bool = False,
+        dry_run_external: bool = True,
+        context: dict | None = None,
+    ) -> None:
+        self.adapters = adapters
+        self.prompt = prompt
+        self.allow_network = allow_network
+        self.dry_run_external = dry_run_external
+        self.context = context or {}
+        self.output_builder = StructuredWorkerOutputBuilder()
 
     def execute(self, tasks: list[TaskNode], decisions: list[RoutingDecision]) -> list[ExecutionResult]:
         decision_by_task = {decision.task_id: decision for decision in decisions}
@@ -19,6 +43,34 @@ class DeterministicExecutor:
             elif decision.action == RoutingAction.ROUTE_DEGRADED:
                 warnings.append("Task ran in degraded deterministic mode.")
 
+            provider_result = None
+            adapter = self.adapters.get(decision.provider_id) if self.adapters else None
+            if adapter and decision.action in {RoutingAction.ROUTE, RoutingAction.ROUTE_DEGRADED}:
+                provider_result = adapter.execute(
+                    ProviderTask(
+                        task=task,
+                        prompt=self.prompt,
+                        context={
+                            **self.context,
+                            "routing_score": decision.score,
+                            "routing_reason": decision.reason,
+                        },
+                        dry_run=self.dry_run_external and decision.provider_id != "deterministic.tools",
+                        allow_network=self.allow_network,
+                        timeout_seconds=task.timeout_seconds,
+                    )
+                )
+                status = provider_result.status
+                warnings.extend(provider_result.warnings)
+
+            worker_output = self.output_builder.build(
+                task,
+                decision,
+                provider_result,
+                self.context,
+                status,
+            )
+
             results.append(
                 ExecutionResult(
                     task_id=task.id,
@@ -28,7 +80,9 @@ class DeterministicExecutor:
                         "title": task.title,
                         "task_type": task.task_type,
                         "decision": decision.action,
-                        "summary": self._summary(task, decision),
+                        "summary": worker_output["summary"],
+                        "worker_output": worker_output,
+                        "provider_output": provider_result.output if provider_result else None,
                     },
                     warnings=warnings,
                 )
@@ -38,4 +92,3 @@ class DeterministicExecutor:
     def _summary(self, task: TaskNode, decision: RoutingDecision) -> str:
         provider = decision.provider_id or "no provider"
         return f"{task.title} handled by {provider} with action={decision.action}."
-

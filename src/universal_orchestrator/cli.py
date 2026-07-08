@@ -6,6 +6,13 @@ import sys
 from pathlib import Path
 
 from universal_orchestrator import __version__
+from universal_orchestrator.config import (
+    DEFAULT_ENV_FILE,
+    configuration_template,
+    load_env_file,
+    provider_config_status,
+    write_env_example,
+)
 from universal_orchestrator.models import Host, HostInvocation, InputAttachment, UserOptions
 from universal_orchestrator.pipeline import Orchestrator
 from universal_orchestrator.routing import CapabilityRegistry
@@ -45,6 +52,15 @@ def build_parser() -> argparse.ArgumentParser:
 
     providers_parser = sub.add_parser("providers", help="List provider descriptors and health")
     providers_parser.set_defaults(handler=handle_providers)
+
+    configure_parser = sub.add_parser("configure", help="Show or write local provider configuration template")
+    configure_parser.add_argument("--env-file", default=DEFAULT_ENV_FILE)
+    configure_parser.add_argument("--write-example", action="store_true")
+    configure_parser.add_argument("--json", action="store_true")
+    configure_parser.set_defaults(handler=handle_configure)
+
+    mcp_parser = sub.add_parser("mcp-server", help="Run the stdio MCP-style host adapter")
+    mcp_parser.set_defaults(handler=handle_mcp_server)
 
     artifacts_parser = sub.add_parser("artifacts", help="List local run artifact directories")
     artifacts_parser.add_argument("--root", default=".uo/runs")
@@ -87,6 +103,7 @@ def handle_repo(args: argparse.Namespace) -> None:
 
 def handle_doctor(args: argparse.Namespace) -> None:
     del args
+    load_env_file()
     checks = {
         "python": sys.version.split()[0],
         "pydantic": _module_available("pydantic"),
@@ -94,6 +111,7 @@ def handle_doctor(args: argparse.Namespace) -> None:
         "pypdf": _module_available("pypdf"),
         "fastapi_optional": _module_available("fastapi"),
         "typer_optional": _module_available("typer"),
+        "provider_config": provider_config_status(),
     }
     print(json.dumps(checks, indent=2, sort_keys=True))
 
@@ -103,6 +121,31 @@ def handle_providers(args: argparse.Namespace) -> None:
     registry = CapabilityRegistry.from_environment()
     payload = [provider.model_dump(mode="json") for provider in registry.providers]
     print(json.dumps(payload, indent=2, sort_keys=True))
+
+
+def handle_configure(args: argparse.Namespace) -> None:
+    if args.write_example:
+        path = write_env_example()
+        print(f"wrote: {path}")
+    status = provider_config_status(args.env_file)
+    if args.json:
+        print(json.dumps({"env_file": args.env_file, "providers": status}, indent=2, sort_keys=True))
+        return
+    print(f"Recommended secrets file: {args.env_file}")
+    print("Add provider keys/models there when you are ready. Values are never printed by doctor.")
+    print("")
+    print(configuration_template())
+    print("Provider readiness:")
+    for provider_id, provider_status in status.items():
+        ready = "ready" if provider_status["ready"] else "missing " + ", ".join(provider_status["missing"])
+        print(f"- {provider_id}: {ready}")
+
+
+def handle_mcp_server(args: argparse.Namespace) -> None:
+    del args
+    from universal_orchestrator.mcp import serve_stdio
+
+    serve_stdio()
 
 
 def handle_artifacts(args: argparse.Namespace) -> None:
@@ -147,4 +190,3 @@ def _print_run_result(run_id: str, artifact_dir: str, passed: bool) -> None:
     print(f"run_id: {run_id}")
     print(f"artifact_dir: {artifact_dir}")
     print(f"quality_passed: {passed}")
-

@@ -401,6 +401,23 @@ class CostEstimate(StrictModel):
     estimated_usd: float | None = None
 
 
+class ProviderTask(StrictModel):
+    task: TaskNode
+    prompt: str
+    context: dict[str, Any] = Field(default_factory=dict)
+    dry_run: bool = True
+    allow_network: bool = False
+    timeout_seconds: int = 300
+
+
+class ProviderResult(StrictModel):
+    provider_id: str
+    status: TaskStatus
+    output: dict[str, Any] = Field(default_factory=dict)
+    warnings: list[str] = Field(default_factory=list)
+    cost_estimate: CostEstimate | None = None
+
+
 class RoutingDecision(StrictModel):
     task_id: str
     action: RoutingAction
@@ -475,4 +492,3 @@ class RunResult(StrictModel):
     artifact_dir: str
     manifest: RunManifest
     quality: QualityGateResult
-

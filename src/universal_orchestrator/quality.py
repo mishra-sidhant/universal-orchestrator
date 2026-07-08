@@ -90,10 +90,11 @@ class QualityGateEngine:
             artifact_integrity="pass" if not missing_artifacts and artifact_paths else "fail",
             code_validation="not_applicable",
         )
+        repair_task_ids = [f"T-REPAIR-{index:03d}" for index, _ in enumerate(violations, start=1)]
         return QualityGateResult(
             passed=passed,
             scores=scores,
             violations=violations,
             warnings=warnings,
-            repair_task_ids=[] if passed else ["T-REPAIR-001"],
+            repair_task_ids=[] if passed else repair_task_ids,
         )

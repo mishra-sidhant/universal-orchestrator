@@ -1,6 +1,12 @@
 from __future__ import annotations
 
 import mimetypes
+import csv
+import io
+import json
+import tarfile
+import urllib.request
+import zipfile
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -61,7 +67,13 @@ class InputIngestor:
 
         for attachment in invocation.attachments:
             try:
-                records.append(self._ingest_attachment(attachment, invocation.cwd))
+                records.append(
+                    self._ingest_attachment(
+                        attachment,
+                        invocation.cwd,
+                        invocation.user_options.allow_internet,
+                    )
+                )
             except Exception as exc:  # pragma: no cover - defensive boundary
                 warnings.append(f"Failed to ingest {attachment.uri}: {exc}")
                 records.append(
@@ -77,7 +89,7 @@ class InputIngestor:
 
         for link in invocation.links:
             if not any(item.uri == link for item in records):
-                records.append(self._ingest_url(InputAttachment(uri=link), invocation.cwd))
+                records.append(self._ingest_url(InputAttachment(uri=link), invocation.cwd, invocation.user_options.allow_internet))
 
         return ContextManifest(
             run_id=run_id,
@@ -92,10 +104,12 @@ class InputIngestor:
             warnings=warnings,
         )
 
-    def _ingest_attachment(self, attachment: InputAttachment, cwd: str | None) -> InputRecord:
+    def _ingest_attachment(
+        self, attachment: InputAttachment, cwd: str | None, allow_network: bool
+    ) -> InputRecord:
         input_type = detect_input_type(attachment.uri)
         if input_type in {InputType.URL, InputType.API}:
-            return self._ingest_url(attachment, cwd)
+            return self._ingest_url(attachment, cwd, allow_network)
 
         path = self._resolve_path(attachment.uri, cwd)
         name = attachment.name or path.name or str(path)
@@ -116,6 +130,16 @@ class InputIngestor:
             return self._ingest_text_file(path, input_type, attachment)
         if input_type == InputType.PDF:
             return self._ingest_pdf(path, attachment)
+        if input_type == InputType.DOCX:
+            return self._ingest_docx(path, attachment)
+        if input_type == InputType.PPTX:
+            return self._ingest_pptx(path, attachment)
+        if input_type == InputType.SPREADSHEET:
+            return self._ingest_spreadsheet(path, attachment)
+        if input_type == InputType.IMAGE:
+            return self._ingest_image(path, attachment)
+        if input_type == InputType.ARCHIVE:
+            return self._ingest_archive(path, attachment)
         return self._ingest_binary_metadata(path, input_type, attachment)
 
     def _resolve_path(self, uri: str, cwd: str | None) -> Path:
@@ -149,6 +173,218 @@ class InputIngestor:
             metadata={"chars_read": len(text), "suffix": path.suffix.lower()},
             warnings=warnings,
             security_findings=findings,
+        )
+
+    def _ingest_docx(self, path: Path, attachment: InputAttachment) -> InputRecord:
+        warnings: list[str] = []
+        paragraphs: list[str] = []
+        table_count = 0
+        try:
+            from docx import Document  # type: ignore[import-not-found]
+
+            document = Document(path)
+            paragraphs = [paragraph.text for paragraph in document.paragraphs if paragraph.text.strip()]
+            table_count = len(document.tables)
+            for table in document.tables[:5]:
+                for row in table.rows[:5]:
+                    cells = [cell.text.strip() for cell in row.cells if cell.text.strip()]
+                    if cells:
+                        paragraphs.append(" | ".join(cells))
+        except Exception as exc:  # pragma: no cover - optional parser boundary
+            warnings.append(f"DOCX parser failed: {exc}")
+        text = "\n".join(paragraphs)
+        findings = scan_text(text, location=str(path))
+        return InputRecord(
+            id=new_id("input"),
+            type=InputType.DOCX,
+            name=attachment.name or path.name,
+            uri=attachment.uri,
+            path=str(path),
+            status=InputStatus.PARSED if text else InputStatus.PARTIAL,
+            content_hash=sha256_file(path),
+            size_bytes=path.stat().st_size,
+            mime_type=mimetypes.guess_type(path.name)[0],
+            summary=truncate_words(redact_text(text), 180)
+            or "DOCX file parsed but no text was extracted.",
+            metadata={"paragraphs": len(paragraphs), "tables": table_count, "suffix": ".docx"},
+            warnings=warnings,
+            security_findings=findings,
+        )
+
+    def _ingest_pptx(self, path: Path, attachment: InputAttachment) -> InputRecord:
+        warnings: list[str] = []
+        slide_text: list[str] = []
+        slide_count = 0
+        try:
+            from pptx import Presentation  # type: ignore[import-not-found]
+
+            presentation = Presentation(path)
+            slide_count = len(presentation.slides)
+            for index, slide in enumerate(presentation.slides[:50], start=1):
+                fragments: list[str] = []
+                for shape in slide.shapes:
+                    if hasattr(shape, "text") and shape.text.strip():
+                        fragments.append(shape.text.strip())
+                try:
+                    notes = slide.notes_slide.notes_text_frame.text.strip()
+                    if notes:
+                        fragments.append(f"Notes: {notes}")
+                except Exception:
+                    pass
+                if fragments:
+                    slide_text.append(f"Slide {index}: " + " | ".join(fragments))
+            if slide_count > 50:
+                warnings.append("PPTX has more than 50 slides; MVP summary uses the first 50.")
+        except Exception as exc:  # pragma: no cover - optional parser boundary
+            warnings.append(f"PPTX parser failed: {exc}")
+        text = "\n".join(slide_text)
+        findings = scan_text(text, location=str(path))
+        return InputRecord(
+            id=new_id("input"),
+            type=InputType.PPTX,
+            name=attachment.name or path.name,
+            uri=attachment.uri,
+            path=str(path),
+            status=InputStatus.PARSED if text else InputStatus.PARTIAL,
+            content_hash=sha256_file(path),
+            size_bytes=path.stat().st_size,
+            mime_type=mimetypes.guess_type(path.name)[0],
+            summary=truncate_words(redact_text(text), 180)
+            or "PPTX file parsed but no slide text was extracted.",
+            metadata={"slides": slide_count, "suffix": ".pptx"},
+            warnings=warnings,
+            security_findings=findings,
+        )
+
+    def _ingest_spreadsheet(self, path: Path, attachment: InputAttachment) -> InputRecord:
+        suffix = path.suffix.lower()
+        warnings: list[str] = []
+        metadata: dict[str, object] = {"suffix": suffix}
+        text_parts: list[str] = []
+        if suffix in {".csv", ".tsv"}:
+            delimiter = "\t" if suffix == ".tsv" else ","
+            raw = path.read_text(errors="replace")
+            reader = csv.reader(io.StringIO(raw), delimiter=delimiter)
+            rows = []
+            for index, row in enumerate(reader):
+                rows.append(row)
+                if index >= 24:
+                    break
+            metadata["sample_rows"] = len(rows)
+            metadata["columns"] = max((len(row) for row in rows), default=0)
+            text_parts = [" | ".join(row) for row in rows]
+        else:
+            try:
+                import openpyxl  # type: ignore[import-not-found]
+
+                workbook = openpyxl.load_workbook(path, read_only=True, data_only=True)
+                metadata["sheets"] = workbook.sheetnames
+                for sheet_name in workbook.sheetnames[:10]:
+                    sheet = workbook[sheet_name]
+                    rows = []
+                    for index, row in enumerate(sheet.iter_rows(values_only=True)):
+                        rows.append([str(cell) for cell in row if cell is not None])
+                        if index >= 14:
+                            break
+                    text_parts.append(f"Sheet {sheet_name}: " + " / ".join(" | ".join(row) for row in rows if row))
+                workbook.close()
+            except Exception as exc:  # pragma: no cover - optional parser boundary
+                warnings.append(f"Spreadsheet parser failed: {exc}")
+        text = "\n".join(text_parts)
+        findings = scan_text(text, location=str(path))
+        return InputRecord(
+            id=new_id("input"),
+            type=InputType.SPREADSHEET,
+            name=attachment.name or path.name,
+            uri=attachment.uri,
+            path=str(path),
+            status=InputStatus.PARSED if text else InputStatus.PARTIAL,
+            content_hash=sha256_file(path),
+            size_bytes=path.stat().st_size,
+            mime_type=mimetypes.guess_type(path.name)[0],
+            summary=truncate_words(redact_text(text), 180)
+            or "Spreadsheet parsed but no cell text was extracted.",
+            metadata=metadata,
+            warnings=warnings,
+            security_findings=findings,
+        )
+
+    def _ingest_image(self, path: Path, attachment: InputAttachment) -> InputRecord:
+        warnings: list[str] = []
+        metadata: dict[str, object] = {"suffix": path.suffix.lower()}
+        try:
+            from PIL import Image  # type: ignore[import-not-found]
+
+            with Image.open(path) as image:
+                metadata.update(
+                    {
+                        "format": image.format,
+                        "width": image.width,
+                        "height": image.height,
+                        "mode": image.mode,
+                    }
+                )
+        except Exception as exc:
+            warnings.append(f"Image metadata parser failed: {exc}")
+        dimensions = (
+            f"{metadata.get('width')}x{metadata.get('height')}"
+            if metadata.get("width") and metadata.get("height")
+            else "unknown dimensions"
+        )
+        return InputRecord(
+            id=new_id("input"),
+            type=InputType.IMAGE,
+            name=attachment.name or path.name,
+            uri=attachment.uri,
+            path=str(path),
+            status=InputStatus.PARSED if "width" in metadata else InputStatus.PARTIAL,
+            content_hash=sha256_file(path),
+            size_bytes=path.stat().st_size,
+            mime_type=mimetypes.guess_type(path.name)[0],
+            summary=f"Image metadata extracted: {dimensions}, format={metadata.get('format', 'unknown')}. OCR is not enabled yet.",
+            metadata=metadata,
+            warnings=warnings,
+        )
+
+    def _ingest_archive(self, path: Path, attachment: InputAttachment) -> InputRecord:
+        warnings: list[str] = []
+        metadata: dict[str, object] = {"suffix": path.suffix.lower(), "entries": 0, "unsafe_paths": []}
+        entries: list[str] = []
+        try:
+            if zipfile.is_zipfile(path):
+                with zipfile.ZipFile(path) as archive:
+                    infos = archive.infolist()
+                    metadata["entries"] = len(infos)
+                    metadata["uncompressed_bytes"] = sum(info.file_size for info in infos)
+                    entries = [info.filename for info in infos[:50]]
+            elif tarfile.is_tarfile(path):
+                with tarfile.open(path) as archive:
+                    members = archive.getmembers()
+                    metadata["entries"] = len(members)
+                    metadata["uncompressed_bytes"] = sum(member.size for member in members)
+                    entries = [member.name for member in members[:50]]
+            else:
+                warnings.append("Archive type is not supported for safe inventory yet.")
+        except Exception as exc:
+            warnings.append(f"Archive inventory failed: {exc}")
+        unsafe = [name for name in entries if name.startswith("/") or ".." in Path(name).parts]
+        metadata["unsafe_paths"] = unsafe
+        if unsafe:
+            warnings.append(f"Archive contains unsafe paths: {unsafe[:5]}")
+        summary = f"Archive inventory: {metadata.get('entries', 0)} entries. Sample: {', '.join(entries[:10])}"
+        return InputRecord(
+            id=new_id("input"),
+            type=InputType.ARCHIVE,
+            name=attachment.name or path.name,
+            uri=attachment.uri,
+            path=str(path),
+            status=InputStatus.PARSED if entries or metadata.get("entries") == 0 else InputStatus.PARTIAL,
+            content_hash=sha256_file(path),
+            size_bytes=path.stat().st_size,
+            mime_type=mimetypes.guess_type(path.name)[0],
+            summary=summary,
+            metadata=metadata,
+            warnings=warnings,
         )
 
     def _ingest_pdf(self, path: Path, attachment: InputAttachment) -> InputRecord:
@@ -258,10 +494,12 @@ class InputIngestor:
             warnings=warnings,
         )
 
-    def _ingest_url(self, attachment: InputAttachment, cwd: str | None) -> InputRecord:
+    def _ingest_url(self, attachment: InputAttachment, cwd: str | None, allow_network: bool) -> InputRecord:
         del cwd
         input_type = detect_input_type(attachment.uri)
         parsed = urlparse(attachment.uri)
+        if allow_network:
+            return self._fetch_url(attachment, input_type, parsed)
         return InputRecord(
             id=new_id("input"),
             type=input_type,
@@ -272,6 +510,48 @@ class InputIngestor:
             summary="URL recorded but not fetched because internet access requires explicit runtime permission.",
             metadata={"scheme": parsed.scheme, "netloc": parsed.netloc, "path": parsed.path},
             warnings=["URL fetch not performed in deterministic MVP."],
+        )
+
+    def _fetch_url(self, attachment: InputAttachment, input_type: InputType, parsed) -> InputRecord:
+        warnings: list[str] = []
+        metadata: dict[str, object] = {"scheme": parsed.scheme, "netloc": parsed.netloc, "path": parsed.path}
+        text = ""
+        status = InputStatus.PARTIAL
+        try:
+            request = urllib.request.Request(
+                attachment.uri,
+                headers={"User-Agent": "universal-orchestrator/0.1"},
+                method="GET",
+            )
+            with urllib.request.urlopen(request, timeout=10) as response:
+                content_type = response.headers.get("content-type")
+                metadata["content_type"] = content_type
+                raw = response.read(self.max_file_bytes)
+                metadata["bytes_read"] = len(raw)
+                text = raw.decode("utf-8", errors="replace")
+                status = InputStatus.PARSED
+                if input_type == InputType.API:
+                    try:
+                        parsed_json = json.loads(text)
+                        metadata["json_type"] = type(parsed_json).__name__
+                        text = json.dumps(parsed_json, indent=2)[: self.max_file_bytes]
+                    except json.JSONDecodeError:
+                        warnings.append("API URL did not return valid JSON.")
+        except Exception as exc:
+            warnings.append(f"URL fetch failed: {exc}")
+        findings = scan_text(text, location=attachment.uri)
+        return InputRecord(
+            id=new_id("input"),
+            type=input_type,
+            name=attachment.name or parsed.netloc or attachment.uri,
+            uri=attachment.uri,
+            status=status,
+            content_hash=sha256_bytes((text or attachment.uri).encode("utf-8")),
+            size_bytes=len(text.encode("utf-8")) if text else None,
+            summary=truncate_words(redact_text(text), 180) if text else "URL fetch attempted but no text was extracted.",
+            metadata=metadata,
+            warnings=warnings,
+            security_findings=findings,
         )
 
     def _infer_prompt_intent(self, prompt: str) -> str:
@@ -289,4 +569,3 @@ class InputIngestor:
             return "none"
         top = sorted(counts.items(), key=lambda item: item[1], reverse=True)[:5]
         return ", ".join(f"{suffix}={count}" for suffix, count in top)
-

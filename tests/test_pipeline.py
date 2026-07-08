@@ -29,6 +29,9 @@ class PipelineTests(unittest.TestCase):
             self.assertTrue((run_dir / "run_manifest.json").exists())
             self.assertTrue((run_dir / "final_report.md").exists())
             self.assertTrue((run_dir / "context_manifest.json").exists())
+            execution_results = (run_dir / "execution_results.json").read_text()
+            self.assertIn("worker_output", execution_results)
+            self.assertIn("findings", execution_results)
 
     def test_deterministic_registry_can_degrade_core_reasoning_tasks(self) -> None:
         capabilities = CapabilityRegistry.from_environment().providers[0].capabilities

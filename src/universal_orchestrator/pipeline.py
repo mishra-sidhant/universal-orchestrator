@@ -19,6 +19,7 @@ from universal_orchestrator.models import (
 )
 from universal_orchestrator.planning import PlannerEnsemble
 from universal_orchestrator.quality import QualityGateEngine
+from universal_orchestrator.repair import RepairPlanner
 from universal_orchestrator.routing import AdaptiveRouter, CapabilityRegistry
 
 
@@ -31,6 +32,7 @@ class Orchestrator:
         self.planner = PlannerEnsemble()
         self.executor = DeterministicExecutor()
         self.quality = QualityGateEngine()
+        self.repair = RepairPlanner()
 
     def run(self, invocation: HostInvocation) -> RunResult:
         run_id = new_id("run")
@@ -44,6 +46,21 @@ class Orchestrator:
         registry = CapabilityRegistry.from_environment()
         router = AdaptiveRouter(registry)
         decisions = router.route_all(dag.topological_order())
+        execution_context = {
+            "run_id": run_id,
+            "contract": contract.model_dump(mode="json"),
+            "input_refs": [item.id for item in manifest.inputs],
+            "files": [item.path for item in manifest.inputs if item.path],
+            "security_findings_count": sum(len(item.security_findings) for item in manifest.inputs),
+            "context_card_count": len(cards),
+        }
+        self.executor = DeterministicExecutor(
+            adapters=registry.adapter_registry(),
+            prompt=invocation.prompt,
+            allow_network=invocation.user_options.allow_internet,
+            dry_run_external=not invocation.user_options.allow_internet,
+            context=execution_context,
+        )
         results = self.executor.execute(dag.topological_order(), decisions)
 
         artifacts: list[Artifact] = []
@@ -90,6 +107,34 @@ class Orchestrator:
             results=results,
             artifact_paths=[artifact.as_path for artifact in artifacts],
         )
+        all_decisions = list(decisions)
+        all_results = list(results)
+        if not quality.passed:
+            repair_dag = self.repair.create_repair_dag(run_id, quality)
+            repair_decisions = router.route_all(repair_dag.topological_order())
+            repair_results = self.executor.execute(repair_dag.topological_order(), repair_decisions)
+            all_decisions.extend(repair_decisions)
+            all_results.extend(repair_results)
+            artifacts.append(
+                self.artifact_store.write_json_artifact(
+                    run_id, "repair_task_dag.json", repair_dag.model_dump(mode="json")
+                )
+            )
+            artifacts.append(
+                self.artifact_store.write_json_artifact(
+                    run_id,
+                    "repair_execution_results.json",
+                    [result.model_dump(mode="json") for result in repair_results],
+                )
+            )
+            quality = self.quality.evaluate(
+                manifest=manifest,
+                contract=contract,
+                dag=dag,
+                decisions=all_decisions,
+                results=all_results,
+                artifact_paths=[artifact.as_path for artifact in artifacts],
+            )
         artifacts.append(
             self.artifact_store.write_json_artifact(
                 run_id, "quality_report.json", quality.model_dump(mode="json")
@@ -97,7 +142,7 @@ class Orchestrator:
         )
         artifacts.append(
             self.artifact_store.write_final_report(
-                run_id, manifest, contract, cards, dag, decisions, results, quality
+                run_id, manifest, contract, cards, dag, all_decisions, all_results, quality
             )
         )
 
@@ -111,7 +156,7 @@ class Orchestrator:
             quality_report_path=str(self.artifact_store.run_dir(run_id) / "quality_report.json"),
             artifacts=artifacts,
             warnings=manifest.warnings + quality.warnings,
-            routing_decisions=decisions,
+            routing_decisions=all_decisions,
             started_at=started_at,
             completed_at=utc_now(),
         )

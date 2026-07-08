@@ -12,6 +12,16 @@ Core model:
 - `InputAttachment`
 - `UserOptions`
 
+The repo now includes a dependency-light stdio JSON-RPC/MCP-style adapter in `universal_orchestrator.mcp`. It exposes:
+
+- `ai_team.run`
+- `ai_team.status`
+- `ai_team.artifacts`
+- `ai_team.providers`
+- `ai_team.doctor`
+- `ai_team.configure`
+- `ai_team.cancel` placeholder for future durable runs
+
 ## Ingestion Plane
 
 The ingestion plane inventories everything the user supplies, but does not assume every input should enter model context. It fingerprints files, extracts summaries where safe, detects type, scans for secrets and instruction-like untrusted content, and emits a `ContextManifest`.
@@ -22,12 +32,17 @@ Implemented now:
 - Text, Markdown, code, and unknown text-like files.
 - PDF text extraction through `pdfplumber` when available.
 - Folder and repository scans with dependency/build/cache ignores.
-- URL/API inventory without network fetch.
-- Binary metadata records for images, Office documents, spreadsheets, archives, and media.
+- DOCX paragraph/table extraction through `python-docx` when available.
+- PPTX slide and notes extraction through `python-pptx` when available.
+- CSV/TSV and XLSX sampling through the standard library and `openpyxl` when available.
+- Image metadata extraction through Pillow when available.
+- Archive inventory for ZIP/TAR without unpacking, including path traversal warnings.
+- URL/API inventory without network fetch by default; permission-gated fetch is available.
+- Binary metadata records for remaining media and unknown formats.
 
 Planned:
 
-- Structured DOCX, PPTX, spreadsheet, image OCR, archive sandbox, URL fetch snapshots, API schema inference, and audio/video transcription.
+- OCR, archive sandbox extraction, API schema inference, and audio/video transcription.
 
 ## Context Intelligence Plane
 
@@ -69,7 +84,7 @@ No hosted provider calls are made in this milestone.
 
 ## Execution Plane
 
-`DeterministicExecutor` records structured task outputs without external model calls. It is intentionally simple so the run manifest, quality gates, artifacts, and tests can be stabilized before provider side effects are introduced.
+`DeterministicExecutor` dispatches through provider adapters and records structured worker outputs. Each task result includes a worker output object with summary, findings, evidence references, file references, metrics, risks, and next actions. External adapters remain dry-run safe unless network access and provider configuration are explicitly enabled.
 
 ## Quality Plane
 
@@ -83,7 +98,7 @@ No hosted provider calls are made in this milestone.
 - High-severity security findings.
 - Artifact existence.
 
-Future quality work should add contract-specific validators, citation audit, code test execution, final product owner review, and executable repair DAGs.
+When quality fails, `RepairPlanner` creates a targeted repair DAG from the specific violations, routes it through the same provider layer, executes repair tasks, writes repair artifacts, and re-runs quality. Future quality work should add contract-specific validators, citation audit, code test execution, and final product owner review.
 
 ## Artifact Plane
 
@@ -99,3 +114,7 @@ Future quality work should add contract-specific validators, citation audit, cod
 - `final_report.md`
 - `run_manifest.json`
 
+When repair is triggered, packages also include:
+
+- `repair_task_dag.json`
+- `repair_execution_results.json`
