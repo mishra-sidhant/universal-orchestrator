@@ -18,7 +18,7 @@ from universal_orchestrator.pipeline import Orchestrator
 from universal_orchestrator.routing import CapabilityRegistry
 from universal_orchestrator.runtime import RuntimeStore
 from universal_orchestrator.utils import read_json
-from universal_orchestrator.evals import built_in_suite
+from universal_orchestrator.evals import EvaluationRunner, built_in_suite
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -79,7 +79,10 @@ def build_parser() -> argparse.ArgumentParser:
     cancel_parser.add_argument("--reason", default="User requested cancellation.")
     cancel_parser.set_defaults(handler=handle_cancel)
 
-    evals_parser = sub.add_parser("evals", help="List built-in world-readiness evaluation cases")
+    evals_parser = sub.add_parser("evals", help="List or run built-in world-readiness evaluation cases")
+    evals_parser.add_argument("--run", action="store_true", help="Execute the built-in eval suite")
+    evals_parser.add_argument("--root", default=".uo/evals", help="Eval artifact root")
+    evals_parser.add_argument("--case", action="append", default=[], help="Run only a specific eval case id")
     evals_parser.set_defaults(handler=handle_evals)
 
     return parser
@@ -179,7 +182,10 @@ def handle_cancel(args: argparse.Namespace) -> None:
 
 
 def handle_evals(args: argparse.Namespace) -> None:
-    del args
+    if args.run:
+        report = EvaluationRunner().run(root=args.root, case_ids=args.case or None)
+        print(json.dumps(report.model_dump(mode="json"), indent=2, sort_keys=True))
+        return
     print(json.dumps(built_in_suite().model_dump(mode="json"), indent=2, sort_keys=True))
 
 

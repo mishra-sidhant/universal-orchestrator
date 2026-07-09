@@ -7,7 +7,7 @@ from typing import Any, TextIO
 
 from universal_orchestrator.cli import _module_available
 from universal_orchestrator.config import configuration_template, load_env_file, provider_config_status
-from universal_orchestrator.evals import built_in_suite
+from universal_orchestrator.evals import EvaluationRunner, built_in_suite
 from universal_orchestrator.models import Host, HostInvocation, InputAttachment, UserOptions
 from universal_orchestrator.pipeline import Orchestrator
 from universal_orchestrator.routing import CapabilityRegistry
@@ -86,8 +86,15 @@ def tool_definitions() -> list[dict[str, Any]]:
         },
         {
             "name": "ai_team.evals",
-            "description": "List built-in world-readiness evaluation cases.",
-            "inputSchema": {"type": "object", "properties": {}},
+            "description": "List or run built-in world-readiness evaluation cases.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "run": {"type": "boolean", "default": False},
+                    "root": {"type": "string", "default": ".uo/evals"},
+                    "case_ids": {"type": "array", "items": {"type": "string"}},
+                },
+            },
         },
     ]
 
@@ -109,7 +116,7 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, A
     if name == "ai_team.cancel":
         return _tool_cancel(args)
     if name == "ai_team.evals":
-        return built_in_suite().model_dump(mode="json")
+        return _tool_evals(args)
     raise ValueError(f"Unknown tool: {name}")
 
 
@@ -222,6 +229,15 @@ def _tool_cancel(args: dict[str, Any]) -> dict[str, Any]:
         args["run_id"],
         args.get("reason", "User requested cancellation."),
     )
+
+
+def _tool_evals(args: dict[str, Any]) -> dict[str, Any]:
+    if args.get("run"):
+        return EvaluationRunner().run(
+            root=args.get("root", ".uo/evals"),
+            case_ids=args.get("case_ids"),
+        ).model_dump(mode="json")
+    return built_in_suite().model_dump(mode="json")
 
 
 def _error(request_id: Any, code: int, message: str) -> dict[str, Any]:

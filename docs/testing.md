@@ -14,6 +14,7 @@ PYTHONPATH=src python -m universal_orchestrator providers
 PYTHONPATH=src python -m universal_orchestrator run "Create a serious product package from this repo" .
 PYTHONPATH=src python -m universal_orchestrator run "Create a PDF product package" --artifact pdf .
 PYTHONPATH=src python -m universal_orchestrator evals
+PYTHONPATH=src python -m universal_orchestrator evals --run --case unsafe_archive
 PYTHONPATH=src python -m universal_orchestrator status <run_id>
 ```
 

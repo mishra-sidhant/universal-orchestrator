@@ -622,6 +622,61 @@ class EvidenceAuditReport(StrictModel):
     findings: list[EvidenceAuditFinding] = Field(default_factory=list)
 
 
+class ApprovalGate(StrictModel):
+    name: str
+    required: bool = False
+    granted: bool = False
+    blocking: bool = False
+    severity: Literal["info", "low", "medium", "high", "critical"] = "info"
+    reason: str = ""
+
+
+class ApprovalReport(StrictModel):
+    run_id: str
+    gates: list[ApprovalGate] = Field(default_factory=list)
+    blocked: bool = False
+    warnings: list[str] = Field(default_factory=list)
+
+
+class ValidationCommandResult(StrictModel):
+    command: str
+    cwd: str
+    status: Literal["passed", "failed", "skipped", "blocked"]
+    exit_code: int | None = None
+    stdout: str = ""
+    stderr: str = ""
+    duration_ms: float = 0.0
+    reason: str = ""
+
+
+class RepoValidationReport(StrictModel):
+    run_id: str
+    executed: bool = False
+    passed: bool = True
+    command_results: list[ValidationCommandResult] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
+class ArtifactIntegrityEntry(StrictModel):
+    name: str
+    path: str
+    artifact_type: ArtifactType
+    exists: bool = False
+    size_bytes: int | None = None
+    content_hash: str | None = None
+    hash_matches: bool = False
+    errors: list[str] = Field(default_factory=list)
+
+
+class ArtifactIntegrityReport(StrictModel):
+    run_id: str
+    passed: bool = False
+    artifact_count: int = 0
+    duplicate_names: list[str] = Field(default_factory=list)
+    missing_expected: list[str] = Field(default_factory=list)
+    entries: list[ArtifactIntegrityEntry] = Field(default_factory=list)
+
+
 class ValidationFinding(StrictModel):
     validator: str
     passed: bool

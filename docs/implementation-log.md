@@ -150,3 +150,33 @@ Latest Part B validation run:
 ```text
 .uo/runs/run_20260709041910441024
 ```
+
+## Part C Remaining-Gap Implementation
+
+Part C addressed the next six remaining non-provider gaps:
+
+1. Approval and risk gates: internet, repo-write, shell, and cloud-provider approval checks with `approval_report.json`.
+2. Safe local repo validation: allowlisted no-shell command execution, skipped validation plans, and `repo_validation_report.json`.
+3. Patch and package artifacts: deterministic patch-plan generation, ZIP delivery bundles, and validation artifacts.
+4. Artifact integrity audit: recomputed hashes/sizes, expected-file checks, duplicate detection, and `artifact_integrity_report.json`.
+5. Daemon parity: status, artifacts, and terminal-aware cancellation helper/endpoints matching CLI/MCP behavior.
+6. Executable eval runner: built-in world-readiness cases can now run and write `eval_report.json`.
+
+Latest Part C validation:
+
+```text
+Ran 58 tests
+OK
+```
+
+Latest Part C validation run:
+
+```text
+.uo/runs/run_20260709132754310701
+```
+
+Latest Part C eval report:
+
+```text
+.uo/evals/part_c/eval_report.json
+```

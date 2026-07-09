@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from universal_orchestrator.approvals import ApprovalGateEngine
 from universal_orchestrator.artifact_builders import ArtifactBuilder
 from universal_orchestrator.artifacts import ArtifactStore
 from universal_orchestrator.budget import BudgetController
@@ -12,10 +13,12 @@ from universal_orchestrator.delta import DeltaPlanner
 from universal_orchestrator.evidence import EvidenceAuditor
 from universal_orchestrator.execution import DeterministicExecutor
 from universal_orchestrator.ingestion import InputIngestor
+from universal_orchestrator.integrity import ArtifactIntegrityAuditor
 from universal_orchestrator.models import (
     Artifact,
     ArtifactType,
     HostInvocation,
+    ProductContract,
     RuntimeEvent,
     RunManifest,
     RunResult,
@@ -28,6 +31,7 @@ from universal_orchestrator.planning import PlannerEnsemble
 from universal_orchestrator.product import FinalProductOwner
 from universal_orchestrator.quality import QualityGateEngine
 from universal_orchestrator.repair import RepairPlanner
+from universal_orchestrator.repo_validation import RepoValidationRunner
 from universal_orchestrator.runtime import RuntimeStore
 from universal_orchestrator.routing import AdaptiveRouter, CapabilityRegistry
 from universal_orchestrator.scheduler import DAGScheduler
@@ -39,16 +43,19 @@ class Orchestrator:
         self.ingestor = InputIngestor()
         self.context = ContextIntelligence()
         self.contracts = ProductContractCompiler()
+        self.approvals = ApprovalGateEngine()
         self.planner = PlannerEnsemble()
         self.budget = BudgetController()
         self.delta = DeltaPlanner()
         self.executor = DeterministicExecutor()
         self.quality = QualityGateEngine()
         self.evidence = EvidenceAuditor()
+        self.repo_validation = RepoValidationRunner()
         self.repair = RepairPlanner()
         self.product_owner = FinalProductOwner()
         self.artifact_builder = ArtifactBuilder()
         self.debug_bundle = DebugBundleBuilder()
+        self.integrity = ArtifactIntegrityAuditor()
         self.cache = SemanticCache(Path(artifact_root) / "_cache")
         self.runtime = RuntimeStore(Path(artifact_root) / "runtime.sqlite3")
         self.scheduler = DAGScheduler(self.cache)
@@ -89,6 +96,7 @@ class Orchestrator:
         contract = self.contracts.compile(invocation, manifest)
         self.runtime.transition(run_id, RunState.CONTRACTING)
         trace.checkpoint("contracting", {"run_type": contract.run_type, "artifacts": contract.primary_artifacts})
+        approval_report = self.approvals.evaluate(invocation, manifest, contract)
         dag = self.planner.create_execution_plan(run_id, contract)
         self.runtime.transition(run_id, RunState.PLANNING)
         context_packs = self.context.compile_packs_for_tasks([node.id for node in dag.nodes], cards)
@@ -122,6 +130,8 @@ class Orchestrator:
             "context_chunk_count": len(chunks),
             "context_pack_count": len(context_packs),
             "delta_reusable_task_count": len(delta_plan.reusable_task_ids),
+            "approval_blocked": approval_report.blocked,
+            "approval_warning_count": len(approval_report.warnings),
         }
         self.executor = DeterministicExecutor(
             adapters=registry.adapter_registry(),
@@ -137,6 +147,15 @@ class Orchestrator:
         trace.checkpoint(
             "execution",
             {"result_count": len(results), "cache_hits": len(schedule_report.cache_hits)},
+        )
+        repo_validation_report = self.repo_validation.run(invocation, manifest)
+        trace.checkpoint(
+            "repo_validation",
+            {
+                "executed": repo_validation_report.executed,
+                "passed": repo_validation_report.passed,
+                "command_count": len(repo_validation_report.command_results),
+            },
         )
 
         artifacts: list[Artifact] = []
@@ -177,6 +196,11 @@ class Orchestrator:
         artifacts.append(
             self.artifact_store.write_json_artifact(
                 run_id, "product_contract.json", contract.model_dump(mode="json")
+            )
+        )
+        artifacts.append(
+            self.artifact_store.write_json_artifact(
+                run_id, "approval_report.json", approval_report.model_dump(mode="json")
             )
         )
         artifacts.append(
@@ -225,6 +249,11 @@ class Orchestrator:
                 run_id, "schedule_report.json", schedule_report.model_dump(mode="json")
             )
         )
+        artifacts.append(
+            self.artifact_store.write_json_artifact(
+                run_id, "repo_validation_report.json", repo_validation_report.model_dump(mode="json")
+            )
+        )
 
         quality = self.quality.evaluate(
             manifest=manifest,
@@ -233,6 +262,7 @@ class Orchestrator:
             decisions=decisions,
             results=results,
             artifact_paths=[artifact.as_path for artifact in artifacts],
+            repo_validation_report=repo_validation_report,
         )
         all_decisions = list(decisions)
         all_results = list(results)
@@ -263,6 +293,7 @@ class Orchestrator:
                 decisions=all_decisions,
                 results=all_results,
                 artifact_paths=[artifact.as_path for artifact in artifacts],
+                repo_validation_report=repo_validation_report,
             )
             trace.checkpoint(
                 "repair_execution",
@@ -330,6 +361,31 @@ class Orchestrator:
                     run_id, "docx_validation.json", {"path": str(docx_path), "errors": docx_errors}
                 )
             )
+        if "patch" in contract.primary_artifacts or contract.run_type == "repo_implementation":
+            patch_path = self.artifact_store.run_dir(run_id) / "implementation_patch.diff"
+            patch_artifact = self.artifact_builder.build_patch_plan(product_package.final_markdown, patch_path)
+            patch_errors = self.artifact_builder.validate_patch(patch_path)
+            artifacts.append(patch_artifact)
+            artifacts.append(
+                self.artifact_store.write_json_artifact(
+                    run_id, "patch_validation.json", {"path": str(patch_path), "errors": patch_errors}
+                )
+            )
+        zip_path = self.artifact_store.run_dir(run_id) / "delivery_bundle.zip"
+        zip_artifact = self.artifact_builder.build_zip(artifacts, zip_path)
+        zip_errors = self.artifact_builder.validate_zip(zip_path)
+        artifacts.append(zip_artifact)
+        artifacts.append(
+            self.artifact_store.write_json_artifact(
+                run_id, "zip_validation.json", {"path": str(zip_path), "errors": zip_errors}
+            )
+        )
+        integrity_report = self.integrity.audit(run_id, artifacts, self._expected_artifact_names(contract))
+        artifacts.append(
+            self.artifact_store.write_json_artifact(
+                run_id, "artifact_integrity_report.json", integrity_report.model_dump(mode="json")
+            )
+        )
         final_state = RunState.DELIVERED if quality.passed else RunState.VALIDATION
         trace.checkpoint("final_assembly", {"artifact_count": len(artifacts), "quality_passed": quality.passed})
         trace_report = trace.report(
@@ -397,3 +453,38 @@ class Orchestrator:
 
     def artifact_manifest_path(self, run_id: str) -> Path:
         return self.artifact_store.run_dir(run_id) / "run_manifest.json"
+
+    def _expected_artifact_names(self, contract: ProductContract) -> list[str]:
+        expected = [
+            "context_manifest.json",
+            "context_cards.json",
+            "context_chunks.json",
+            "context_provenance.json",
+            "context_packs.json",
+            "context_index.json",
+            "product_contract.json",
+            "approval_report.json",
+            "task_dag.json",
+            "plan_review.json",
+            "budget_report.json",
+            "delta_execution_plan.json",
+            "routing_decisions.json",
+            "routing_telemetry.json",
+            "execution_results.json",
+            "schedule_report.json",
+            "repo_validation_report.json",
+            "validation_findings.json",
+            "evidence_audit.json",
+            "quality_report.json",
+            "product_package.json",
+            "final_report.md",
+            "delivery_bundle.zip",
+            "zip_validation.json",
+        ]
+        if "pdf" in contract.primary_artifacts:
+            expected.extend(["final_report.pdf", "pdf_validation.json"])
+        if "docx" in contract.primary_artifacts:
+            expected.extend(["final_report.docx", "docx_validation.json"])
+        if "patch" in contract.primary_artifacts or contract.run_type == "repo_implementation":
+            expected.extend(["implementation_patch.diff", "patch_validation.json"])
+        return expected

@@ -37,6 +37,7 @@ PYTHONPATH=src python -m universal_orchestrator repo "Analyze this repo" .
 PYTHONPATH=src python -m universal_orchestrator artifacts
 PYTHONPATH=src python -m universal_orchestrator status <run_id>
 PYTHONPATH=src python -m universal_orchestrator cancel <run_id>
+PYTHONPATH=src python -m universal_orchestrator evals --run
 ```
 
 ## Artifact Location
@@ -67,6 +68,9 @@ Endpoints:
 - `GET /health`
 - `GET /providers`
 - `POST /runs`
+- `GET /runs/{run_id}`
+- `POST /runs/{run_id}/cancel`
+- `GET /artifacts`
 
 ## Privacy Defaults
 

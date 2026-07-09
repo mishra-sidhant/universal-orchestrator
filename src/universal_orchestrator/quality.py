@@ -8,6 +8,7 @@ from universal_orchestrator.models import (
     ProductContract,
     QualityGateResult,
     QualityScore,
+    RepoValidationReport,
     RoutingAction,
     RoutingDecision,
     TaskDAG,
@@ -28,6 +29,7 @@ class QualityGateEngine:
         decisions: list[RoutingDecision],
         results: list[ExecutionResult],
         artifact_paths: list[Path],
+        repo_validation_report: RepoValidationReport | None = None,
     ) -> QualityGateResult:
         findings = self.validators.evaluate(manifest, contract, dag, decisions, results, artifact_paths)
         violations: list[str] = [
@@ -92,6 +94,16 @@ class QualityGateEngine:
         if skipped_results:
             warnings.append(f"Execution skipped for tasks: {skipped_results}")
 
+        code_validation = "not_applicable"
+        if repo_validation_report and repo_validation_report.command_results:
+            if any(result.status == "failed" for result in repo_validation_report.command_results):
+                violations.append("One or more repository validation commands failed.")
+                code_validation = "fail"
+            elif repo_validation_report.executed and repo_validation_report.passed:
+                code_validation = "pass"
+            else:
+                warnings.append("Repository validation commands were detected but not executed.")
+
         passed = not violations
         scores = QualityScore(
             completeness=95 if passed else 60,
@@ -101,7 +113,7 @@ class QualityGateEngine:
             continuity=88,
             cost_efficiency=90 if not degraded and not reshaped else 75,
             artifact_integrity="pass" if not missing_artifacts and artifact_paths else "fail",
-            code_validation="not_applicable",
+            code_validation=code_validation,
         )
         repair_task_ids = [f"T-REPAIR-{index:03d}" for index, _ in enumerate(violations, start=1)]
         return QualityGateResult(

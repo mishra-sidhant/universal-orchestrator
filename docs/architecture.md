@@ -23,7 +23,7 @@ The repo now includes a dependency-light stdio JSON-RPC/MCP-style adapter in `un
 - `ai_team.cancel`
 - `ai_team.evals`
 
-`ai_team.status` now includes the runtime snapshot, and `ai_team.cancel` writes a durable cancellation request unless the run is already terminal.
+`ai_team.status` now includes the runtime snapshot, and `ai_team.cancel` writes a durable cancellation request unless the run is already terminal. `ai_team.evals` can either list the built-in suite or execute it and write `eval_report.json`.
 
 ## Ingestion Plane
 
@@ -72,6 +72,8 @@ The first compiler infers:
 - Must-not-have constraints.
 - Artifact and validation gates.
 
+Part C adds `ApprovalGateEngine`, which writes `approval_report.json` for internet access, repo writes, shell execution, and cloud provider execution. The report distinguishes capability blocking from full-run failure, so read-only deterministic work can proceed while risky actions stay explicit.
+
 ## Orchestrator Kernel
 
 The kernel uses `PlannerEnsemble` to create a typed `TaskDAG`. The first planner is deterministic but keeps the ensemble roles visible through tasks for strategy, decomposition, risk review, routing, execution, aggregation, gap analysis, final synthesis, quality, and packaging.
@@ -110,6 +112,8 @@ Part B adds `routing_telemetry.json`, which records every provider considered fo
 
 Task cache keys now include the context fingerprint, which prevents stale task reuse when the prompt or supplied inputs change.
 
+Part C adds `RepoValidationRunner`, which writes `repo_validation_report.json`. It detects repo test commands from repo maps, executes only allowlisted commands when `allow_shell` is true, and otherwise records the exact skipped validation plan.
+
 ## Quality Plane
 
 `QualityGateEngine` checks:
@@ -126,9 +130,17 @@ When quality fails, `RepairPlanner` creates a targeted repair DAG from the speci
 
 Part B adds `EvidenceAuditor`, which writes `evidence_audit.json` and adjusts citation-support scoring after the final package is assembled. It verifies source inventory, provenance records, worker evidence refs, and an explicit context section in final markdown. Future quality work should add live code test execution and richer citation formatting.
 
+Part C feeds `RepoValidationRunner` into quality scoring: failed executed repo validation becomes a violation, while unapproved shell execution is surfaced as a warning.
+
 ## Artifact Plane
 
 `ArtifactStore` writes one run directory per run under `.uo/runs/{run_id}`. A final product owner assembles the user-facing package, rejects thin fragments, and writes `product_package.json` plus `final_report.md`. When requested, artifact builders create and validate PDF/DOCX outputs.
+
+Part C adds deterministic patch-plan and ZIP builders:
+
+- `implementation_patch.diff` and `patch_validation.json` for repo implementation or patch-requested runs.
+- `delivery_bundle.zip` and `zip_validation.json` for every run.
+- `artifact_integrity_report.json`, which recomputes hashes and sizes for the delivery package.
 
 Each package includes:
 
@@ -136,6 +148,7 @@ Each package includes:
 - `context_cards.json`
 - `context_index.json`
 - `product_contract.json`
+- `approval_report.json`
 - `task_dag.json`
 - `plan_review.json`
 - `budget_report.json`
@@ -144,10 +157,14 @@ Each package includes:
 - `routing_telemetry.json`
 - `execution_results.json`
 - `schedule_report.json`
+- `repo_validation_report.json`
 - `validation_findings.json`
 - `evidence_audit.json`
 - `product_package.json`
 - `quality_report.json`
+- `delivery_bundle.zip`
+- `zip_validation.json`
+- `artifact_integrity_report.json`
 - `trace_report.json`
 - `debug_bundle_manifest.json`
 - `final_report.md`
@@ -159,6 +176,8 @@ When requested, packages can also include:
 - `pdf_validation.json`
 - `final_report.docx`
 - `docx_validation.json`
+- `implementation_patch.diff`
+- `patch_validation.json`
 
 When repair is triggered, packages also include:
 
@@ -173,6 +192,8 @@ Part A extends runtime durability with state transitions, task records, and resu
 
 Part B adds durable cancellation requests, terminal-state-aware cancellation rejection, and status snapshots that include task and cancellation metadata.
 
+Part C brings the optional FastAPI daemon to parity with CLI/MCP for artifacts, status, and cancellation through `GET /artifacts`, `GET /runs/{run_id}`, and `POST /runs/{run_id}/cancel`.
+
 ## Observability
 
 `TraceRecorder` writes `trace_report.json` with phase spans, durations, final state, artifact count, event count, and warning count. `DebugBundleBuilder` writes `debug_bundle_manifest.json`, listing report and trace artifacts without copying raw user files.
@@ -185,4 +206,4 @@ Part B adds durable cancellation requests, terminal-state-aware cancellation rej
 
 Part A adds text encoding detection, symlink warnings, archive entry and uncompressed-size limits, and repository mapping. Archive contents are still inventoried without unpacking unless a future sandbox extraction path is explicitly enabled.
 
-`universal_orchestrator.evals` defines built-in world-readiness cases for report packages, repo implementation traces, and unsafe archive handling. The CLI exposes these through `python -m universal_orchestrator evals`.
+`universal_orchestrator.evals` defines built-in world-readiness cases for report packages, repo implementation traces, and unsafe archive handling. Part C adds `EvaluationRunner`, which executes selected cases through the orchestrator and writes `eval_report.json`. The CLI exposes this through `python -m universal_orchestrator evals --run`.

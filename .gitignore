@@ -13,5 +13,6 @@ dist/
 build/
 *.egg-info/
 .uo/runs/
+.uo/evals/
 .uo/cache/
 tmp/

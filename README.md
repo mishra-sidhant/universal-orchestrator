@@ -6,7 +6,7 @@ The current milestone is a deterministic local MVP. It does not call hosted LLMs
 
 ## What Works Now
 
-- Local CLI with `run`, `repo`, `doctor`, `providers`, `artifacts`, `status`, and `cancel` commands.
+- Local CLI with `run`, `repo`, `doctor`, `providers`, `artifacts`, `status`, `cancel`, and executable `evals` commands.
 - Typed Pydantic data models for invocations, manifests, product contracts, DAGs, routing, execution, quality, artifacts, and run manifests.
 - Universal input ingestion MVP for prompts, text/markdown, PDFs, folders, repositories, URLs, images, Office files, spreadsheets, archives, and unknown files.
 - Secret and prompt-injection risk scanning before context cards are built.
@@ -15,8 +15,9 @@ The current milestone is a deterministic local MVP. It does not call hosted LLMs
 - Planner ensemble v1 that emits a typed execution DAG.
 - Capability-based provider registry and router with deterministic tools, configured provider detection, and routing telemetry.
 - Budget control, delta execution planning, scheduler cache reuse, runtime state snapshots, and durable cancel markers.
-- Quality gate engine with contract, manifest, DAG, routing, security, evidence audit, and artifact integrity checks.
-- Artifact store that writes final reports, JSON manifests, task graphs, quality reports, routing decisions, trace reports, debug manifests, and delivery manifests.
+- Approval gates, safe repo validation planning/execution, and daemon/MCP status parity.
+- Quality gate engine with contract, manifest, DAG, routing, security, evidence audit, repo validation, and artifact integrity checks.
+- Artifact store that writes final reports, JSON manifests, task graphs, quality reports, routing decisions, trace reports, debug manifests, delivery ZIPs, patch plans, and delivery manifests.
 - Standard-library test suite, so the repo can validate without installing pytest.
 
 ## Quick Start
@@ -27,6 +28,7 @@ Use the bundled Codex runtime Python, or any Python 3.11+ environment with Pydan
 python -m universal_orchestrator doctor
 python -m universal_orchestrator run "Build an implementation plan from this repo" .
 python -m universal_orchestrator repo "Analyze and improve the current project" .
+python -m universal_orchestrator evals --run --case unsafe_archive
 ```
 
 From a checkout without installation:
