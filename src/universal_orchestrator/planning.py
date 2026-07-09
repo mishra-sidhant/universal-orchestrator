@@ -3,6 +3,8 @@ from __future__ import annotations
 from universal_orchestrator.models import (
     CostTier,
     Criticality,
+    PlanCandidate,
+    PlanReview,
     ProductContract,
     TaskDAG,
     TaskNode,
@@ -12,6 +14,65 @@ from universal_orchestrator.models import (
 
 class PlannerEnsemble:
     """Deterministic v1 planner that preserves the report's ensemble shape."""
+
+    def review_plan(self, run_id: str, contract: ProductContract, dag: TaskDAG) -> PlanReview:
+        candidates = self.create_candidate_plans(contract, dag)
+        score = round(sum(candidate.score for candidate in candidates) / max(1, len(candidates)), 4)
+        strengths = sorted({strength for candidate in candidates for strength in candidate.strengths})
+        risks = sorted({risk for candidate in candidates for risk in candidate.risks})
+        return PlanReview(
+            run_id=run_id,
+            candidates=candidates,
+            selected_task_ids=[node.id for node in dag.topological_order()],
+            merged_strengths=strengths,
+            residual_risks=risks,
+            score=score,
+        )
+
+    def create_candidate_plans(self, contract: ProductContract, dag: TaskDAG) -> list[PlanCandidate]:
+        task_ids = [node.id for node in dag.nodes]
+        return [
+            PlanCandidate(
+                role="strategic_planner",
+                bias="product outcome and final deliverable ownership",
+                proposed_task_ids=task_ids,
+                strengths=["contract-first planning", "final product owner is explicit"],
+                risks=[] if contract.primary_artifacts else ["primary artifacts are underspecified"],
+                score=0.88,
+            ),
+            PlanCandidate(
+                role="decomposition_planner",
+                bias="small typed tasks with dependencies",
+                proposed_task_ids=task_ids,
+                strengths=["DAG is typed", "repair can target individual failed nodes"],
+                risks=[],
+                score=0.9,
+            ),
+            PlanCandidate(
+                role="risk_planner",
+                bias="security, validation, artifact, and provider failure modes",
+                proposed_task_ids=task_ids,
+                strengths=["validation gates are first-class", "routing degradation is surfaced"],
+                risks=["live provider quality is not validated until keys are configured"],
+                score=0.82,
+            ),
+            PlanCandidate(
+                role="cost_planner",
+                bias="deterministic and cheap work before premium escalation",
+                proposed_task_ids=task_ids,
+                strengths=["deterministic tools cover artifact and validation tasks"],
+                risks=["semantic cache is lexical until embeddings are added"],
+                score=0.78,
+            ),
+            PlanCandidate(
+                role="skeptic_planner",
+                bias="attack assumptions and prevent thin delivery",
+                proposed_task_ids=task_ids,
+                strengths=["quality gates can reject incomplete packages"],
+                risks=["human-grade acceptance tests still need expansion"],
+                score=0.8,
+            ),
+        ]
 
     def create_execution_plan(self, run_id: str, contract: ProductContract) -> TaskDAG:
         nodes = [
@@ -169,4 +230,3 @@ class PlannerEnsemble:
         if contract.run_type == "research_report":
             return {"research": 0.75, "citation_discipline": 0.65}
         return {"summarization": 0.6, "classification": 0.5}
-

@@ -14,6 +14,7 @@ class MCPAdapterTests(unittest.TestCase):
         self.assertIn("ai_team.status", names)
         self.assertIn("ai_team.providers", names)
         self.assertIn("ai_team.doctor", names)
+        self.assertIn("ai_team.evals", names)
 
     def test_json_rpc_tools_list(self) -> None:
         response = handle_json_rpc({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
@@ -59,4 +60,3 @@ class MCPAdapterTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

@@ -7,6 +7,7 @@ from typing import Any, TextIO
 
 from universal_orchestrator.cli import _module_available
 from universal_orchestrator.config import configuration_template, load_env_file, provider_config_status
+from universal_orchestrator.evals import built_in_suite
 from universal_orchestrator.models import Host, HostInvocation, InputAttachment, UserOptions
 from universal_orchestrator.pipeline import Orchestrator
 from universal_orchestrator.routing import CapabilityRegistry
@@ -78,6 +79,11 @@ def tool_definitions() -> list[dict[str, Any]]:
                 "properties": {"run_id": {"type": "string"}},
             },
         },
+        {
+            "name": "ai_team.evals",
+            "description": "List built-in world-readiness evaluation cases.",
+            "inputSchema": {"type": "object", "properties": {}},
+        },
     ]
 
 
@@ -97,6 +103,8 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, A
         return _tool_configure(args)
     if name == "ai_team.cancel":
         return {"run_id": args.get("run_id"), "cancelled": False, "reason": "Durable cancellation is not implemented yet."}
+    if name == "ai_team.evals":
+        return built_in_suite().model_dump(mode="json")
     raise ValueError(f"Unknown tool: {name}")
 
 
@@ -200,4 +208,3 @@ def _tool_configure(args: dict[str, Any]) -> dict[str, Any]:
 
 def _error(request_id: Any, code: int, message: str) -> dict[str, Any]:
     return {"jsonrpc": "2.0", "id": request_id, "error": {"code": code, "message": message}}
-

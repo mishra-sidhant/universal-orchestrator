@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from universal_orchestrator.artifact_builders import ArtifactBuilder
 from universal_orchestrator.artifacts import ArtifactStore
+from universal_orchestrator.cache import SemanticCache
 from universal_orchestrator.context import ContextIntelligence
 from universal_orchestrator.contracts import ProductContractCompiler
 from universal_orchestrator.execution import DeterministicExecutor
@@ -11,6 +13,7 @@ from universal_orchestrator.models import (
     Artifact,
     ArtifactType,
     HostInvocation,
+    RuntimeEvent,
     RunManifest,
     RunResult,
     RunState,
@@ -18,8 +21,10 @@ from universal_orchestrator.models import (
     utc_now,
 )
 from universal_orchestrator.planning import PlannerEnsemble
+from universal_orchestrator.product import FinalProductOwner
 from universal_orchestrator.quality import QualityGateEngine
 from universal_orchestrator.repair import RepairPlanner
+from universal_orchestrator.runtime import RuntimeStore
 from universal_orchestrator.routing import AdaptiveRouter, CapabilityRegistry
 
 
@@ -33,15 +38,35 @@ class Orchestrator:
         self.executor = DeterministicExecutor()
         self.quality = QualityGateEngine()
         self.repair = RepairPlanner()
+        self.product_owner = FinalProductOwner()
+        self.artifact_builder = ArtifactBuilder()
+        self.cache = SemanticCache(Path(artifact_root) / "_cache")
+        self.runtime = RuntimeStore(Path(artifact_root) / "runtime.sqlite3")
 
     def run(self, invocation: HostInvocation) -> RunResult:
         run_id = new_id("run")
         started_at = utc_now()
+        self.runtime.record_event(RuntimeEvent(run_id=run_id, event_type="received", payload={"host": invocation.host}))
 
         manifest = self.ingestor.ingest(invocation, run_id)
         cards = self.context.rank_cards(invocation.prompt, self.context.build_cards(manifest))
+        context_index = self.context.build_index(cards)
+        conflicts = self.context.detect_conflicts(cards)
+        cache_key = self.cache.key_for(
+            "context_cards",
+            {"prompt": invocation.prompt, "inputs": [item.content_hash for item in manifest.inputs]},
+        )
+        self.cache.set(
+            cache_key,
+            {
+                "card_count": len(cards),
+                "index_terms": len(context_index),
+                "conflicts": conflicts,
+            },
+        )
         contract = self.contracts.compile(invocation, manifest)
         dag = self.planner.create_execution_plan(run_id, contract)
+        plan_review = self.planner.review_plan(run_id, contract, dag)
 
         registry = CapabilityRegistry.from_environment()
         router = AdaptiveRouter(registry)
@@ -76,12 +101,24 @@ class Orchestrator:
         )
         artifacts.append(
             self.artifact_store.write_json_artifact(
+                run_id,
+                "context_index.json",
+                {"terms": context_index, "conflicts": conflicts, "cache_key": cache_key},
+            )
+        )
+        artifacts.append(
+            self.artifact_store.write_json_artifact(
                 run_id, "product_contract.json", contract.model_dump(mode="json")
             )
         )
         artifacts.append(
             self.artifact_store.write_json_artifact(
                 run_id, "task_dag.json", dag.model_dump(mode="json")
+            )
+        )
+        artifacts.append(
+            self.artifact_store.write_json_artifact(
+                run_id, "plan_review.json", plan_review.model_dump(mode="json")
             )
         )
         artifacts.append(
@@ -134,17 +171,55 @@ class Orchestrator:
                 decisions=all_decisions,
                 results=all_results,
                 artifact_paths=[artifact.as_path for artifact in artifacts],
+        )
+        validation_findings = self.quality.validators.evaluate(
+            manifest, contract, dag, all_decisions, all_results, [artifact.as_path for artifact in artifacts]
+        )
+        artifacts.append(
+            self.artifact_store.write_json_artifact(
+                run_id,
+                "validation_findings.json",
+                [finding.model_dump(mode="json") for finding in validation_findings],
             )
+        )
         artifacts.append(
             self.artifact_store.write_json_artifact(
                 run_id, "quality_report.json", quality.model_dump(mode="json")
             )
         )
+        product_package = self.product_owner.assemble(
+            manifest, contract, cards, dag, all_decisions, all_results, quality
+        )
         artifacts.append(
-            self.artifact_store.write_final_report(
-                run_id, manifest, contract, cards, dag, all_decisions, all_results, quality
+            self.artifact_store.write_json_artifact(
+                run_id, "product_package.json", product_package.model_dump(mode="json")
             )
         )
+        artifacts.append(
+            self.artifact_store.write_text_artifact(
+                run_id, "final_report.md", product_package.final_markdown, ArtifactType.REPORT
+            )
+        )
+        if "pdf" in contract.primary_artifacts:
+            pdf_path = self.artifact_store.run_dir(run_id) / "final_report.pdf"
+            pdf_artifact = self.artifact_builder.build_pdf(product_package.final_markdown, pdf_path)
+            pdf_errors = self.artifact_builder.validate_pdf(pdf_path)
+            artifacts.append(pdf_artifact)
+            artifacts.append(
+                self.artifact_store.write_json_artifact(
+                    run_id, "pdf_validation.json", {"path": str(pdf_path), "errors": pdf_errors}
+                )
+            )
+        if "docx" in contract.primary_artifacts:
+            docx_path = self.artifact_store.run_dir(run_id) / "final_report.docx"
+            docx_artifact = self.artifact_builder.build_docx(product_package.final_markdown, docx_path)
+            docx_errors = self.artifact_builder.validate_docx(docx_path)
+            artifacts.append(docx_artifact)
+            artifacts.append(
+                self.artifact_store.write_json_artifact(
+                    run_id, "docx_validation.json", {"path": str(docx_path), "errors": docx_errors}
+                )
+            )
 
         run_manifest = RunManifest(
             run_id=run_id,
@@ -163,6 +238,19 @@ class Orchestrator:
         run_manifest_artifact = self.artifact_store.write_run_manifest(run_manifest)
         run_manifest.artifacts.append(run_manifest_artifact)
         self.artifact_store.write_run_manifest(run_manifest)
+        self.runtime.save_run_summary(
+            run_id,
+            str(run_manifest.state),
+            str(self.artifact_store.run_dir(run_id)),
+            quality.passed,
+        )
+        self.runtime.record_event(
+            RuntimeEvent(
+                run_id=run_id,
+                event_type="delivered" if quality.passed else "validation_failed",
+                payload={"artifact_count": len(run_manifest.artifacts), "quality_passed": quality.passed},
+            )
+        )
 
         return RunResult(
             run_id=run_id,

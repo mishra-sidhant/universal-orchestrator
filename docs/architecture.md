@@ -21,6 +21,7 @@ The repo now includes a dependency-light stdio JSON-RPC/MCP-style adapter in `un
 - `ai_team.doctor`
 - `ai_team.configure`
 - `ai_team.cancel` placeholder for future durable runs
+- `ai_team.evals`
 
 ## Ingestion Plane
 
@@ -48,7 +49,7 @@ Planned:
 
 Context intelligence converts `InputRecord` values into `ContextCard` objects, ranks them against the prompt, and creates `ContextPack` values for task-specific execution.
 
-Current ranking is deterministic lexical overlap plus specificity and risk boosts. Future ranking should add embeddings, recency, trust, freshness, authority, and semantic deduplication.
+Current ranking is deterministic lexical overlap plus specificity and risk boosts. The system also writes a context index, conflict markers, and cache metadata for reuse and auditability. Future ranking should add embeddings, recency, trust, freshness, authority, and deeper semantic deduplication.
 
 ## Product Plane
 
@@ -66,6 +67,8 @@ The first compiler infers:
 ## Orchestrator Kernel
 
 The kernel uses `PlannerEnsemble` to create a typed `TaskDAG`. The first planner is deterministic but keeps the ensemble roles visible through tasks for strategy, decomposition, risk review, routing, execution, aggregation, gap analysis, final synthesis, quality, and packaging.
+
+Each run now writes `plan_review.json`, containing deterministic candidate plans from strategic, decomposition, risk, cost, and skeptic planner roles. This is still not a live multi-model ensemble, but it enforces the report's candidate-plan, scoring, merge, and residual-risk contract.
 
 The DAG is validated for missing dependencies and cycles before routing.
 
@@ -98,23 +101,42 @@ No hosted provider calls are made in this milestone.
 - High-severity security findings.
 - Artifact existence.
 
-When quality fails, `RepairPlanner` creates a targeted repair DAG from the specific violations, routes it through the same provider layer, executes repair tasks, writes repair artifacts, and re-runs quality. Future quality work should add contract-specific validators, citation audit, code test execution, and final product owner review.
+When quality fails, `RepairPlanner` creates a targeted repair DAG from the specific violations, routes it through the same provider layer, executes repair tasks, writes repair artifacts, and re-runs quality. The validator registry now emits structured `ValidationFinding` records for manifest, contract, DAG, routing, execution, and artifact checks. Future quality work should add citation audit and live code test execution.
 
 ## Artifact Plane
 
-`ArtifactStore` writes one run directory per run under `.uo/runs/{run_id}`. Each package includes:
+`ArtifactStore` writes one run directory per run under `.uo/runs/{run_id}`. A final product owner assembles the user-facing package, rejects thin fragments, and writes `product_package.json` plus `final_report.md`. When requested, artifact builders create and validate PDF/DOCX outputs.
+
+Each package includes:
 
 - `context_manifest.json`
 - `context_cards.json`
+- `context_index.json`
 - `product_contract.json`
 - `task_dag.json`
+- `plan_review.json`
 - `routing_decisions.json`
 - `execution_results.json`
+- `validation_findings.json`
+- `product_package.json`
 - `quality_report.json`
 - `final_report.md`
 - `run_manifest.json`
+
+When requested, packages can also include:
+
+- `final_report.pdf`
+- `pdf_validation.json`
+- `final_report.docx`
+- `docx_validation.json`
 
 When repair is triggered, packages also include:
 
 - `repair_task_dag.json`
 - `repair_execution_results.json`
+
+## Runtime And Evaluation
+
+`RuntimeStore` writes SQLite event and run-summary records under the artifact root. This is the first durable-state layer for resumability, audit, cancellation, and dashboard support.
+
+`universal_orchestrator.evals` defines built-in world-readiness cases for report packages, repo implementation traces, and unsafe archive handling. The CLI exposes these through `python -m universal_orchestrator evals`.

@@ -13,9 +13,13 @@ from universal_orchestrator.models import (
     TaskDAG,
     TaskStatus,
 )
+from universal_orchestrator.validators import ValidatorRegistry
 
 
 class QualityGateEngine:
+    def __init__(self) -> None:
+        self.validators = ValidatorRegistry()
+
     def evaluate(
         self,
         manifest: ContextManifest,
@@ -25,8 +29,17 @@ class QualityGateEngine:
         results: list[ExecutionResult],
         artifact_paths: list[Path],
     ) -> QualityGateResult:
-        violations: list[str] = []
-        warnings: list[str] = []
+        findings = self.validators.evaluate(manifest, contract, dag, decisions, results, artifact_paths)
+        violations: list[str] = [
+            finding.message
+            for finding in findings
+            if not finding.passed and finding.severity in {"high", "critical"}
+        ]
+        warnings: list[str] = [
+            finding.message
+            for finding in findings
+            if not finding.passed and finding.severity in {"info", "low", "medium"}
+        ]
 
         if not manifest.inputs:
             violations.append("Context manifest has no inputs.")

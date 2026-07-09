@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from collections import defaultdict
 
 from universal_orchestrator.models import (
     CardType,
@@ -47,6 +48,31 @@ class ContextIntelligence:
             relevance = min(1.0, (overlap / max(1, len(prompt_terms))) + specificity * 0.2 + risk_boost)
             ranked.append(card.model_copy(update={"relevance_score": round(relevance, 4)}))
         return sorted(ranked, key=lambda item: item.relevance_score, reverse=True)
+
+    def build_index(self, cards: list[ContextCard]) -> dict[str, list[str]]:
+        index: dict[str, list[str]] = defaultdict(list)
+        for card in cards:
+            text = f"{card.title} {card.summary} {' '.join(card.excerpts)}"
+            for term in self._terms(text):
+                index[term].append(card.id)
+        return dict(index)
+
+    def retrieve(self, query: str, cards: list[ContextCard], limit: int = 8) -> list[ContextCard]:
+        ranked = self.rank_cards(query, cards)
+        return ranked[:limit]
+
+    def detect_conflicts(self, cards: list[ContextCard]) -> list[str]:
+        conflicts: list[str] = []
+        summaries_by_title: dict[str, set[str]] = defaultdict(set)
+        for card in cards:
+            summaries_by_title[card.title.lower()].add(card.summary.lower())
+            lowered = card.summary.lower()
+            if any(marker in lowered for marker in ["contradicts", "conflicts with", "inconsistent with"]):
+                conflicts.append(f"Potential conflict marker in {card.title}")
+        for title, summaries in summaries_by_title.items():
+            if len(summaries) > 1:
+                conflicts.append(f"Multiple differing summaries for {title}")
+        return sorted(set(conflicts))
 
     def compile_pack(
         self,
@@ -105,4 +131,3 @@ class ContextIntelligence:
 
     def _terms(self, text: str) -> set[str]:
         return {term for term in re.findall(r"[a-zA-Z0-9_]{3,}", text.lower())}
-

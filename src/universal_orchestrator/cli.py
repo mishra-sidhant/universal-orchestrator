@@ -17,6 +17,7 @@ from universal_orchestrator.models import Host, HostInvocation, InputAttachment,
 from universal_orchestrator.pipeline import Orchestrator
 from universal_orchestrator.routing import CapabilityRegistry
 from universal_orchestrator.utils import read_json
+from universal_orchestrator.evals import built_in_suite
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -70,6 +71,9 @@ def build_parser() -> argparse.ArgumentParser:
     status_parser.add_argument("run_id")
     status_parser.add_argument("--root", default=".uo/runs")
     status_parser.set_defaults(handler=handle_status)
+
+    evals_parser = sub.add_parser("evals", help="List built-in world-readiness evaluation cases")
+    evals_parser.set_defaults(handler=handle_evals)
 
     return parser
 
@@ -157,6 +161,11 @@ def handle_artifacts(args: argparse.Namespace) -> None:
 def handle_status(args: argparse.Namespace) -> None:
     path = Path(args.root) / args.run_id / "run_manifest.json"
     print(json.dumps(read_json(path), indent=2, sort_keys=True))
+
+
+def handle_evals(args: argparse.Namespace) -> None:
+    del args
+    print(json.dumps(built_in_suite().model_dump(mode="json"), indent=2, sort_keys=True))
 
 
 def _invocation_from_args(args: argparse.Namespace, command: str) -> HostInvocation:

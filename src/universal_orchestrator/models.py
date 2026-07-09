@@ -302,6 +302,24 @@ class ProductContract(StrictModel):
     constraints: dict[str, Any] = Field(default_factory=dict)
 
 
+class PlanCandidate(StrictModel):
+    role: str
+    bias: str
+    proposed_task_ids: list[str]
+    strengths: list[str] = Field(default_factory=list)
+    risks: list[str] = Field(default_factory=list)
+    score: float = Field(default=0.0, ge=0.0, le=1.0)
+
+
+class PlanReview(StrictModel):
+    run_id: str
+    candidates: list[PlanCandidate]
+    selected_task_ids: list[str]
+    merged_strengths: list[str] = Field(default_factory=list)
+    residual_risks: list[str] = Field(default_factory=list)
+    score: float = Field(default=0.0, ge=0.0, le=1.0)
+
+
 class RetryPolicy(StrictModel):
     max_attempts: int = 1
     backoff_seconds: float = 0.0
@@ -438,6 +456,14 @@ class ExecutionResult(StrictModel):
     completed_at: datetime = Field(default_factory=utc_now)
 
 
+class ValidationFinding(StrictModel):
+    validator: str
+    passed: bool
+    severity: Literal["info", "low", "medium", "high", "critical"]
+    message: str
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 class QualityScore(StrictModel):
     completeness: int = Field(ge=0, le=100)
     factuality: int = Field(ge=0, le=100)
@@ -469,6 +495,22 @@ class Artifact(StrictModel):
     @property
     def as_path(self) -> Path:
         return Path(self.path)
+
+
+class ProductPackage(StrictModel):
+    run_id: str
+    final_markdown: str
+    summary: str
+    rejected_fragments: list[str] = Field(default_factory=list)
+    artifact_requests: list[str] = Field(default_factory=list)
+    validation_notes: list[str] = Field(default_factory=list)
+
+
+class RuntimeEvent(StrictModel):
+    run_id: str
+    event_type: str
+    payload: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=utc_now)
 
 
 class RunManifest(StrictModel):

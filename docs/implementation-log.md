@@ -69,3 +69,36 @@ Quality result:
 - Passed: true.
 - Artifact integrity: pass.
 - Degraded deterministic routing was explicitly reported for strategic/synthesis tasks because hosted providers are not configured.
+
+## Non-Provider World-Readiness Hardening
+
+Completed after live provider execution was explicitly deferred:
+
+- Added deterministic planner candidate review and `plan_review.json` artifacts.
+- Added context index, conflict markers, and semantic cache metadata.
+- Added a final product owner that assembles final packages and rejects weak fragments.
+- Added PDF and DOCX artifact builders with deterministic validation.
+- Added structured validator registry and `validation_findings.json`.
+- Added security policy helpers for workspace paths, archive members, URL permission, and authority checks.
+- Added SQLite runtime event and run-summary store under the artifact root.
+- Added built-in world-readiness eval cases and CLI/MCP exposure.
+
+Latest non-provider hardening validation:
+
+```text
+Ran 27 tests
+OK
+```
+
+Latest PDF artifact validation run:
+
+```text
+.uo/runs/run_20260709020729937439
+```
+
+PDF render check:
+
+- Generated `final_report.pdf`.
+- Rendered two PNG pages with Poppler under `tmp/pdfs/world-ready-final-*.png`.
+- Inspected both rendered pages for legibility, clipping, and layout issues.
+- `pdf_validation.json` reported no errors.

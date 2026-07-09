@@ -36,6 +36,9 @@ class ArtifactStore:
         path.write_text(content)
         return self._artifact(path, artifact_type)
 
+    def write_existing_artifact(self, path: Path, artifact_type: ArtifactType) -> Artifact:
+        return self._artifact(path, artifact_type)
+
     def write_final_report(
         self,
         run_id: str,
