@@ -126,3 +126,27 @@ Latest Part A validation run:
 ```text
 .uo/runs/run_20260709030839873328
 ```
+
+## Part B Remaining-Gap Implementation
+
+Part B addressed the next six remaining non-provider gaps:
+
+1. Budget control: per-task token/cost estimates, effective cost caps, and `budget_report.json`.
+2. Provider health and routing telemetry: provider scorecards, rejection reasons, and `routing_telemetry.json`.
+3. Delta execution planning: previous-run comparison, context-fingerprinted task cache keys, and `delta_execution_plan.json`.
+4. Durable cancellation/status: runtime cancellation table, terminal-aware cancellation rejection, CLI `cancel`, and MCP `ai_team.cancel`.
+5. Observability/debuggability: phase traces, durations, debug bundle manifest, `trace_report.json`, and `debug_bundle_manifest.json`.
+6. Evidence/citation audit: final-package evidence audit, worker evidence checks, provenance checks, and citation-support quality adjustment.
+
+Latest Part B validation:
+
+```text
+Ran 45 tests
+OK
+```
+
+Latest Part B validation run:
+
+```text
+.uo/runs/run_20260709041910441024
+```

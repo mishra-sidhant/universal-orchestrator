@@ -16,6 +16,7 @@ from universal_orchestrator.config import (
 from universal_orchestrator.models import Host, HostInvocation, InputAttachment, UserOptions
 from universal_orchestrator.pipeline import Orchestrator
 from universal_orchestrator.routing import CapabilityRegistry
+from universal_orchestrator.runtime import RuntimeStore
 from universal_orchestrator.utils import read_json
 from universal_orchestrator.evals import built_in_suite
 
@@ -71,6 +72,12 @@ def build_parser() -> argparse.ArgumentParser:
     status_parser.add_argument("run_id")
     status_parser.add_argument("--root", default=".uo/runs")
     status_parser.set_defaults(handler=handle_status)
+
+    cancel_parser = sub.add_parser("cancel", help="Request cancellation for a durable run")
+    cancel_parser.add_argument("run_id")
+    cancel_parser.add_argument("--root", default=".uo/runs")
+    cancel_parser.add_argument("--reason", default="User requested cancellation.")
+    cancel_parser.set_defaults(handler=handle_cancel)
 
     evals_parser = sub.add_parser("evals", help="List built-in world-readiness evaluation cases")
     evals_parser.set_defaults(handler=handle_evals)
@@ -160,7 +167,15 @@ def handle_artifacts(args: argparse.Namespace) -> None:
 
 def handle_status(args: argparse.Namespace) -> None:
     path = Path(args.root) / args.run_id / "run_manifest.json"
-    print(json.dumps(read_json(path), indent=2, sort_keys=True))
+    payload = read_json(path)
+    runtime = RuntimeStore(Path(args.root) / "runtime.sqlite3")
+    payload["runtime_snapshot"] = runtime.resumable_snapshot(args.run_id)
+    print(json.dumps(payload, indent=2, sort_keys=True))
+
+
+def handle_cancel(args: argparse.Namespace) -> None:
+    runtime = RuntimeStore(Path(args.root) / "runtime.sqlite3")
+    print(json.dumps(runtime.request_cancel(args.run_id, args.reason), indent=2, sort_keys=True, default=str))
 
 
 def handle_evals(args: argparse.Namespace) -> None:

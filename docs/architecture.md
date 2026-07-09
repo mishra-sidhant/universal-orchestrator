@@ -20,8 +20,10 @@ The repo now includes a dependency-light stdio JSON-RPC/MCP-style adapter in `un
 - `ai_team.providers`
 - `ai_team.doctor`
 - `ai_team.configure`
-- `ai_team.cancel` placeholder for future durable runs
+- `ai_team.cancel`
 - `ai_team.evals`
+
+`ai_team.status` now includes the runtime snapshot, and `ai_team.cancel` writes a durable cancellation request unless the run is already terminal.
 
 ## Ingestion Plane
 
@@ -80,6 +82,11 @@ Plan review now also includes critical path analysis, cost-tier estimation, para
 
 The DAG is validated for missing dependencies and cycles before routing.
 
+Part B adds `BudgetController` and `DeltaPlanner`:
+
+- `budget_report.json` records per-task token estimates, effective cost caps, and estimated spend.
+- `delta_execution_plan.json` compares the run against the previous successful run and marks tasks reusable only when inputs are unchanged and the scheduler cache entry exists.
+
 ## Routing Plane
 
 `CapabilityRegistry` describes providers by capability, cost tier, health, context limits, and kind. `AdaptiveRouter` selects the best available provider or marks a task as degraded, reshaped, or paused.
@@ -93,11 +100,15 @@ Current providers:
 
 No hosted provider calls are made in this milestone.
 
+Part B adds `routing_telemetry.json`, which records every provider considered for every task, including health status, capability score, cost score, total score, eligibility, and rejection reasons.
+
 ## Execution Plane
 
 `DeterministicExecutor` dispatches through provider adapters and records structured worker outputs. Each task result includes a worker output object with summary, findings, evidence references, file references, metrics, risks, and next actions. External adapters remain dry-run safe unless network access and provider configuration are explicitly enabled.
 
 `DAGScheduler` now executes tasks by dependency-ready batches, records schedule metadata, uses cache keys for node-level reuse, and writes `schedule_report.json`. This is still single-process deterministic execution, but the scheduler boundary is ready for parallel workers, retries, cancellation, and partial reruns.
+
+Task cache keys now include the context fingerprint, which prevents stale task reuse when the prompt or supplied inputs change.
 
 ## Quality Plane
 
@@ -111,7 +122,9 @@ No hosted provider calls are made in this milestone.
 - High-severity security findings.
 - Artifact existence.
 
-When quality fails, `RepairPlanner` creates a targeted repair DAG from the specific violations, routes it through the same provider layer, executes repair tasks, writes repair artifacts, and re-runs quality. The validator registry now emits structured `ValidationFinding` records for manifest, contract, DAG, routing, execution, and artifact checks. Future quality work should add citation audit and live code test execution.
+When quality fails, `RepairPlanner` creates a targeted repair DAG from the specific violations, routes it through the same provider layer, executes repair tasks, writes repair artifacts, and re-runs quality. The validator registry now emits structured `ValidationFinding` records for manifest, contract, DAG, routing, execution, and artifact checks.
+
+Part B adds `EvidenceAuditor`, which writes `evidence_audit.json` and adjusts citation-support scoring after the final package is assembled. It verifies source inventory, provenance records, worker evidence refs, and an explicit context section in final markdown. Future quality work should add live code test execution and richer citation formatting.
 
 ## Artifact Plane
 
@@ -125,11 +138,18 @@ Each package includes:
 - `product_contract.json`
 - `task_dag.json`
 - `plan_review.json`
+- `budget_report.json`
+- `delta_execution_plan.json`
 - `routing_decisions.json`
+- `routing_telemetry.json`
 - `execution_results.json`
+- `schedule_report.json`
 - `validation_findings.json`
+- `evidence_audit.json`
 - `product_package.json`
 - `quality_report.json`
+- `trace_report.json`
+- `debug_bundle_manifest.json`
 - `final_report.md`
 - `run_manifest.json`
 
@@ -150,6 +170,12 @@ When repair is triggered, packages also include:
 `RuntimeStore` writes SQLite event and run-summary records under the artifact root. This is the first durable-state layer for resumability, audit, cancellation, and dashboard support.
 
 Part A extends runtime durability with state transitions, task records, and resumable snapshots. Each run persists task status, attempt count, cache key, and lifecycle state transitions.
+
+Part B adds durable cancellation requests, terminal-state-aware cancellation rejection, and status snapshots that include task and cancellation metadata.
+
+## Observability
+
+`TraceRecorder` writes `trace_report.json` with phase spans, durations, final state, artifact count, event count, and warning count. `DebugBundleBuilder` writes `debug_bundle_manifest.json`, listing report and trace artifacts without copying raw user files.
 
 ## Repo Intelligence
 

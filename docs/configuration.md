@@ -36,6 +36,7 @@ PYTHONPATH=src python -m universal_orchestrator run "Build a product package" ./
 PYTHONPATH=src python -m universal_orchestrator repo "Analyze this repo" .
 PYTHONPATH=src python -m universal_orchestrator artifacts
 PYTHONPATH=src python -m universal_orchestrator status <run_id>
+PYTHONPATH=src python -m universal_orchestrator cancel <run_id>
 ```
 
 ## Artifact Location

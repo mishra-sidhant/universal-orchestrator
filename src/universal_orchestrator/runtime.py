@@ -65,6 +65,15 @@ class RuntimeStore:
                 )
                 """
             )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS cancellations (
+                    run_id TEXT PRIMARY KEY,
+                    reason TEXT NOT NULL,
+                    requested_at TEXT NOT NULL
+                )
+                """
+            )
 
     def record_event(self, event: RuntimeEvent) -> None:
         with self._connect() as conn:
@@ -145,10 +154,89 @@ class RuntimeStore:
         return {
             "run_id": run_id,
             "latest_state": self.latest_state(run_id),
+            "cancel": self.cancel_status(run_id),
             "tasks": [
                 {"task_id": row[0], "status": row[1], "attempt": row[2], "cache_key": row[3]}
                 for row in rows
             ],
+        }
+
+    def request_cancel(self, run_id: str, reason: str = "User requested cancellation.") -> dict[str, Any]:
+        from universal_orchestrator.models import RunState, RuntimeEvent, utc_now
+
+        latest = self.latest_state(run_id)
+        terminal_states = {RunState.DELIVERED, RunState.FAILED, RunState.CANCELLED}
+        if latest in terminal_states or str(latest) in {str(state) for state in terminal_states}:
+            return {
+                "run_id": run_id,
+                "accepted": False,
+                "cancelled": False,
+                "latest_state": latest,
+                "reason": f"Run is already terminal: {latest}.",
+            }
+        requested_at = utc_now().isoformat()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO cancellations(run_id, reason, requested_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(run_id) DO UPDATE SET
+                    reason=excluded.reason,
+                    requested_at=excluded.requested_at
+                """,
+                (run_id, reason, requested_at),
+            )
+        self.transition(run_id, RunState.CANCELLED)
+        self.record_event(
+            RuntimeEvent(
+                run_id=run_id,
+                event_type="cancel_requested",
+                payload={"reason": reason, "requested_at": requested_at},
+            )
+        )
+        return {
+            "run_id": run_id,
+            "accepted": True,
+            "cancelled": True,
+            "latest_state": RunState.CANCELLED,
+            "reason": reason,
+            "requested_at": requested_at,
+        }
+
+    def cancel_status(self, run_id: str) -> dict[str, Any]:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT reason, requested_at FROM cancellations WHERE run_id=?",
+                (run_id,),
+            ).fetchone()
+        if not row:
+            return {"requested": False}
+        return {"requested": True, "reason": row[0], "requested_at": row[1]}
+
+    def is_cancel_requested(self, run_id: str) -> bool:
+        return self.cancel_status(run_id).get("requested", False)
+
+    def latest_successful_summary(self, exclude_run_id: str | None = None) -> dict[str, Any] | None:
+        query = """
+            SELECT run_id, state, artifact_dir, quality_passed, updated_at
+            FROM run_summaries
+            WHERE quality_passed=1
+        """
+        params: list[Any] = []
+        if exclude_run_id:
+            query += " AND run_id != ?"
+            params.append(exclude_run_id)
+        query += " ORDER BY updated_at DESC LIMIT 1"
+        with self._connect() as conn:
+            row = conn.execute(query, params).fetchone()
+        if not row:
+            return None
+        return {
+            "run_id": row[0],
+            "state": row[1],
+            "artifact_dir": row[2],
+            "quality_passed": bool(row[3]),
+            "updated_at": row[4],
         }
 
     def list_events(self, run_id: str) -> list[dict[str, Any]]:

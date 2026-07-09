@@ -43,6 +43,29 @@ class MCPAdapterTests(unittest.TestCase):
 
         self.assertTrue(run_result["quality_passed"])
         self.assertEqual(status["run_id"], run_result["run_id"])
+        self.assertIn("runtime_snapshot", status)
+
+    def test_ai_team_cancel_rejects_terminal_run(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "input.md"
+            source.write_text("# Input\nBuild a tiny package.")
+
+            run_result = call_tool(
+                "ai_team.run",
+                {
+                    "prompt": "Build a final package",
+                    "paths": [str(source)],
+                    "root": str(root / "runs"),
+                },
+            )
+            cancel = call_tool(
+                "ai_team.cancel",
+                {"run_id": run_result["run_id"], "root": str(root / "runs")},
+            )
+
+        self.assertFalse(cancel["accepted"])
+        self.assertFalse(cancel["cancelled"])
 
     def test_tools_call_returns_text_content(self) -> None:
         response = handle_json_rpc(

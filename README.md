@@ -6,16 +6,17 @@ The current milestone is a deterministic local MVP. It does not call hosted LLMs
 
 ## What Works Now
 
-- Local CLI with `run`, `repo`, `doctor`, `providers`, `artifacts`, and `status` commands.
+- Local CLI with `run`, `repo`, `doctor`, `providers`, `artifacts`, `status`, and `cancel` commands.
 - Typed Pydantic data models for invocations, manifests, product contracts, DAGs, routing, execution, quality, artifacts, and run manifests.
 - Universal input ingestion MVP for prompts, text/markdown, PDFs, folders, repositories, URLs, images, Office files, spreadsheets, archives, and unknown files.
 - Secret and prompt-injection risk scanning before context cards are built.
-- Context cards, deterministic relevance ranking, and context packs.
+- Context cards, deterministic relevance ranking, provenance, and task-specific context packs.
 - Product contract compiler that turns natural prompts into enforceable definitions of done.
 - Planner ensemble v1 that emits a typed execution DAG.
-- Capability-based provider registry and router with deterministic tools plus configured provider detection.
-- Quality gate engine with contract, manifest, DAG, routing, security, and artifact integrity checks.
-- Artifact store that writes final reports, JSON manifests, task graphs, quality reports, routing decisions, and delivery manifests.
+- Capability-based provider registry and router with deterministic tools, configured provider detection, and routing telemetry.
+- Budget control, delta execution planning, scheduler cache reuse, runtime state snapshots, and durable cancel markers.
+- Quality gate engine with contract, manifest, DAG, routing, security, evidence audit, and artifact integrity checks.
+- Artifact store that writes final reports, JSON manifests, task graphs, quality reports, routing decisions, trace reports, debug manifests, and delivery manifests.
 - Standard-library test suite, so the repo can validate without installing pytest.
 
 ## Quick Start
@@ -65,4 +66,3 @@ The kernel follows this pipeline:
 9. Build final artifacts and a `RunManifest`.
 
 See [Product Requirements](docs/product-requirements.md) and [Implementation Plan](docs/implementation-plan.md) for the detailed roadmap.
-

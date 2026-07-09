@@ -43,6 +43,7 @@ class DAGScheduler:
         dag: TaskDAG,
         decisions: list[RoutingDecision],
         executor: DeterministicExecutor,
+        cache_context: dict | None = None,
     ) -> tuple[list[ExecutionResult], ScheduleReport]:
         decision_by_task = {decision.task_id: decision for decision in decisions}
         results: list[ExecutionResult] = []
@@ -51,7 +52,7 @@ class DAGScheduler:
         execution_order: list[str] = []
         for batch in self.parallel_batches(dag):
             for task in batch:
-                cache_key = self._cache_key(task)
+                cache_key = self.cache_key_for_task(task, cache_context)
                 cached = self.cache.get(cache_key) if self.cache else None
                 started = utc_now()
                 if cached:
@@ -100,13 +101,15 @@ class DAGScheduler:
         )
         return results, report
 
-    def _cache_key(self, task: TaskNode) -> str:
+    def cache_key_for_task(self, task: TaskNode, cache_context: dict | None = None) -> str:
         payload = {
             "task_id": task.id,
             "title": task.title,
             "task_type": task.task_type,
             "capabilities": task.required_capabilities,
             "dependencies": task.dependencies,
+            "max_cost_tier": task.max_cost_tier,
+            "cache_context": cache_context or {},
         }
         if self.cache:
             return self.cache.key_for("task", payload)

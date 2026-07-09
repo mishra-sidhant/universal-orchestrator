@@ -8,10 +8,13 @@ from universal_orchestrator.models import (
     ProviderDescriptor,
     ProviderHealth,
     ProviderKind,
+    ProviderRoutingMetric,
     ProviderStatus,
     RoutingAction,
     RoutingDecision,
+    RoutingTelemetryReport,
     TaskNode,
+    TaskRoutingTelemetry,
 )
 from universal_orchestrator.providers import (
     AnthropicAdapter,
@@ -171,20 +174,14 @@ class AdaptiveRouter:
         self.registry = registry
 
     def route(self, task: TaskNode) -> RoutingDecision:
-        candidates: list[tuple[float, ProviderDescriptor]] = []
-        for provider in self.registry.available():
-            if not self._within_cost(task, provider):
-                continue
-            capability_score = self._capability_score(task, provider)
-            if capability_score <= 0:
-                continue
-            reliability = provider.health.reliability_score
-            cost_score = 1.0 - (COST_ORDER[provider.cost_tier] / 4)
-            total = capability_score * 0.65 + reliability * 0.25 + cost_score * 0.10
-            candidates.append((round(total, 4), provider))
+        provider_by_id = {provider.id: provider for provider in self.registry.providers}
+        candidates = [
+            metric for metric in self.provider_metrics(task) if metric.eligible
+        ]
 
         if candidates:
-            score, provider = sorted(candidates, key=lambda item: item[0], reverse=True)[0]
+            metric = sorted(candidates, key=lambda item: item.total_score, reverse=True)[0]
+            provider = provider_by_id[metric.provider_id]
             action = (
                 RoutingAction.ROUTE
                 if provider.supports(task.required_capabilities)
@@ -193,12 +190,15 @@ class AdaptiveRouter:
             reason = "Provider satisfies required capabilities."
             if action == RoutingAction.ROUTE_DEGRADED:
                 reason = "Best available provider is below one or more requested capability thresholds."
-            alternatives = [candidate.id for _, candidate in sorted(candidates, key=lambda item: item[0], reverse=True)[1:]]
+            alternatives = [
+                candidate.provider_id
+                for candidate in sorted(candidates, key=lambda item: item.total_score, reverse=True)[1:]
+            ]
             return RoutingDecision(
                 task_id=task.id,
                 action=action,
                 provider_id=provider.id,
-                score=score,
+                score=metric.total_score,
                 reason=reason,
                 alternatives=alternatives,
             )
@@ -217,6 +217,65 @@ class AdaptiveRouter:
 
     def route_all(self, tasks: list[TaskNode]) -> list[RoutingDecision]:
         return [self.route(task) for task in tasks]
+
+    def route_all_with_telemetry(
+        self,
+        run_id: str,
+        tasks: list[TaskNode],
+    ) -> tuple[list[RoutingDecision], RoutingTelemetryReport]:
+        decisions = self.route_all(tasks)
+        decision_by_task = {decision.task_id: decision for decision in decisions}
+        return decisions, RoutingTelemetryReport(
+            run_id=run_id,
+            provider_count=len(self.registry.providers),
+            task_telemetry=[
+                TaskRoutingTelemetry(
+                    task_id=task.id,
+                    selected_provider_id=decision_by_task[task.id].provider_id,
+                    selected_action=decision_by_task[task.id].action,
+                    selected_score=decision_by_task[task.id].score,
+                    metrics=self.provider_metrics(task),
+                )
+                for task in tasks
+            ],
+        )
+
+    def provider_metrics(self, task: TaskNode) -> list[ProviderRoutingMetric]:
+        metrics: list[ProviderRoutingMetric] = []
+        for provider in self.registry.providers:
+            reasons: list[str] = []
+            if not provider.enabled:
+                reasons.append("provider disabled")
+            if provider.health.status == ProviderStatus.UNAVAILABLE:
+                reasons.append("provider unavailable")
+            if not self._within_cost(task, provider):
+                reasons.append(f"provider cost tier {provider.cost_tier} exceeds task max {task.max_cost_tier}")
+            capability_score = self._capability_score(task, provider)
+            if capability_score <= 0:
+                reasons.append("provider has no matching required capabilities")
+            reliability = provider.health.reliability_score
+            cost_score = 1.0 - (COST_ORDER[provider.cost_tier] / 4)
+            total = 0.0
+            eligible = not reasons
+            if eligible:
+                total = capability_score * 0.65 + reliability * 0.25 + cost_score * 0.10
+            metrics.append(
+                ProviderRoutingMetric(
+                    task_id=task.id,
+                    provider_id=provider.id,
+                    enabled=provider.enabled,
+                    health_status=provider.health.status,
+                    reliability_score=reliability,
+                    cost_tier=provider.cost_tier,
+                    capability_score=round(capability_score, 4),
+                    cost_score=round(cost_score, 4),
+                    total_score=round(total, 4),
+                    eligible=eligible,
+                    supports_requirements=provider.supports(task.required_capabilities),
+                    rejection_reasons=reasons,
+                )
+            )
+        return metrics
 
     def _within_cost(self, task: TaskNode, provider: ProviderDescriptor) -> bool:
         return COST_ORDER[provider.cost_tier] <= COST_ORDER[task.max_cost_tier]

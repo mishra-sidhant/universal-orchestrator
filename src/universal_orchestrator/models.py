@@ -71,6 +71,7 @@ class RunState(StrEnum):
     ARTIFACT_VALIDATION = "artifact_validation"
     PACKAGING = "packaging"
     DELIVERED = "delivered"
+    CANCELLED = "cancelled"
     FAILED = "failed"
 
 
@@ -476,6 +477,35 @@ class RoutingDecision(StrictModel):
     alternatives: list[str] = Field(default_factory=list)
 
 
+class ProviderRoutingMetric(StrictModel):
+    task_id: str
+    provider_id: str
+    enabled: bool
+    health_status: ProviderStatus
+    reliability_score: float = Field(ge=0.0, le=1.0)
+    cost_tier: CostTier
+    capability_score: float = Field(default=0.0, ge=0.0)
+    cost_score: float = Field(default=0.0, ge=0.0, le=1.0)
+    total_score: float = Field(default=0.0, ge=0.0)
+    eligible: bool = False
+    supports_requirements: bool = False
+    rejection_reasons: list[str] = Field(default_factory=list)
+
+
+class TaskRoutingTelemetry(StrictModel):
+    task_id: str
+    selected_provider_id: str | None = None
+    selected_action: RoutingAction
+    selected_score: float = 0.0
+    metrics: list[ProviderRoutingMetric] = Field(default_factory=list)
+
+
+class RoutingTelemetryReport(StrictModel):
+    run_id: str
+    provider_count: int = 0
+    task_telemetry: list[TaskRoutingTelemetry] = Field(default_factory=list)
+
+
 class ExecutionResult(StrictModel):
     task_id: str
     provider_id: str | None
@@ -505,6 +535,91 @@ class ScheduleReport(StrictModel):
     parallel_batches: list[list[str]]
     cache_hits: list[str] = Field(default_factory=list)
     failed_tasks: list[str] = Field(default_factory=list)
+
+
+class TaskBudget(StrictModel):
+    task_id: str
+    original_max_cost_tier: CostTier
+    enforced_max_cost_tier: CostTier
+    estimated_tokens: int = 0
+    token_budget: int = 0
+    estimated_usd: float | None = None
+    reason: str = ""
+
+
+class BudgetReport(StrictModel):
+    run_id: str
+    requested_profile: BudgetProfile
+    effective_max_cost_tier: CostTier
+    total_estimated_tokens: int = 0
+    total_token_budget: int = 0
+    total_estimated_usd: float | None = None
+    enforced: bool = True
+    task_budgets: list[TaskBudget] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
+class DeltaTaskDecision(StrictModel):
+    task_id: str
+    action: Literal["execute", "reuse"]
+    reason: str
+    cache_key: str | None = None
+    previous_run_id: str | None = None
+
+
+class DeltaExecutionPlan(StrictModel):
+    run_id: str
+    previous_run_id: str | None = None
+    input_hash_changed: bool = True
+    changed_input_ids: list[str] = Field(default_factory=list)
+    reusable_task_ids: list[str] = Field(default_factory=list)
+    executable_task_ids: list[str] = Field(default_factory=list)
+    task_decisions: list[DeltaTaskDecision] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
+class TraceSpan(StrictModel):
+    name: str
+    started_at: datetime
+    completed_at: datetime
+    duration_ms: float = 0.0
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class ObservabilityReport(StrictModel):
+    run_id: str
+    spans: list[TraceSpan] = Field(default_factory=list)
+    final_state: RunState | None = None
+    event_count: int = 0
+    artifact_count: int = 0
+    warning_count: int = 0
+
+
+class DebugBundleManifest(StrictModel):
+    run_id: str
+    artifact_names: list[str] = Field(default_factory=list)
+    report_names: list[str] = Field(default_factory=list)
+    trace_names: list[str] = Field(default_factory=list)
+    redaction_notice: str = "Secrets are redacted from summaries; raw user files are not copied into this manifest."
+    safe_to_share: bool = False
+
+
+class EvidenceAuditFinding(StrictModel):
+    kind: str
+    passed: bool
+    severity: Literal["info", "low", "medium", "high", "critical"]
+    message: str
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class EvidenceAuditReport(StrictModel):
+    run_id: str
+    passed: bool
+    source_count: int = 0
+    provenance_count: int = 0
+    cited_source_ids: list[str] = Field(default_factory=list)
+    unsupported_task_ids: list[str] = Field(default_factory=list)
+    findings: list[EvidenceAuditFinding] = Field(default_factory=list)
 
 
 class ValidationFinding(StrictModel):

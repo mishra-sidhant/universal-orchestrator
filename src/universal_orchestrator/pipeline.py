@@ -4,9 +4,12 @@ from pathlib import Path
 
 from universal_orchestrator.artifact_builders import ArtifactBuilder
 from universal_orchestrator.artifacts import ArtifactStore
+from universal_orchestrator.budget import BudgetController
 from universal_orchestrator.cache import SemanticCache
 from universal_orchestrator.context import ContextIntelligence
 from universal_orchestrator.contracts import ProductContractCompiler
+from universal_orchestrator.delta import DeltaPlanner
+from universal_orchestrator.evidence import EvidenceAuditor
 from universal_orchestrator.execution import DeterministicExecutor
 from universal_orchestrator.ingestion import InputIngestor
 from universal_orchestrator.models import (
@@ -20,6 +23,7 @@ from universal_orchestrator.models import (
     new_id,
     utc_now,
 )
+from universal_orchestrator.observability import DebugBundleBuilder, TraceRecorder
 from universal_orchestrator.planning import PlannerEnsemble
 from universal_orchestrator.product import FinalProductOwner
 from universal_orchestrator.quality import QualityGateEngine
@@ -36,29 +40,39 @@ class Orchestrator:
         self.context = ContextIntelligence()
         self.contracts = ProductContractCompiler()
         self.planner = PlannerEnsemble()
+        self.budget = BudgetController()
+        self.delta = DeltaPlanner()
         self.executor = DeterministicExecutor()
         self.quality = QualityGateEngine()
+        self.evidence = EvidenceAuditor()
         self.repair = RepairPlanner()
         self.product_owner = FinalProductOwner()
         self.artifact_builder = ArtifactBuilder()
+        self.debug_bundle = DebugBundleBuilder()
         self.cache = SemanticCache(Path(artifact_root) / "_cache")
         self.runtime = RuntimeStore(Path(artifact_root) / "runtime.sqlite3")
         self.scheduler = DAGScheduler(self.cache)
 
     def run(self, invocation: HostInvocation) -> RunResult:
         run_id = new_id("run")
+        trace = TraceRecorder(run_id)
         started_at = utc_now()
         self.runtime.record_event(RuntimeEvent(run_id=run_id, event_type="received", payload={"host": invocation.host}))
         self.runtime.transition(run_id, RunState.RECEIVED)
 
         manifest = self.ingestor.ingest(invocation, run_id)
         self.runtime.transition(run_id, RunState.INGESTING)
+        trace.checkpoint("ingestion", {"input_count": len(manifest.inputs), "parsed_count": manifest.parsed_count})
         raw_cards = self.context.deduplicate_cards(self.context.build_cards(manifest))
         cards = self.context.rank_cards(invocation.prompt, raw_cards)
         chunks = self.context.chunk_manifest(manifest)
         provenance = self.context.provenance(cards, chunks)
         context_index = self.context.build_index(cards)
         conflicts = self.context.detect_conflicts(cards)
+        trace.checkpoint(
+            "context_indexing",
+            {"card_count": len(cards), "chunk_count": len(chunks), "conflict_count": len(conflicts)},
+        )
         cache_key = self.cache.key_for(
             "context_cards",
             {"prompt": invocation.prompt, "inputs": [item.content_hash for item in manifest.inputs]},
@@ -71,17 +85,33 @@ class Orchestrator:
                 "conflicts": conflicts,
             },
         )
+        cache_context = {"context_cache_key": cache_key}
         contract = self.contracts.compile(invocation, manifest)
         self.runtime.transition(run_id, RunState.CONTRACTING)
+        trace.checkpoint("contracting", {"run_type": contract.run_type, "artifacts": contract.primary_artifacts})
         dag = self.planner.create_execution_plan(run_id, contract)
         self.runtime.transition(run_id, RunState.PLANNING)
-        plan_review = self.planner.review_plan(run_id, contract, dag)
         context_packs = self.context.compile_packs_for_tasks([node.id for node in dag.nodes], cards)
+        dag, budget_report = self.budget.apply(invocation, dag, context_packs)
+        plan_review = self.planner.review_plan(run_id, contract, dag)
+        delta_plan = self.delta.plan(manifest, dag, self.runtime, self.scheduler, cache_context)
+        trace.checkpoint(
+            "planning",
+            {
+                "task_count": len(dag.nodes),
+                "budget_profile": budget_report.requested_profile,
+                "reusable_task_count": len(delta_plan.reusable_task_ids),
+            },
+        )
 
         registry = CapabilityRegistry.from_environment()
         router = AdaptiveRouter(registry)
-        decisions = router.route_all(dag.topological_order())
+        decisions, routing_telemetry = router.route_all_with_telemetry(run_id, dag.topological_order())
         self.runtime.transition(run_id, RunState.ROUTING)
+        trace.checkpoint(
+            "routing",
+            {"decision_count": len(decisions), "provider_count": routing_telemetry.provider_count},
+        )
         execution_context = {
             "run_id": run_id,
             "contract": contract.model_dump(mode="json"),
@@ -91,6 +121,7 @@ class Orchestrator:
             "context_card_count": len(cards),
             "context_chunk_count": len(chunks),
             "context_pack_count": len(context_packs),
+            "delta_reusable_task_count": len(delta_plan.reusable_task_ids),
         }
         self.executor = DeterministicExecutor(
             adapters=registry.adapter_registry(),
@@ -100,9 +131,13 @@ class Orchestrator:
             context=execution_context,
         )
         self.runtime.transition(run_id, RunState.EXECUTING)
-        results, schedule_report = self.scheduler.execute(dag, decisions, self.executor)
+        results, schedule_report = self.scheduler.execute(dag, decisions, self.executor, cache_context)
         for record in schedule_report.records:
             self.runtime.save_task_record(run_id, record.task_id, str(record.status), record.attempt, record.cache_key)
+        trace.checkpoint(
+            "execution",
+            {"result_count": len(results), "cache_hits": len(schedule_report.cache_hits)},
+        )
 
         artifacts: list[Artifact] = []
         artifacts.append(
@@ -156,9 +191,26 @@ class Orchestrator:
         )
         artifacts.append(
             self.artifact_store.write_json_artifact(
+                run_id, "budget_report.json", budget_report.model_dump(mode="json")
+            )
+        )
+        artifacts.append(
+            self.artifact_store.write_json_artifact(
+                run_id, "delta_execution_plan.json", delta_plan.model_dump(mode="json")
+            )
+        )
+        artifacts.append(
+            self.artifact_store.write_json_artifact(
                 run_id,
                 "routing_decisions.json",
                 [decision.model_dump(mode="json") for decision in decisions],
+            )
+        )
+        artifacts.append(
+            self.artifact_store.write_json_artifact(
+                run_id,
+                "routing_telemetry.json",
+                routing_telemetry.model_dump(mode="json"),
             )
         )
         artifacts.append(
@@ -185,6 +237,7 @@ class Orchestrator:
         all_decisions = list(decisions)
         all_results = list(results)
         self.runtime.transition(run_id, RunState.VALIDATION)
+        trace.checkpoint("validation", {"quality_passed": quality.passed, "violations": len(quality.violations)})
         if not quality.passed:
             repair_dag = self.repair.create_repair_dag(run_id, quality)
             repair_decisions = router.route_all(repair_dag.topological_order())
@@ -210,7 +263,11 @@ class Orchestrator:
                 decisions=all_decisions,
                 results=all_results,
                 artifact_paths=[artifact.as_path for artifact in artifacts],
-        )
+            )
+            trace.checkpoint(
+                "repair_execution",
+                {"repair_tasks": len(repair_dag.nodes), "quality_passed": quality.passed},
+            )
         validation_findings = self.quality.validators.evaluate(
             manifest, contract, dag, all_decisions, all_results, [artifact.as_path for artifact in artifacts]
         )
@@ -221,13 +278,27 @@ class Orchestrator:
                 [finding.model_dump(mode="json") for finding in validation_findings],
             )
         )
+        product_package = self.product_owner.assemble(
+            manifest, contract, cards, dag, all_decisions, all_results, quality
+        )
+        evidence_audit = self.evidence.audit(product_package, cards, provenance, all_results)
+        quality = self.evidence.apply_to_quality(
+            quality,
+            evidence_audit,
+            source_required="source-aware synthesis" in contract.must_have,
+        )
+        product_package = self.product_owner.assemble(
+            manifest, contract, cards, dag, all_decisions, all_results, quality
+        )
+        artifacts.append(
+            self.artifact_store.write_json_artifact(
+                run_id, "evidence_audit.json", evidence_audit.model_dump(mode="json")
+            )
+        )
         artifacts.append(
             self.artifact_store.write_json_artifact(
                 run_id, "quality_report.json", quality.model_dump(mode="json")
             )
-        )
-        product_package = self.product_owner.assemble(
-            manifest, contract, cards, dag, all_decisions, all_results, quality
         )
         artifacts.append(
             self.artifact_store.write_json_artifact(
@@ -259,11 +330,30 @@ class Orchestrator:
                     run_id, "docx_validation.json", {"path": str(docx_path), "errors": docx_errors}
                 )
             )
+        final_state = RunState.DELIVERED if quality.passed else RunState.VALIDATION
+        trace.checkpoint("final_assembly", {"artifact_count": len(artifacts), "quality_passed": quality.passed})
+        trace_report = trace.report(
+            final_state=final_state,
+            event_count=len(self.runtime.list_events(run_id)),
+            artifact_count=len(artifacts) + 2,
+            warning_count=len(manifest.warnings) + len(quality.warnings),
+        )
+        artifacts.append(
+            self.artifact_store.write_json_artifact(
+                run_id, "trace_report.json", trace_report.model_dump(mode="json")
+            )
+        )
+        debug_manifest = self.debug_bundle.build(run_id, artifacts)
+        artifacts.append(
+            self.artifact_store.write_json_artifact(
+                run_id, "debug_bundle_manifest.json", debug_manifest.model_dump(mode="json")
+            )
+        )
 
         run_manifest = RunManifest(
             run_id=run_id,
             invocation=invocation,
-            state=RunState.DELIVERED if quality.passed else RunState.VALIDATION,
+            state=final_state,
             context_manifest_path=str(self.artifact_store.run_dir(run_id) / "context_manifest.json"),
             product_contract_path=str(self.artifact_store.run_dir(run_id) / "product_contract.json"),
             task_dag_path=str(self.artifact_store.run_dir(run_id) / "task_dag.json"),

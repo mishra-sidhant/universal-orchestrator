@@ -11,6 +11,7 @@ from universal_orchestrator.evals import built_in_suite
 from universal_orchestrator.models import Host, HostInvocation, InputAttachment, UserOptions
 from universal_orchestrator.pipeline import Orchestrator
 from universal_orchestrator.routing import CapabilityRegistry
+from universal_orchestrator.runtime import RuntimeStore
 from universal_orchestrator.utils import read_json
 
 
@@ -72,11 +73,15 @@ def tool_definitions() -> list[dict[str, Any]]:
         },
         {
             "name": "ai_team.cancel",
-            "description": "Cancellation placeholder for future durable runs.",
+            "description": "Request durable cancellation for a run.",
             "inputSchema": {
                 "type": "object",
                 "required": ["run_id"],
-                "properties": {"run_id": {"type": "string"}},
+                "properties": {
+                    "run_id": {"type": "string"},
+                    "root": {"type": "string", "default": ".uo/runs"},
+                    "reason": {"type": "string", "default": "User requested cancellation."},
+                },
             },
         },
         {
@@ -102,7 +107,7 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, A
     if name == "ai_team.configure":
         return _tool_configure(args)
     if name == "ai_team.cancel":
-        return {"run_id": args.get("run_id"), "cancelled": False, "reason": "Durable cancellation is not implemented yet."}
+        return _tool_cancel(args)
     if name == "ai_team.evals":
         return built_in_suite().model_dump(mode="json")
     raise ValueError(f"Unknown tool: {name}")
@@ -169,8 +174,12 @@ def _tool_run(args: dict[str, Any]) -> dict[str, Any]:
 
 
 def _tool_status(args: dict[str, Any]) -> dict[str, Any]:
-    path = Path(args.get("root", ".uo/runs")) / args["run_id"] / "run_manifest.json"
-    return read_json(path)
+    root = Path(args.get("root", ".uo/runs"))
+    path = root / args["run_id"] / "run_manifest.json"
+    payload = read_json(path)
+    runtime = RuntimeStore(root / "runtime.sqlite3")
+    payload["runtime_snapshot"] = runtime.resumable_snapshot(args["run_id"])
+    return payload
 
 
 def _tool_artifacts(args: dict[str, Any]) -> dict[str, Any]:
@@ -204,6 +213,15 @@ def _tool_configure(args: dict[str, Any]) -> dict[str, Any]:
         "template": configuration_template(),
         "providers": provider_config_status(env_file),
     }
+
+
+def _tool_cancel(args: dict[str, Any]) -> dict[str, Any]:
+    root = Path(args.get("root", ".uo/runs"))
+    runtime = RuntimeStore(root / "runtime.sqlite3")
+    return runtime.request_cancel(
+        args["run_id"],
+        args.get("reason", "User requested cancellation."),
+    )
 
 
 def _error(request_id: Any, code: int, message: str) -> dict[str, Any]:
