@@ -29,9 +29,13 @@ class PipelineTests(unittest.TestCase):
             self.assertTrue((run_dir / "run_manifest.json").exists())
             self.assertTrue((run_dir / "final_report.md").exists())
             self.assertTrue((run_dir / "context_manifest.json").exists())
+            self.assertTrue((run_dir / "context_chunks.json").exists())
+            self.assertTrue((run_dir / "context_provenance.json").exists())
+            self.assertTrue((run_dir / "context_packs.json").exists())
             self.assertTrue((run_dir / "plan_review.json").exists())
             self.assertTrue((run_dir / "product_package.json").exists())
             self.assertTrue((run_dir / "validation_findings.json").exists())
+            self.assertTrue((run_dir / "schedule_report.json").exists())
             execution_results = (run_dir / "execution_results.json").read_text()
             self.assertIn("worker_output", execution_results)
             self.assertIn("findings", execution_results)
@@ -54,6 +58,25 @@ class PipelineTests(unittest.TestCase):
             self.assertTrue(result.quality.passed)
             self.assertTrue((run_dir / "final_report.pdf").exists())
             self.assertTrue((run_dir / "pdf_validation.json").exists())
+
+    def test_pipeline_runtime_snapshot_reaches_final_state(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "source.md"
+            source.write_text("# Product\nBuild the kernel spine.")
+            out = root / "runs"
+            result = Orchestrator(out).run(
+                HostInvocation(
+                    prompt="Build a serious implementation report",
+                    attachments=[InputAttachment(uri=str(source))],
+                    cwd=str(root),
+                )
+            )
+
+            snapshot = Orchestrator(out).runtime.resumable_snapshot(result.run_id)
+
+        self.assertEqual(snapshot["latest_state"], "delivered")
+        self.assertTrue(snapshot["tasks"])
 
     def test_deterministic_registry_can_degrade_core_reasoning_tasks(self) -> None:
         capabilities = CapabilityRegistry.from_environment().providers[0].capabilities

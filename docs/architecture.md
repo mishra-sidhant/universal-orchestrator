@@ -51,6 +51,12 @@ Context intelligence converts `InputRecord` values into `ContextCard` objects, r
 
 Current ranking is deterministic lexical overlap plus specificity and risk boosts. The system also writes a context index, conflict markers, and cache metadata for reuse and auditability. Future ranking should add embeddings, recency, trust, freshness, authority, and deeper semantic deduplication.
 
+Part A adds deterministic chunking, provenance records, deduplication, and per-task context pack artifacts:
+
+- `context_chunks.json`
+- `context_provenance.json`
+- `context_packs.json`
+
 ## Product Plane
 
 The `ProductContractCompiler` converts messy prompts into a `ProductContract` and `DefinitionOfDone`. This is the source of truth for planning and validation.
@@ -70,6 +76,8 @@ The kernel uses `PlannerEnsemble` to create a typed `TaskDAG`. The first planner
 
 Each run now writes `plan_review.json`, containing deterministic candidate plans from strategic, decomposition, risk, cost, and skeptic planner roles. This is still not a live multi-model ensemble, but it enforces the report's candidate-plan, scoring, merge, and residual-risk contract.
 
+Plan review now also includes critical path analysis, cost-tier estimation, parallel batch simulation, max parallelism, and residual risk summaries.
+
 The DAG is validated for missing dependencies and cycles before routing.
 
 ## Routing Plane
@@ -88,6 +96,8 @@ No hosted provider calls are made in this milestone.
 ## Execution Plane
 
 `DeterministicExecutor` dispatches through provider adapters and records structured worker outputs. Each task result includes a worker output object with summary, findings, evidence references, file references, metrics, risks, and next actions. External adapters remain dry-run safe unless network access and provider configuration are explicitly enabled.
+
+`DAGScheduler` now executes tasks by dependency-ready batches, records schedule metadata, uses cache keys for node-level reuse, and writes `schedule_report.json`. This is still single-process deterministic execution, but the scheduler boundary is ready for parallel workers, retries, cancellation, and partial reruns.
 
 ## Quality Plane
 
@@ -138,5 +148,15 @@ When repair is triggered, packages also include:
 ## Runtime And Evaluation
 
 `RuntimeStore` writes SQLite event and run-summary records under the artifact root. This is the first durable-state layer for resumability, audit, cancellation, and dashboard support.
+
+Part A extends runtime durability with state transitions, task records, and resumable snapshots. Each run persists task status, attempt count, cache key, and lifecycle state transitions.
+
+## Repo Intelligence
+
+`RepoAnalyzer` detects language mix, framework hints, package/config files, likely test commands, hot files, and generated/dependency directories. Repo maps are attached to repository input metadata so planners and validators can reason about codebase boundaries.
+
+## Ingestion Hardening
+
+Part A adds text encoding detection, symlink warnings, archive entry and uncompressed-size limits, and repository mapping. Archive contents are still inventoried without unpacking unless a future sandbox extraction path is explicitly enabled.
 
 `universal_orchestrator.evals` defines built-in world-readiness cases for report packages, repo implementation traces, and unsafe archive handling. The CLI exposes these through `python -m universal_orchestrator evals`.

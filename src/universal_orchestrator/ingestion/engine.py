@@ -11,6 +11,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from universal_orchestrator.ingestion.detectors import detect_input_type
+from universal_orchestrator.ingestion.hardening import IngestionLimits, detect_text_encoding, symlink_warning
 from universal_orchestrator.models import (
     ContextManifest,
     HostInvocation,
@@ -20,6 +21,7 @@ from universal_orchestrator.models import (
     InputType,
     new_id,
 )
+from universal_orchestrator.repo import RepoAnalyzer
 from universal_orchestrator.security import redact_text, scan_text
 from universal_orchestrator.utils import compact_whitespace, iter_files, sha256_bytes, sha256_file, truncate_words
 
@@ -42,8 +44,16 @@ IGNORED_NAMES = {
 
 class InputIngestor:
     def __init__(self, max_file_bytes: int = 5_000_000, max_folder_files: int = 500) -> None:
-        self.max_file_bytes = max_file_bytes
-        self.max_folder_files = max_folder_files
+        self.limits = IngestionLimits(max_file_bytes=max_file_bytes, max_folder_files=max_folder_files)
+        self.repo_analyzer = RepoAnalyzer()
+
+    @property
+    def max_file_bytes(self) -> int:
+        return self.limits.max_file_bytes
+
+    @property
+    def max_folder_files(self) -> int:
+        return self.limits.max_folder_files
 
     def ingest(self, invocation: HostInvocation, run_id: str) -> ContextManifest:
         records: list[InputRecord] = []
@@ -111,6 +121,8 @@ class InputIngestor:
         if input_type in {InputType.URL, InputType.API}:
             return self._ingest_url(attachment, cwd, allow_network)
 
+        original_path = Path(attachment.uri).expanduser()
+        warning_for_symlink = symlink_warning(original_path)
         path = self._resolve_path(attachment.uri, cwd)
         name = attachment.name or path.name or str(path)
         if not path.exists():
@@ -121,13 +133,19 @@ class InputIngestor:
                 uri=attachment.uri,
                 path=str(path),
                 status=InputStatus.FAILED,
-                warnings=["Path does not exist."],
+                warnings=[warning for warning in [warning_for_symlink, "Path does not exist."] if warning],
             )
 
         if input_type in {InputType.FOLDER, InputType.REPO}:
-            return self._ingest_folder(path, input_type, attachment)
+            record = self._ingest_folder(path, input_type, attachment)
+            if warning_for_symlink:
+                record.warnings.append(warning_for_symlink)
+            return record
         if input_type in {InputType.TEXT, InputType.MARKDOWN, InputType.CODE, InputType.UNKNOWN}:
-            return self._ingest_text_file(path, input_type, attachment)
+            record = self._ingest_text_file(path, input_type, attachment)
+            if warning_for_symlink:
+                record.warnings.append(warning_for_symlink)
+            return record
         if input_type == InputType.PDF:
             return self._ingest_pdf(path, attachment)
         if input_type == InputType.DOCX:
@@ -156,7 +174,8 @@ class InputIngestor:
         if size > self.max_file_bytes:
             warnings.append(f"File exceeds max_file_bytes={self.max_file_bytes}; summary uses prefix only.")
         raw = path.read_bytes()[: self.max_file_bytes]
-        text = raw.decode("utf-8", errors="replace")
+        encoding = detect_text_encoding(raw)
+        text = raw.decode(encoding, errors="replace")
         findings = scan_text(text, location=str(path))
         redacted = redact_text(text)
         return InputRecord(
@@ -170,7 +189,7 @@ class InputIngestor:
             size_bytes=size,
             mime_type=mimetypes.guess_type(path.name)[0],
             summary=truncate_words(redacted, 140),
-            metadata={"chars_read": len(text), "suffix": path.suffix.lower()},
+            metadata={"chars_read": len(text), "suffix": path.suffix.lower(), "encoding": encoding},
             warnings=warnings,
             security_findings=findings,
         )
@@ -369,6 +388,10 @@ class InputIngestor:
             warnings.append(f"Archive inventory failed: {exc}")
         unsafe = [name for name in entries if name.startswith("/") or ".." in Path(name).parts]
         metadata["unsafe_paths"] = unsafe
+        if metadata.get("entries", 0) > self.limits.max_archive_entries:
+            warnings.append(f"Archive exceeds max entries: {metadata['entries']}")
+        if metadata.get("uncompressed_bytes", 0) > self.limits.max_archive_uncompressed_bytes:
+            warnings.append(f"Archive exceeds max uncompressed bytes: {metadata['uncompressed_bytes']}")
         if unsafe:
             warnings.append(f"Archive contains unsafe paths: {unsafe[:5]}")
         summary = f"Archive inventory: {metadata.get('entries', 0)} entries. Sample: {', '.join(entries[:10])}"
@@ -480,6 +503,8 @@ class InputIngestor:
             "suffix_counts": suffix_counts,
             "is_git_repo": (path / ".git").exists(),
         }
+        if input_type == InputType.REPO:
+            metadata["repo_map"] = self.repo_analyzer.analyze(path, self.max_folder_files).model_dump(mode="json")
         return InputRecord(
             id=new_id("input"),
             type=input_type,

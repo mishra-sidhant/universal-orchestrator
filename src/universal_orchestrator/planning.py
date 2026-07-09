@@ -20,6 +20,7 @@ class PlannerEnsemble:
         score = round(sum(candidate.score for candidate in candidates) / max(1, len(candidates)), 4)
         strengths = sorted({strength for candidate in candidates for strength in candidate.strengths})
         risks = sorted({risk for candidate in candidates for risk in candidate.risks})
+        critical_path = self.critical_path(dag)
         return PlanReview(
             run_id=run_id,
             candidates=candidates,
@@ -27,7 +28,54 @@ class PlannerEnsemble:
             merged_strengths=strengths,
             residual_risks=risks,
             score=score,
+            critical_path=critical_path,
+            estimated_cost_tier=self.estimate_cost_tier(dag),
+            simulation=self.simulate_plan(dag),
         )
+
+    def critical_path(self, dag: TaskDAG) -> list[str]:
+        nodes = {node.id: node for node in dag.nodes}
+        memo: dict[str, list[str]] = {}
+
+        def path_to(node_id: str) -> list[str]:
+            if node_id in memo:
+                return memo[node_id]
+            node = nodes[node_id]
+            if not node.dependencies:
+                memo[node_id] = [node_id]
+                return memo[node_id]
+            best_dependency_path = max((path_to(dep) for dep in node.dependencies), key=len)
+            memo[node_id] = [*best_dependency_path, node_id]
+            return memo[node_id]
+
+        return max((path_to(node.id) for node in dag.nodes), key=len)
+
+    def estimate_cost_tier(self, dag: TaskDAG) -> CostTier:
+        order = {CostTier.FREE: 0, CostTier.CHEAP: 1, CostTier.MEDIUM: 2, CostTier.PREMIUM: 3}
+        return max((node.max_cost_tier for node in dag.nodes), key=lambda tier: order[tier])
+
+    def simulate_plan(self, dag: TaskDAG) -> dict[str, object]:
+        remaining = {node.id: node for node in dag.nodes}
+        completed: set[str] = set()
+        batches: list[list[str]] = []
+        while remaining:
+            ready = sorted(
+                node.id
+                for node in remaining.values()
+                if all(dependency in completed for dependency in node.dependencies)
+            )
+            if not ready:
+                break
+            batches.append(ready)
+            completed.update(ready)
+            for task_id in ready:
+                remaining.pop(task_id)
+        return {
+            "task_count": len(dag.nodes),
+            "parallel_batches": batches,
+            "max_parallelism": max((len(batch) for batch in batches), default=0),
+            "critical_path_length": len(self.critical_path(dag)),
+        }
 
     def create_candidate_plans(self, contract: ProductContract, dag: TaskDAG) -> list[PlanCandidate]:
         task_ids = [node.id for node in dag.nodes]

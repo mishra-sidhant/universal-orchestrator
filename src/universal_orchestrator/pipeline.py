@@ -26,6 +26,7 @@ from universal_orchestrator.quality import QualityGateEngine
 from universal_orchestrator.repair import RepairPlanner
 from universal_orchestrator.runtime import RuntimeStore
 from universal_orchestrator.routing import AdaptiveRouter, CapabilityRegistry
+from universal_orchestrator.scheduler import DAGScheduler
 
 
 class Orchestrator:
@@ -42,14 +43,20 @@ class Orchestrator:
         self.artifact_builder = ArtifactBuilder()
         self.cache = SemanticCache(Path(artifact_root) / "_cache")
         self.runtime = RuntimeStore(Path(artifact_root) / "runtime.sqlite3")
+        self.scheduler = DAGScheduler(self.cache)
 
     def run(self, invocation: HostInvocation) -> RunResult:
         run_id = new_id("run")
         started_at = utc_now()
         self.runtime.record_event(RuntimeEvent(run_id=run_id, event_type="received", payload={"host": invocation.host}))
+        self.runtime.transition(run_id, RunState.RECEIVED)
 
         manifest = self.ingestor.ingest(invocation, run_id)
-        cards = self.context.rank_cards(invocation.prompt, self.context.build_cards(manifest))
+        self.runtime.transition(run_id, RunState.INGESTING)
+        raw_cards = self.context.deduplicate_cards(self.context.build_cards(manifest))
+        cards = self.context.rank_cards(invocation.prompt, raw_cards)
+        chunks = self.context.chunk_manifest(manifest)
+        provenance = self.context.provenance(cards, chunks)
         context_index = self.context.build_index(cards)
         conflicts = self.context.detect_conflicts(cards)
         cache_key = self.cache.key_for(
@@ -65,12 +72,16 @@ class Orchestrator:
             },
         )
         contract = self.contracts.compile(invocation, manifest)
+        self.runtime.transition(run_id, RunState.CONTRACTING)
         dag = self.planner.create_execution_plan(run_id, contract)
+        self.runtime.transition(run_id, RunState.PLANNING)
         plan_review = self.planner.review_plan(run_id, contract, dag)
+        context_packs = self.context.compile_packs_for_tasks([node.id for node in dag.nodes], cards)
 
         registry = CapabilityRegistry.from_environment()
         router = AdaptiveRouter(registry)
         decisions = router.route_all(dag.topological_order())
+        self.runtime.transition(run_id, RunState.ROUTING)
         execution_context = {
             "run_id": run_id,
             "contract": contract.model_dump(mode="json"),
@@ -78,6 +89,8 @@ class Orchestrator:
             "files": [item.path for item in manifest.inputs if item.path],
             "security_findings_count": sum(len(item.security_findings) for item in manifest.inputs),
             "context_card_count": len(cards),
+            "context_chunk_count": len(chunks),
+            "context_pack_count": len(context_packs),
         }
         self.executor = DeterministicExecutor(
             adapters=registry.adapter_registry(),
@@ -86,7 +99,10 @@ class Orchestrator:
             dry_run_external=not invocation.user_options.allow_internet,
             context=execution_context,
         )
-        results = self.executor.execute(dag.topological_order(), decisions)
+        self.runtime.transition(run_id, RunState.EXECUTING)
+        results, schedule_report = self.scheduler.execute(dag, decisions, self.executor)
+        for record in schedule_report.records:
+            self.runtime.save_task_record(run_id, record.task_id, str(record.status), record.attempt, record.cache_key)
 
         artifacts: list[Artifact] = []
         artifacts.append(
@@ -97,6 +113,23 @@ class Orchestrator:
         artifacts.append(
             self.artifact_store.write_json_artifact(
                 run_id, "context_cards.json", [card.model_dump(mode="json") for card in cards]
+            )
+        )
+        artifacts.append(
+            self.artifact_store.write_json_artifact(
+                run_id, "context_chunks.json", [chunk.model_dump(mode="json") for chunk in chunks]
+            )
+        )
+        artifacts.append(
+            self.artifact_store.write_json_artifact(
+                run_id, "context_provenance.json", [item.model_dump(mode="json") for item in provenance]
+            )
+        )
+        artifacts.append(
+            self.artifact_store.write_json_artifact(
+                run_id,
+                "context_packs.json",
+                {task_id: pack.model_dump(mode="json") for task_id, pack in context_packs.items()},
             )
         )
         artifacts.append(
@@ -135,6 +168,11 @@ class Orchestrator:
                 [result.model_dump(mode="json") for result in results],
             )
         )
+        artifacts.append(
+            self.artifact_store.write_json_artifact(
+                run_id, "schedule_report.json", schedule_report.model_dump(mode="json")
+            )
+        )
 
         quality = self.quality.evaluate(
             manifest=manifest,
@@ -146,6 +184,7 @@ class Orchestrator:
         )
         all_decisions = list(decisions)
         all_results = list(results)
+        self.runtime.transition(run_id, RunState.VALIDATION)
         if not quality.passed:
             repair_dag = self.repair.create_repair_dag(run_id, quality)
             repair_decisions = router.route_all(repair_dag.topological_order())
@@ -244,6 +283,7 @@ class Orchestrator:
             str(self.artifact_store.run_dir(run_id)),
             quality.passed,
         )
+        self.runtime.transition(run_id, run_manifest.state)
         self.runtime.record_event(
             RuntimeEvent(
                 run_id=run_id,

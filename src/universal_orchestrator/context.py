@@ -6,13 +6,15 @@ from collections import defaultdict
 from universal_orchestrator.models import (
     CardType,
     ContextCard,
+    ContextChunk,
     ContextManifest,
     ContextPack,
     InputRecord,
     InputType,
+    ProvenanceRecord,
     new_id,
 )
-from universal_orchestrator.utils import estimate_tokens
+from universal_orchestrator.utils import estimate_tokens, sha256_bytes
 
 
 class ContextIntelligence:
@@ -57,6 +59,52 @@ class ContextIntelligence:
                 index[term].append(card.id)
         return dict(index)
 
+    def chunk_manifest(self, manifest: ContextManifest, max_tokens: int = 220) -> list[ContextChunk]:
+        chunks: list[ContextChunk] = []
+        for record in manifest.inputs:
+            words = record.summary.split()
+            if not words:
+                continue
+            current: list[str] = []
+            ordinal = 0
+            for word in words:
+                current.append(word)
+                if estimate_tokens(" ".join(current)) >= max_tokens:
+                    chunks.append(self._chunk(record.id, ordinal, " ".join(current)))
+                    ordinal += 1
+                    current = []
+            if current:
+                chunks.append(self._chunk(record.id, ordinal, " ".join(current)))
+        return chunks
+
+    def provenance(self, cards: list[ContextCard], chunks: list[ContextChunk]) -> list[ProvenanceRecord]:
+        chunks_by_input: dict[str, list[str]] = defaultdict(list)
+        hashes_by_input: dict[str, str] = {}
+        for chunk in chunks:
+            chunks_by_input[chunk.input_id].append(chunk.id)
+            hashes_by_input.setdefault(chunk.input_id, chunk.content_hash)
+        return [
+            ProvenanceRecord(
+                source_id=card.input_id,
+                card_id=card.id,
+                chunk_ids=chunks_by_input.get(card.input_id, []),
+                trust_level=card.trust_level,
+                content_hash=hashes_by_input.get(card.input_id),
+            )
+            for card in cards
+        ]
+
+    def deduplicate_cards(self, cards: list[ContextCard]) -> list[ContextCard]:
+        seen: set[str] = set()
+        deduped: list[ContextCard] = []
+        for card in cards:
+            key = sha256_bytes(f"{card.title}:{card.summary}".lower().encode("utf-8"))
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(card)
+        return deduped
+
     def retrieve(self, query: str, cards: list[ContextCard], limit: int = 8) -> list[ContextCard]:
         ranked = self.rank_cards(query, cards)
         return ranked[:limit]
@@ -100,6 +148,27 @@ class ContextIntelligence:
             files_to_read=files_to_read,
             do_not_touch=[".git/", ".uo/runs/", "node_modules/", ".venv/"],
             token_budget=token_budget,
+        )
+
+    def compile_packs_for_tasks(
+        self,
+        task_ids: list[str],
+        cards: list[ContextCard],
+        token_budget: int = 16_000,
+    ) -> dict[str, ContextPack]:
+        return {
+            task_id: self.compile_pack(task_id, f"Context pack for {task_id}", cards, token_budget)
+            for task_id in task_ids
+        }
+
+    def _chunk(self, input_id: str, ordinal: int, text: str) -> ContextChunk:
+        return ContextChunk(
+            id=f"chunk_{input_id}_{ordinal}",
+            input_id=input_id,
+            ordinal=ordinal,
+            text=text,
+            token_estimate=estimate_tokens(text),
+            content_hash=sha256_bytes(text.encode("utf-8")),
         )
 
     def _card_from_record(self, record: InputRecord) -> ContextCard:

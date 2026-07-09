@@ -102,3 +102,27 @@ PDF render check:
 - Rendered two PNG pages with Poppler under `tmp/pdfs/world-ready-final-*.png`.
 - Inspected both rendered pages for legibility, clipping, and layout issues.
 - `pdf_validation.json` reported no errors.
+
+## Part A Remaining-Gap Implementation
+
+Part A addressed the first six remaining non-provider gaps:
+
+1. Real DAG scheduler foundations: dependency-ready batches, schedule records, cache keys, and `schedule_report.json`.
+2. Durable run lifecycle: SQLite state transitions, task records, resumable snapshots, and persisted attempts/cache keys.
+3. Planner ensemble depth: critical path, cost-tier estimation, parallel batch simulation, and richer `plan_review.json`.
+4. Context intelligence maturity: chunking, provenance, deduplication, per-task context packs, and budget-aware pack compilation.
+5. Repo intelligence: framework detection, language counts, package files, hot files, dependency/generated dirs, and test command detection.
+6. Ingestion hardening: encoding detection, symlink warnings, archive entry/uncompressed-size limits, and repo maps.
+
+Latest Part A validation:
+
+```text
+Ran 35 tests
+OK
+```
+
+Latest Part A validation run:
+
+```text
+.uo/runs/run_20260709030839873328
+```

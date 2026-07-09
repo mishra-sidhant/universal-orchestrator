@@ -318,6 +318,37 @@ class PlanReview(StrictModel):
     merged_strengths: list[str] = Field(default_factory=list)
     residual_risks: list[str] = Field(default_factory=list)
     score: float = Field(default=0.0, ge=0.0, le=1.0)
+    critical_path: list[str] = Field(default_factory=list)
+    estimated_cost_tier: CostTier = CostTier.FREE
+    simulation: dict[str, Any] = Field(default_factory=dict)
+
+
+class ContextChunk(StrictModel):
+    id: str
+    input_id: str
+    ordinal: int
+    text: str
+    token_estimate: int
+    content_hash: str
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class ProvenanceRecord(StrictModel):
+    source_id: str
+    card_id: str
+    chunk_ids: list[str] = Field(default_factory=list)
+    trust_level: str
+    content_hash: str | None = None
+
+
+class RepoMap(StrictModel):
+    root: str
+    frameworks: list[str] = Field(default_factory=list)
+    languages: dict[str, int] = Field(default_factory=dict)
+    test_commands: list[str] = Field(default_factory=list)
+    package_files: list[str] = Field(default_factory=list)
+    hot_files: list[str] = Field(default_factory=list)
+    generated_or_dependency_dirs: list[str] = Field(default_factory=list)
 
 
 class RetryPolicy(StrictModel):
@@ -454,6 +485,26 @@ class ExecutionResult(StrictModel):
     warnings: list[str] = Field(default_factory=list)
     started_at: datetime = Field(default_factory=utc_now)
     completed_at: datetime = Field(default_factory=utc_now)
+
+
+class ScheduledTaskRecord(StrictModel):
+    task_id: str
+    status: TaskStatus
+    attempt: int = 0
+    dependencies: list[str] = Field(default_factory=list)
+    cache_key: str | None = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    warnings: list[str] = Field(default_factory=list)
+
+
+class ScheduleReport(StrictModel):
+    run_id: str
+    records: list[ScheduledTaskRecord]
+    execution_order: list[str]
+    parallel_batches: list[list[str]]
+    cache_hits: list[str] = Field(default_factory=list)
+    failed_tasks: list[str] = Field(default_factory=list)
 
 
 class ValidationFinding(StrictModel):
