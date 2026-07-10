@@ -17,6 +17,7 @@ The current milestone is a deterministic local runtime with optional provider ad
 - Budget control, relevant-prior-run delta planning, versioned scheduler cache reuse, retries, timeouts, durable cancellation, failure diagnostics, and same-run resume.
 - Approval gates, safe repo validation planning/execution, and daemon/MCP status parity.
 - Quality gate engine with contract, manifest, DAG, routing, security, evidence audit, repo validation, and artifact integrity checks.
+- Quality telemetry is provenance-limited: parse coverage, consumed-reference coverage, task continuity, routing efficiency, artifact presence, and executed code validation. It does not claim factuality or style scoring.
 - Quality failures execute repair tasks through the scheduler; unresolved runs terminate as `needs_attention` and never receive a delivery receipt.
 - Immutable delivery finalization with a frozen run manifest, checksums, validated ZIP, integrity report, and hash-bound delivery receipt.
 - Standard-library test suite, so the repo can validate without installing pytest.
@@ -70,4 +71,4 @@ The kernel follows this pipeline:
 
 See [Product Requirements](docs/product-requirements.md) and [Implementation Plan](docs/implementation-plan.md) for the detailed roadmap.
 
-Current limitation: deterministic worker summaries do not prove factual entailment from cited chunks. Tranche E is replacing the simulated worker/evidence path with real stage execution and consumed-context accounting; until then, evidence metadata should be read as reference resolution, not factual verification.
+Current limitation: deterministic worker summaries do not prove factual entailment from cited chunks. Evidence refs are now restricted to chunks actually delivered to each task, but `citation_support` means consumed-reference coverage, not factual verification. See [Quality Metric Provenance](docs/quality-metrics.md).

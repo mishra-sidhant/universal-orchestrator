@@ -100,12 +100,11 @@ def _passing_quality():
         passed=True,
         scores=QualityScore(
             completeness=90,
-            factuality=90,
+            parse_confidence=90,
             citation_support=90,
-            style_quality=90,
             continuity=90,
-            cost_efficiency=90,
-            artifact_integrity="pass",
+            routing_efficiency=90,
+            artifact_presence="pass",
             code_validation="not_applicable",
         ),
     )

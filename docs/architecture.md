@@ -129,7 +129,7 @@ Part C adds `RepoValidationRunner`, which writes `repo_validation_report.json`. 
 
 When quality fails, `RepairPlanner` creates a targeted repair DAG from the specific violations, routes it through the same provider layer, executes repair tasks, writes repair artifacts, and re-runs quality. The validator registry now emits structured `ValidationFinding` records for manifest, contract, DAG, routing, execution, and artifact checks.
 
-`EvidenceAuditor` writes `evidence_audit.json`, resolves each successful worker claim to real chunk IDs, rejects unknown references, checks inline citations and the final Sources section, and derives citation/factuality scores from supported-claim coverage. Completeness and continuity scores are similarly derived from validator, parsing, and execution outcomes rather than artifact presence alone.
+`EvidenceAuditor` writes `evidence_audit.json`. A claim resolves only when every cited chunk exists and appears in the exact context pack delivered to that task. Empty packs remain unsupported, valid-but-unconsumed refs fail audit, and final Sources include only refs from resolved claims. `citation_support` measures this consumed-reference coverage; it does not claim semantic entailment or factuality. All score formulas are documented in `docs/quality-metrics.md`.
 
 Part C feeds `RepoValidationRunner` into quality scoring: failed executed repo validation becomes a violation, while unapproved shell execution is surfaced as a warning.
 

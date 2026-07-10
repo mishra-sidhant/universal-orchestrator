@@ -642,6 +642,7 @@ class EvidenceAuditReport(StrictModel):
     cited_source_ids: list[str] = Field(default_factory=list)
     unsupported_task_ids: list[str] = Field(default_factory=list)
     invalid_evidence_refs: list[str] = Field(default_factory=list)
+    unconsumed_evidence_refs: list[str] = Field(default_factory=list)
     claims: list[EvidenceClaim] = Field(default_factory=list)
     findings: list[EvidenceAuditFinding] = Field(default_factory=list)
 
@@ -733,12 +734,11 @@ class ValidationFinding(StrictModel):
 
 class QualityScore(StrictModel):
     completeness: int = Field(ge=0, le=100)
-    factuality: int = Field(ge=0, le=100)
+    parse_confidence: int = Field(ge=0, le=100)
     citation_support: int = Field(ge=0, le=100)
-    style_quality: int = Field(ge=0, le=100)
     continuity: int = Field(ge=0, le=100)
-    cost_efficiency: int = Field(ge=0, le=100)
-    artifact_integrity: Literal["pass", "fail"]
+    routing_efficiency: int = Field(ge=0, le=100)
+    artifact_presence: Literal["pass", "fail"]
     code_validation: Literal["pass", "fail", "not_applicable"]
 
 

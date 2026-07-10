@@ -23,22 +23,40 @@ class EvidenceAuditor:
         results: list[ExecutionResult],
         chunks: list[ContextChunk] | None = None,
         run_id: str | None = None,
+        consumed_chunk_refs_by_task: dict[str, list[str]] | None = None,
     ) -> EvidenceAuditReport:
         evidence_refs = self._worker_evidence_refs(results)
         valid_chunk_ids = {chunk.id for chunk in chunks or []}
         invalid_evidence_refs = sorted(evidence_refs.difference(valid_chunk_ids))
+        consumed = {
+            task_id: set(refs)
+            for task_id, refs in (consumed_chunk_refs_by_task or {}).items()
+        }
+        claims = self._claims(results, valid_chunk_ids, consumed)
+        unsupported_task_ids = sorted(
+            claim.task_id for claim in claims if not claim.resolved
+        )
+        unconsumed_evidence_refs = sorted(
+            {
+                ref
+                for claim in claims
+                for ref in claim.evidence_refs
+                if ref not in consumed.get(claim.task_id, set())
+            }
+        )
+        supported_refs = {
+            ref for claim in claims if claim.resolved for ref in claim.evidence_refs
+        }
         source_by_chunk = {
             chunk_id: record.source_id
             for record in provenance
             for chunk_id in record.chunk_ids
         }
         cited_source_ids = sorted(
-            {source_by_chunk[ref] for ref in evidence_refs if ref in source_by_chunk}
+            {source_by_chunk[ref] for ref in supported_refs if ref in source_by_chunk}
         )
-        unsupported_task_ids = sorted(self._unsupported_tasks(results))
-        claims = self._claims(results, valid_chunk_ids)
         final_citations_present = bool(package) and "## Sources" in package.final_markdown and all(
-            f"[{ref}]" in package.final_markdown for ref in evidence_refs
+            f"[{ref}]" in package.final_markdown for ref in supported_refs
         )
         findings = [
             EvidenceAuditFinding(
@@ -57,10 +75,17 @@ class EvidenceAuditor:
             ),
             EvidenceAuditFinding(
                 kind="reference_resolution",
-                passed=bool(evidence_refs) and not invalid_evidence_refs,
+                passed=(
+                    bool(evidence_refs)
+                    and not invalid_evidence_refs
+                    and not unconsumed_evidence_refs
+                ),
                 severity="high",
-                message="Worker evidence references resolve to extracted source chunks.",
-                metadata={"invalid_evidence_refs": invalid_evidence_refs},
+                message="Worker evidence references resolve to chunks consumed by that task.",
+                metadata={
+                    "invalid_evidence_refs": invalid_evidence_refs,
+                    "unconsumed_evidence_refs": unconsumed_evidence_refs,
+                },
             ),
             EvidenceAuditFinding(
                 kind="claim_support",
@@ -94,6 +119,7 @@ class EvidenceAuditor:
             cited_source_ids=cited_source_ids,
             unsupported_task_ids=unsupported_task_ids,
             invalid_evidence_refs=invalid_evidence_refs,
+            unconsumed_evidence_refs=unconsumed_evidence_refs,
             claims=claims,
             findings=findings,
         )
@@ -109,19 +135,13 @@ class EvidenceAuditor:
         citation_score = round(100 * supported_claims / claim_count) if claim_count else 0
         if audit.passed:
             scores = quality.scores.model_copy(
-                update={
-                    "citation_support": citation_score,
-                    "factuality": min(quality.scores.factuality, citation_score),
-                }
+                update={"citation_support": citation_score}
             )
             return quality.model_copy(update={"scores": scores})
 
         message = "Evidence audit did not find sufficient support for the final package."
         scores = quality.scores.model_copy(
-            update={
-                "citation_support": citation_score,
-                "factuality": min(quality.scores.factuality, citation_score),
-            }
+            update={"citation_support": citation_score}
         )
         warnings = [*quality.warnings, message]
         violations = list(quality.violations)
@@ -146,18 +166,11 @@ class EvidenceAuditor:
                 refs.update(str(ref) for ref in worker_output.get("evidence_refs", []) if ref)
         return refs
 
-    def _unsupported_tasks(self, results: list[ExecutionResult]) -> set[str]:
-        unsupported: set[str] = set()
-        for result in results:
-            if not task_succeeded(result.status):
-                continue
-            worker_output = result.output.get("worker_output", {})
-            if not isinstance(worker_output, dict) or not worker_output.get("evidence_refs"):
-                unsupported.add(result.task_id)
-        return unsupported
-
     def _claims(
-        self, results: list[ExecutionResult], valid_chunk_ids: set[str]
+        self,
+        results: list[ExecutionResult],
+        valid_chunk_ids: set[str],
+        consumed_chunk_refs_by_task: dict[str, set[str]],
     ) -> list[EvidenceClaim]:
         claims: list[EvidenceClaim] = []
         for result in results:
@@ -165,7 +178,7 @@ class EvidenceAuditor:
                 continue
             worker_output = result.output.get("worker_output", {})
             if not isinstance(worker_output, dict):
-                continue
+                worker_output = {}
             refs = [str(ref) for ref in worker_output.get("evidence_refs", []) if ref]
             claim = str(worker_output.get("summary", "")).strip()
             claims.append(
@@ -173,7 +186,11 @@ class EvidenceAuditor:
                     task_id=result.task_id,
                     claim=claim,
                     evidence_refs=refs,
-                    resolved=bool(claim and refs) and all(ref in valid_chunk_ids for ref in refs),
+                    resolved=bool(claim and refs)
+                    and all(ref in valid_chunk_ids for ref in refs)
+                    and set(refs).issubset(
+                        consumed_chunk_refs_by_task.get(result.task_id, set())
+                    ),
                 )
             )
         return claims

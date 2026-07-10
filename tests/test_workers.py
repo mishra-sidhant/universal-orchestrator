@@ -16,15 +16,14 @@ class StructuredWorkerOutputTests(unittest.TestCase):
                 reason="below threshold",
             ),
             provider_result=None,
-            context={"input_refs": ["input_1"], "files": ["README.md"]},
+            context={"consumed_chunk_refs": ["chunk_1"], "files": ["README.md"]},
             status=TaskStatus.COMPLETED,
         )
 
         self.assertIn("degraded_provider_capability", output["risks"])
-        self.assertIn("input_1", output["evidence_refs"])
+        self.assertIn("chunk_1", output["evidence_refs"])
         self.assertTrue(output["next_actions"])
 
 
 if __name__ == "__main__":
     unittest.main()
-

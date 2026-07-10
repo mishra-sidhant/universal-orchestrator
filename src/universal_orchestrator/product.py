@@ -27,6 +27,7 @@ class FinalProductOwner:
         quality: QualityGateResult,
         chunks: list[ContextChunk] | None = None,
         provenance: list[ProvenanceRecord] | None = None,
+        supported_evidence_refs_by_task: dict[str, list[str]] | None = None,
     ) -> ProductPackage:
         rejected = self._reject_fragments(results)
         markdown = self._render_markdown(
@@ -40,6 +41,7 @@ class FinalProductOwner:
             rejected,
             chunks or [],
             provenance or [],
+            supported_evidence_refs_by_task or {},
         )
         return ProductPackage(
             run_id=manifest.run_id,
@@ -74,6 +76,7 @@ class FinalProductOwner:
         rejected: list[str],
         chunks: list[ContextChunk],
         provenance: list[ProvenanceRecord],
+        supported_evidence_refs_by_task: dict[str, list[str]],
     ) -> str:
         lines = [
             "# Universal Orchestrator Final Product",
@@ -110,13 +113,17 @@ class FinalProductOwner:
                 summary = worker_output.get("summary", "")
                 risks = worker_output.get("risks", [])
                 risk_text = f" Risks: {', '.join(risks)}." if risks else ""
-                evidence_refs = [
-                    str(ref) for ref in worker_output.get("evidence_refs", []) if ref
-                ]
+                evidence_refs = supported_evidence_refs_by_task.get(result.task_id, [])
                 citations = " ".join(f"[{ref}]" for ref in evidence_refs)
                 citation_text = f" Sources: {citations}" if citations else ""
                 lines.append(f"- `{result.task_id}` {summary}{risk_text}{citation_text}")
-        cited_chunk_ids = self._cited_chunk_ids(results)
+        cited_chunk_ids = sorted(
+            {
+                ref
+                for refs in supported_evidence_refs_by_task.values()
+                for ref in refs
+            }
+        )
         chunks_by_id = {chunk.id: chunk for chunk in chunks}
         provenance_by_chunk = {
             chunk_id: record
@@ -134,18 +141,10 @@ class FinalProductOwner:
             lines.append(f"- [{chunk_id}] {source_name}, {locator}.")
         lines.extend(["", "## Quality", ""])
         lines.append(f"- Completeness: {quality.scores.completeness}")
-        lines.append(f"- Artifact integrity: {quality.scores.artifact_integrity}")
+        lines.append(f"- Artifact presence: {quality.scores.artifact_presence}")
         if quality.warnings:
             lines.append(f"- Warnings: {quality.warnings}")
         if quality.violations:
             lines.append(f"- Violations: {quality.violations}")
         lines.append("")
         return "\n".join(lines)
-
-    def _cited_chunk_ids(self, results: list[ExecutionResult]) -> list[str]:
-        refs: set[str] = set()
-        for result in results:
-            worker_output = result.output.get("worker_output", {})
-            if isinstance(worker_output, dict):
-                refs.update(str(ref) for ref in worker_output.get("evidence_refs", []) if ref)
-        return sorted(refs)

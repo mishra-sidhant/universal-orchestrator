@@ -11,12 +11,11 @@ class RepairPlannerTests(unittest.TestCase):
             passed=False,
             scores=QualityScore(
                 completeness=60,
-                factuality=80,
+                parse_confidence=80,
                 citation_support=70,
-                style_quality=80,
                 continuity=80,
-                cost_efficiency=70,
-                artifact_integrity="fail",
+                routing_efficiency=70,
+                artifact_presence="fail",
                 code_validation="not_applicable",
             ),
             violations=["Artifact paths do not exist: ['missing.md']", "Missing routing decisions for tasks: ['T']"],
@@ -33,4 +32,3 @@ class RepairPlannerTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

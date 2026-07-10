@@ -246,3 +246,34 @@ E.0 verification:
 doctor passed
 Ruff clean after removing one unused test import
 ```
+
+## Tranche E.1 Evidence Honesty
+
+Failing-first transcript against `fcbb77b`:
+
+```text
+test_empty_task_pack_does_not_fallback_to_global_chunks:
+expected [], got ['chunk_global']
+
+test_executor_passes_consumed_task_refs_to_adapter_and_output:
+adapter consumed [], expected ['chunk_consumed']
+
+test_auditor_rejects_real_but_unconsumed_chunk_reference:
+EvidenceAuditor did not accept a consumed-ref map
+
+test_missing_refs_identifies_exact_unsupported_task:
+EvidenceAuditor did not accept a consumed-ref map
+
+test_quality_score_schema_has_no_synthetic_check_names:
+'factuality' remained in QualityScore
+```
+
+Implemented corrections:
+
+- Removed the global source fallback. Refs are selected only from each task's delivered pack; external source chunks are preferred over prompt chunks within that same pack.
+- `DeterministicExecutor` creates per-task context with `consumed_chunk_refs`; adapters and structured worker output receive the same list.
+- Evidence audit rejects nonexistent refs and real-but-unconsumed refs, identifies the exact unsupported tasks, and computes citation coverage only from resolved claims.
+- Final report citations and Sources are rendered only from resolved evidence claims.
+- Removed synthetic `factuality` and `style_quality`; renamed parser, routing, and artifact-presence proxies honestly. Added `docs/quality-metrics.md` with every formula and limitation.
+
+Existing-test dispositions: `test_workers` now supplies `consumed_chunk_refs` instead of the superseded `input_refs` fallback. Quality fixture constructors use the renamed schema. No threshold or failure assertion was weakened.

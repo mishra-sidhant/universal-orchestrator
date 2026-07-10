@@ -126,7 +126,7 @@ class ArtifactStore:
         if quality:
             lines.extend(["", "## Quality", ""])
             lines.append(f"- Passed: `{quality.passed}`")
-            lines.append(f"- Artifact integrity: `{quality.scores.artifact_integrity}`")
+            lines.append(f"- Artifact presence: `{quality.scores.artifact_presence}`")
             if quality.violations:
                 lines.append(f"- Violations: {quality.violations}")
             if quality.warnings:

@@ -38,6 +38,16 @@ class DeterministicExecutor:
         results: list[ExecutionResult] = []
         for task in tasks:
             decision = decision_by_task[task.id]
+            refs_by_task = self.context.get("chunk_refs_by_task", {})
+            consumed_refs = (
+                list(refs_by_task.get(task.id, [])) if isinstance(refs_by_task, dict) else []
+            )
+            task_context = {
+                key: value
+                for key, value in self.context.items()
+                if key not in {"chunk_refs", "chunk_refs_by_task"}
+            }
+            task_context["consumed_chunk_refs"] = consumed_refs
             warnings: list[str] = []
             status = TaskStatus.COMPLETED
             if decision.action in {RoutingAction.RESHAPE, RoutingAction.PAUSE}:
@@ -58,7 +68,7 @@ class DeterministicExecutor:
                             task=task,
                             prompt=self.prompt,
                             context={
-                                **self.context,
+                                **task_context,
                                 "routing_score": decision.score,
                                 "routing_reason": decision.reason,
                             },
@@ -74,7 +84,7 @@ class DeterministicExecutor:
                 task,
                 decision,
                 provider_result,
-                self.context,
+                task_context,
                 status,
             )
 

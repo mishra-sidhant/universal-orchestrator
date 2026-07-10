@@ -248,23 +248,19 @@ class Orchestrator:
         source_input_ids = {
             item.id for item in manifest.inputs if item.type != InputType.PROMPT
         }
-        source_chunk_refs = [
-            chunk.id for chunk in chunks if chunk.input_id in source_input_ids
-        ] or [chunk.id for chunk in chunks]
-        chunk_refs_by_task = {
-            task_id: [
-                chunk.id
-                for chunk in pack.chunks
-                if chunk.input_id in source_input_ids
-            ][:3]
-            or source_chunk_refs[:3]
-            for task_id, pack in context_packs.items()
-        }
+        chunk_refs_by_task: dict[str, list[str]] = {}
+        for task_id, pack in context_packs.items():
+            source_refs = [
+                chunk.id for chunk in pack.chunks if chunk.input_id in source_input_ids
+            ]
+            prompt_refs = [
+                chunk.id for chunk in pack.chunks if chunk.input_id not in source_input_ids
+            ]
+            chunk_refs_by_task[task_id] = (source_refs or prompt_refs)[:3]
         execution_context = {
             "run_id": run_id,
             "contract": contract.model_dump(mode="json"),
             "input_refs": [item.id for item in manifest.inputs],
-            "chunk_refs": source_chunk_refs,
             "chunk_refs_by_task": chunk_refs_by_task,
             "files": [item.path for item in manifest.inputs if item.path],
             "security_findings_count": sum(len(item.security_findings) for item in manifest.inputs),
@@ -433,7 +429,13 @@ class Orchestrator:
         all_decisions = list(decisions)
         all_results = list(results)
         evidence_audit = self.evidence.audit(
-            None, cards, provenance, all_results, chunks, run_id=run_id
+            None,
+            cards,
+            provenance,
+            all_results,
+            chunks,
+            run_id=run_id,
+            consumed_chunk_refs_by_task=chunk_refs_by_task,
         )
         quality = self.evidence.apply_to_quality(
             quality,
@@ -524,7 +526,13 @@ class Orchestrator:
                 repo_validation_report=repo_validation_report,
             )
             evidence_audit = self.evidence.audit(
-                None, cards, provenance, all_results, chunks, run_id=run_id
+                None,
+                cards,
+                provenance,
+                all_results,
+                chunks,
+                run_id=run_id,
+                consumed_chunk_refs_by_task=chunk_refs_by_task,
             )
             quality = self.evidence.apply_to_quality(
                 quality,
@@ -545,6 +553,11 @@ class Orchestrator:
                 [finding.model_dump(mode="json") for finding in validation_findings],
             )
         )
+        supported_evidence_refs_by_task = {
+            claim.task_id: claim.evidence_refs
+            for claim in evidence_audit.claims
+            if claim.resolved
+        }
         product_package = self.product_owner.assemble(
             manifest,
             contract,
@@ -555,6 +568,7 @@ class Orchestrator:
             quality,
             chunks,
             provenance,
+            supported_evidence_refs_by_task,
         )
         artifacts.append(
             self.artifact_store.write_json_artifact(

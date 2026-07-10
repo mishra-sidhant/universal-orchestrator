@@ -126,16 +126,22 @@ class QualityGateEngine:
         if violations:
             completeness = min(completeness, 69)
         continuity = round(100 * result_success_rate)
-        style_quality = 90 if artifact_paths and not missing_artifacts else 40
-        factuality = round(50 + 40 * parse_rate)
+        routing_efficiency = (
+            round(
+                100
+                * sum(1 for decision in decisions if decision.action == RoutingAction.ROUTE)
+                / len(decisions)
+            )
+            if decisions
+            else 0
+        )
         scores = QualityScore(
             completeness=completeness,
-            factuality=factuality,
+            parse_confidence=round(100 * parse_rate),
             citation_support=0 if "source-aware synthesis" in contract.must_have else 100,
-            style_quality=style_quality,
             continuity=continuity,
-            cost_efficiency=90 if not degraded and not reshaped else 75,
-            artifact_integrity="pass" if not missing_artifacts and artifact_paths else "fail",
+            routing_efficiency=routing_efficiency,
+            artifact_presence="pass" if not missing_artifacts and artifact_paths else "fail",
             code_validation=code_validation,
         )
         repair_task_ids = [f"T-REPAIR-{index:03d}" for index, _ in enumerate(violations, start=1)]
