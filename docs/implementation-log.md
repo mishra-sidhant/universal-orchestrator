@@ -189,8 +189,8 @@ Completed July 10, 2026 after a fresh report-to-code validation:
 2. Completed lifecycle behavior: failures persist `failure.json` and SQLite failure records; cancellation is terminal before delivery; the scheduler records retries, timeouts, dependency skips, and attempts; failed or cancelled runs resume from `run_request.json` under the same run ID.
 3. Corrected cache and delta semantics: valid cache hits count as successful outputs, cache records are schema/version checked, malformed entries are quarantined, cache fingerprints include contract/policy/provider/routing context, and delta planning chooses the most similar prior successful run.
 4. Rebuilt artifact finalization: repository analysis emits an honest `patch_plan.md`; payloads are audited before a one-time manifest write; `checksums.json` covers payloads plus the manifest; the ZIP includes manifest/checksums/trace/debug/integrity; `delivery_receipt.json` binds ZIP, manifest, checksums, and validation hashes.
-5. Upgraded context and evidence: ingestion retains redacted extracted text, stable chunks preserve source locators and tail content, task packs include ranked chunks, worker claims cite chunk IDs, and the final report provides inline citations plus a Sources section.
-6. Derived quality and semantic evals: citation/factuality scores come from resolved claims; completeness/continuity come from validation, parsing, and task outcomes; eval gates parse schemas, validate DAGs, reconcile routing IDs, validate worker structures, and recompute checksums.
+5. Added context/evidence scaffolding: ingestion retains redacted extracted text, stable chunks preserve source locators and tail content, and the final report can render chunk references. Tranche E later established that workers had not demonstrably consumed those references; the earlier "claim-level evidence" wording is superseded.
+6. Added derived quality/eval scaffolding. Tranche E later established that `factuality` and `style_quality` were misnamed synthetic proxies; the trustworthy metrics replacement is tracked in the July 10 review disposition.
 7. Hardened distribution: parser and artifact-builder dependencies are declared in the default package, CI covers Python 3.11-3.13, and build validation produces both sdist and wheel.
 
 Validation completed:
@@ -206,3 +206,43 @@ git diff --check: clean
 Strict `mypy src` was also run and exposed a pre-existing backlog in optional provider, ingestion, daemon, and MCP boundary typing. It is documented rather than hidden and is not yet a CI gate.
 
 Provider keys remain intentionally absent. Add them later to repository-root `.env.local` using `.env.example`; hosted runs also require `--allow-internet --allow-cloud`. OpenAI needs `OPENAI_API_KEY` and `OPENAI_MODEL`; Anthropic needs `ANTHROPIC_API_KEY` and `ANTHROPIC_MODEL`; Ollama needs `OLLAMA_BASE_URL` and `OLLAMA_MODEL`.
+
+## Tranche E.0 Stop The Bleeding
+
+Accepted the July 10 adversarial review in full and added regression tests before implementation.
+
+Failing-first transcript against `3e74812`:
+
+```text
+test_post_repair_quality_rates_use_original_and_repair_task_union:
+ValidationError: continuity <= 100, input_value=118
+
+test_pipeline_repair_uses_scheduler_audits_before_repair_and_assembles_once:
+ValidationError: continuity <= 100, input_value=118
+
+test_failed_execution_finding_uses_failure_description:
+AssertionError: 'No execution result failed.' was emitted for a failed task
+
+test_secret_in_prompt_never_reaches_files_or_delivery_zip:
+secret found in run_request.json
+
+test_quality_failed_run_needs_attention_without_delivery_receipt:
+repair path crashed before an honest terminal state could be produced
+```
+
+Implemented corrections:
+
+- Quality rates use the union of planned and executed task IDs, preventing repair tasks from inflating scores beyond 100.
+- Every validation finding carries distinct pass and fail messages; violations use the fail description.
+- Evidence auditing occurs before repair, repair executes through `DAGScheduler`, attempt records are persisted, and the final product is assembled once.
+- Prompt secrets are redacted in `run_request.json`, `context_manifest.json`, embedded run-manifest invocation, and therefore the ZIP.
+- Added terminal `needs_attention`; unresolved quality runs still receive a diagnostics bundle but never a delivery receipt.
+
+E.0 verification:
+
+```text
+78 unittest tests passed
+3/3 built-in eval cases passed
+doctor passed
+Ruff clean after removing one unused test import
+```

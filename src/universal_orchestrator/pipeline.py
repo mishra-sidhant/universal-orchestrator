@@ -38,6 +38,7 @@ from universal_orchestrator.repo_validation import RepoValidationRunner
 from universal_orchestrator.runtime import RuntimeStore
 from universal_orchestrator.routing import AdaptiveRouter, CapabilityRegistry
 from universal_orchestrator.scheduler import DAGScheduler
+from universal_orchestrator.security import redact_text
 from universal_orchestrator.utils import read_json, sha256_file
 
 
@@ -71,7 +72,9 @@ class Orchestrator:
         self.runtime.record_event(RuntimeEvent(run_id=run_id, event_type="received", payload={"host": invocation.host}))
         self.runtime.transition(run_id, RunState.RECEIVED)
         request_artifact = self.artifact_store.write_json_artifact(
-            run_id, "run_request.json", invocation.model_dump(mode="json")
+            run_id,
+            "run_request.json",
+            self._redacted_invocation(invocation).model_dump(mode="json"),
         )
         return self._run_with_failure_boundary(invocation, run_id, started_at, request_artifact)
 
@@ -429,14 +432,76 @@ class Orchestrator:
         )
         all_decisions = list(decisions)
         all_results = list(results)
+        evidence_audit = self.evidence.audit(
+            None, cards, provenance, all_results, chunks, run_id=run_id
+        )
+        quality = self.evidence.apply_to_quality(
+            quality,
+            evidence_audit,
+            source_required="source-aware synthesis" in contract.must_have,
+        )
         self.runtime.transition(run_id, RunState.VALIDATION)
         trace.checkpoint("validation", {"quality_passed": quality.passed, "violations": len(quality.violations)})
         if not quality.passed:
             repair_dag = self.repair.create_repair_dag(run_id, quality)
             repair_decisions = router.route_all(repair_dag.topological_order())
-            repair_results = self.executor.execute(repair_dag.topological_order(), repair_decisions)
+            repair_results, repair_schedule = self.scheduler.execute(
+                repair_dag,
+                repair_decisions,
+                self.executor,
+                {**cache_context, "repair": True},
+                cancellation_check=lambda: self.runtime.is_cancel_requested(run_id),
+            )
+            for record in repair_schedule.records:
+                self.runtime.save_task_attempt(
+                    run_id,
+                    record.task_id,
+                    record.attempt,
+                    str(record.status),
+                    record.cache_key,
+                    record.warnings,
+                )
+                self.runtime.save_task_record(
+                    run_id,
+                    record.task_id,
+                    str(record.status),
+                    record.attempt,
+                    record.cache_key,
+                )
             all_decisions.extend(repair_decisions)
             all_results.extend(repair_results)
+            schedule_report = schedule_report.model_copy(
+                update={
+                    "records": [*schedule_report.records, *repair_schedule.records],
+                    "execution_order": [
+                        *schedule_report.execution_order,
+                        *repair_schedule.execution_order,
+                    ],
+                    "parallel_batches": [
+                        *schedule_report.parallel_batches,
+                        *repair_schedule.parallel_batches,
+                    ],
+                    "cache_hits": [*schedule_report.cache_hits, *repair_schedule.cache_hits],
+                    "failed_tasks": [
+                        *schedule_report.failed_tasks,
+                        *repair_schedule.failed_tasks,
+                    ],
+                }
+            )
+            self._replace_artifact(
+                artifacts,
+                self.artifact_store.write_json_artifact(
+                    run_id, "schedule_report.json", schedule_report.model_dump(mode="json")
+                ),
+            )
+            self._replace_artifact(
+                artifacts,
+                self.artifact_store.write_json_artifact(
+                    run_id,
+                    "routing_decisions.json",
+                    [decision.model_dump(mode="json") for decision in all_decisions],
+                ),
+            )
             artifacts.append(
                 self.artifact_store.write_json_artifact(
                     run_id, "repair_task_dag.json", repair_dag.model_dump(mode="json")
@@ -458,6 +523,14 @@ class Orchestrator:
                 artifact_paths=[artifact.as_path for artifact in artifacts],
                 repo_validation_report=repo_validation_report,
             )
+            evidence_audit = self.evidence.audit(
+                None, cards, provenance, all_results, chunks, run_id=run_id
+            )
+            quality = self.evidence.apply_to_quality(
+                quality,
+                evidence_audit,
+                source_required="source-aware synthesis" in contract.must_have,
+            )
             trace.checkpoint(
                 "repair_execution",
                 {"repair_tasks": len(repair_dag.nodes), "quality_passed": quality.passed},
@@ -471,25 +544,6 @@ class Orchestrator:
                 "validation_findings.json",
                 [finding.model_dump(mode="json") for finding in validation_findings],
             )
-        )
-        product_package = self.product_owner.assemble(
-            manifest,
-            contract,
-            cards,
-            dag,
-            all_decisions,
-            all_results,
-            quality,
-            chunks,
-            provenance,
-        )
-        evidence_audit = self.evidence.audit(
-            product_package, cards, provenance, all_results, chunks
-        )
-        quality = self.evidence.apply_to_quality(
-            quality,
-            evidence_audit,
-            source_required="source-aware synthesis" in contract.must_have,
         )
         product_package = self.product_owner.assemble(
             manifest,
@@ -557,7 +611,7 @@ class Orchestrator:
                 )
             )
 
-        final_state = RunState.DELIVERED if quality.passed else RunState.VALIDATION
+        final_state = RunState.DELIVERED if quality.passed else RunState.NEEDS_ATTENTION
         self._ensure_not_cancelled(run_id)
         trace.checkpoint(
             "final_assembly",
@@ -595,14 +649,18 @@ class Orchestrator:
         run_dir = self.artifact_store.run_dir(run_id)
         run_manifest = RunManifest(
             run_id=run_id,
-            invocation=invocation,
+            invocation=self._redacted_invocation(invocation),
             state=final_state,
             context_manifest_path=str(run_dir / "context_manifest.json"),
             product_contract_path=str(run_dir / "product_contract.json"),
             task_dag_path=str(run_dir / "task_dag.json"),
             quality_report_path=str(run_dir / "quality_report.json"),
             checksums_path=str(run_dir / "checksums.json"),
-            delivery_receipt_path=str(run_dir / "delivery_receipt.json"),
+            delivery_receipt_path=(
+                str(run_dir / "delivery_receipt.json")
+                if final_state == RunState.DELIVERED
+                else None
+            ),
             artifacts=list(artifacts),
             warnings=manifest.warnings + quality.warnings,
             routing_decisions=all_decisions,
@@ -631,46 +689,49 @@ class Orchestrator:
                 "errors": zip_errors,
             },
         )
-        receipt_artifact = self.artifact_store.write_json_artifact(
-            run_id,
-            "delivery_receipt.json",
-            {
-                "schema_version": "1.0",
-                "run_id": run_id,
-                "state": final_state,
-                "bundle": {
-                    "name": zip_artifact.name,
-                    "path": zip_artifact.path,
-                    "content_hash": zip_artifact.content_hash,
-                    "size_bytes": zip_artifact.size_bytes,
+        receipt_artifact = None
+        if final_state == RunState.DELIVERED:
+            receipt_artifact = self.artifact_store.write_json_artifact(
+                run_id,
+                "delivery_receipt.json",
+                {
+                    "schema_version": "1.0",
+                    "run_id": run_id,
+                    "state": final_state,
+                    "bundle": {
+                        "name": zip_artifact.name,
+                        "path": zip_artifact.path,
+                        "content_hash": zip_artifact.content_hash,
+                        "size_bytes": zip_artifact.size_bytes,
+                    },
+                    "manifest": {
+                        "name": run_manifest_artifact.name,
+                        "content_hash": run_manifest_artifact.content_hash,
+                        "size_bytes": run_manifest_artifact.size_bytes,
+                    },
+                    "checksums": {
+                        "name": checksums_artifact.name,
+                        "content_hash": checksums_artifact.content_hash,
+                        "size_bytes": checksums_artifact.size_bytes,
+                    },
+                    "validation": {
+                        "name": zip_validation_artifact.name,
+                        "content_hash": zip_validation_artifact.content_hash,
+                        "errors": zip_errors,
+                    },
+                    "bundle_inventory": sorted(artifact.name for artifact in bundle_inputs),
+                    "issued_at": utc_now().isoformat(),
                 },
-                "manifest": {
-                    "name": run_manifest_artifact.name,
-                    "content_hash": run_manifest_artifact.content_hash,
-                    "size_bytes": run_manifest_artifact.size_bytes,
-                },
-                "checksums": {
-                    "name": checksums_artifact.name,
-                    "content_hash": checksums_artifact.content_hash,
-                    "size_bytes": checksums_artifact.size_bytes,
-                },
-                "validation": {
-                    "name": zip_validation_artifact.name,
-                    "content_hash": zip_validation_artifact.content_hash,
-                    "errors": zip_errors,
-                },
-                "bundle_inventory": sorted(artifact.name for artifact in bundle_inputs),
-                "issued_at": utc_now().isoformat(),
-            },
-        )
+            )
         delivery_artifacts = [
             *artifacts,
             run_manifest_artifact,
             checksums_artifact,
             zip_artifact,
             zip_validation_artifact,
-            receipt_artifact,
         ]
+        if receipt_artifact:
+            delivery_artifacts.append(receipt_artifact)
         self.runtime.save_run_summary(
             run_id,
             str(run_manifest.state),
@@ -681,7 +742,7 @@ class Orchestrator:
         self.runtime.record_event(
             RuntimeEvent(
                 run_id=run_id,
-                event_type="delivered" if quality.passed else "validation_failed",
+                event_type="delivered" if quality.passed else "needs_attention",
                 payload={"artifact_count": len(delivery_artifacts), "quality_passed": quality.passed},
             )
         )
@@ -705,6 +766,16 @@ class Orchestrator:
     def _ensure_not_cancelled(self, run_id: str) -> None:
         if self.runtime.is_cancel_requested(run_id):
             raise RunCancelledError(f"Run {run_id} was cancelled.")
+
+    def _redacted_invocation(self, invocation: HostInvocation) -> HostInvocation:
+        return invocation.model_copy(update={"prompt": redact_text(invocation.prompt)})
+
+    def _replace_artifact(self, artifacts: list[Artifact], replacement: Artifact) -> None:
+        for index, artifact in enumerate(artifacts):
+            if artifact.name == replacement.name:
+                artifacts[index] = replacement
+                return
+        artifacts.append(replacement)
 
     def _expected_artifact_names(self, contract: ProductContract) -> list[str]:
         expected = [

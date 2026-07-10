@@ -17,6 +17,7 @@ The current milestone is a deterministic local runtime with optional provider ad
 - Budget control, relevant-prior-run delta planning, versioned scheduler cache reuse, retries, timeouts, durable cancellation, failure diagnostics, and same-run resume.
 - Approval gates, safe repo validation planning/execution, and daemon/MCP status parity.
 - Quality gate engine with contract, manifest, DAG, routing, security, evidence audit, repo validation, and artifact integrity checks.
+- Quality failures execute repair tasks through the scheduler; unresolved runs terminate as `needs_attention` and never receive a delivery receipt.
 - Immutable delivery finalization with a frozen run manifest, checksums, validated ZIP, integrity report, and hash-bound delivery receipt.
 - Standard-library test suite, so the repo can validate without installing pytest.
 
@@ -64,7 +65,9 @@ The kernel follows this pipeline:
 5. Create a typed `TaskDAG`.
 6. Route tasks by capability, health, risk, and cost.
 7. Execute deterministic MVP workers.
-8. Resolve claim-level evidence and run derived quality gates.
+8. Audit declared evidence references and run derived quality gates.
 9. Freeze the manifest, checksums, delivery bundle, validation, and receipt in order.
 
 See [Product Requirements](docs/product-requirements.md) and [Implementation Plan](docs/implementation-plan.md) for the detailed roadmap.
+
+Current limitation: deterministic worker summaries do not prove factual entailment from cited chunks. Tranche E is replacing the simulated worker/evidence path with real stage execution and consumed-context accounting; until then, evidence metadata should be read as reference resolution, not factual verification.

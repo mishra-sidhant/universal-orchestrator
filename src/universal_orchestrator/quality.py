@@ -112,10 +112,12 @@ class QualityGateEngine:
         validator_pass_rate = (
             sum(1 for finding in findings if finding.passed) / len(findings) if findings else 0.0
         )
+        task_ids = {node.id for node in dag.nodes}.union(result.task_id for result in results)
+        successful_task_ids = {
+            result.task_id for result in results if task_succeeded(result.status)
+        }
         result_success_rate = (
-            sum(1 for result in results if task_succeeded(result.status)) / len(dag.nodes)
-            if dag.nodes
-            else 0.0
+            len(successful_task_ids.intersection(task_ids)) / len(task_ids) if task_ids else 0.0
         )
         parse_rate = manifest.parsed_count / len(manifest.inputs) if manifest.inputs else 0.0
         completeness = round(

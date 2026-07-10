@@ -231,7 +231,12 @@ class RuntimeStore:
         from universal_orchestrator.models import RunState, RuntimeEvent, utc_now
 
         latest = self.latest_state(run_id)
-        terminal_states = {RunState.DELIVERED, RunState.FAILED, RunState.CANCELLED}
+        terminal_states = {
+            RunState.DELIVERED,
+            RunState.NEEDS_ATTENTION,
+            RunState.FAILED,
+            RunState.CANCELLED,
+        }
         if latest in terminal_states or str(latest) in {str(state) for state in terminal_states}:
             return {
                 "run_id": run_id,

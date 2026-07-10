@@ -17,11 +17,12 @@ from universal_orchestrator.models import (
 class EvidenceAuditor:
     def audit(
         self,
-        package: ProductPackage,
+        package: ProductPackage | None,
         cards: list[ContextCard],
         provenance: list[ProvenanceRecord],
         results: list[ExecutionResult],
         chunks: list[ContextChunk] | None = None,
+        run_id: str | None = None,
     ) -> EvidenceAuditReport:
         evidence_refs = self._worker_evidence_refs(results)
         valid_chunk_ids = {chunk.id for chunk in chunks or []}
@@ -36,7 +37,7 @@ class EvidenceAuditor:
         )
         unsupported_task_ids = sorted(self._unsupported_tasks(results))
         claims = self._claims(results, valid_chunk_ids)
-        final_citations_present = "## Sources" in package.final_markdown and all(
+        final_citations_present = bool(package) and "## Sources" in package.final_markdown and all(
             f"[{ref}]" in package.final_markdown for ref in evidence_refs
         )
         findings = [
@@ -75,14 +76,18 @@ class EvidenceAuditor:
             EvidenceAuditFinding(
                 kind="final_citations",
                 passed=final_citations_present,
-                severity="medium",
-                message="Final markdown includes resolvable inline citations and a Sources section.",
+                severity="medium" if package else "info",
+                message=(
+                    "Final markdown includes resolvable inline citations and a Sources section."
+                    if package
+                    else "Final citation rendering is deferred until final assembly."
+                ),
             ),
         ]
         passed = all(finding.passed for finding in findings if finding.severity in {"high", "critical"})
-        passed = passed and not unsupported_task_ids and final_citations_present
+        passed = passed and not unsupported_task_ids and (final_citations_present if package else True)
         return EvidenceAuditReport(
-            run_id=package.run_id,
+            run_id=package.run_id if package else (run_id or "unknown"),
             passed=passed,
             source_count=len(cards),
             provenance_count=len(provenance),

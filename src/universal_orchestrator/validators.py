@@ -15,6 +15,26 @@ from universal_orchestrator.models import (
 
 
 class ValidatorRegistry:
+    def _finding(
+        self,
+        *,
+        validator: str,
+        passed: bool,
+        severity: str,
+        pass_message: str,
+        fail_message: str,
+        metadata: dict | None = None,
+    ) -> ValidationFinding:
+        return ValidationFinding(
+            validator=validator,
+            passed=passed,
+            severity=severity,
+            message=pass_message if passed else fail_message,
+            pass_message=pass_message,
+            fail_message=fail_message,
+            metadata=metadata or {},
+        )
+
     def evaluate(
         self,
         manifest: ContextManifest,
@@ -35,28 +55,31 @@ class ValidatorRegistry:
 
     def _manifest_findings(self, manifest: ContextManifest) -> list[ValidationFinding]:
         return [
-            ValidationFinding(
+            self._finding(
                 validator="manifest",
                 passed=bool(manifest.inputs),
                 severity="critical",
-                message="Context manifest contains inventoried inputs.",
+                pass_message="Context manifest contains inventoried inputs.",
+                fail_message="Context manifest contains no inventoried inputs.",
                 metadata={"input_count": len(manifest.inputs), "parsed_count": manifest.parsed_count},
             ),
-            ValidationFinding(
+            self._finding(
                 validator="manifest",
                 passed=manifest.parsed_count > 0,
                 severity="high",
-                message="At least one input parsed successfully.",
+                pass_message="At least one input parsed successfully.",
+                fail_message="No input parsed successfully.",
             ),
         ]
 
     def _contract_findings(self, contract: ProductContract) -> list[ValidationFinding]:
         return [
-            ValidationFinding(
+            self._finding(
                 validator="contract",
                 passed=bool(contract.must_have and contract.must_not_have),
                 severity="high",
-                message="Product contract has explicit must-have and must-not-have constraints.",
+                pass_message="Product contract has explicit must-have and must-not-have constraints.",
+                fail_message="Product contract is missing must-have or must-not-have constraints.",
             )
         ]
 
@@ -65,19 +88,21 @@ class ValidatorRegistry:
             dag.validate_graph()
         except ValueError as exc:
             return [
-                ValidationFinding(
+                self._finding(
                     validator="dag",
                     passed=False,
                     severity="critical",
-                    message=f"DAG validation failed: {exc}",
+                    pass_message="DAG validates without missing dependencies or cycles.",
+                    fail_message=f"DAG validation failed: {exc}",
                 )
             ]
         return [
-            ValidationFinding(
+            self._finding(
                 validator="dag",
                 passed=True,
                 severity="critical",
-                message="DAG validates without missing dependencies or cycles.",
+                pass_message="DAG validates without missing dependencies or cycles.",
+                fail_message="DAG has missing dependencies or cycles.",
                 metadata={"task_count": len(dag.nodes)},
             )
         ]
@@ -88,18 +113,20 @@ class ValidatorRegistry:
         missing = sorted(task_ids.difference(decision_ids))
         paused = [decision.task_id for decision in decisions if decision.action == RoutingAction.PAUSE]
         return [
-            ValidationFinding(
+            self._finding(
                 validator="routing",
                 passed=not missing,
                 severity="critical",
-                message="Every DAG task has a routing decision.",
+                pass_message="Every DAG task has a routing decision.",
+                fail_message=f"Missing routing decisions for tasks: {missing}",
                 metadata={"missing": missing},
             ),
-            ValidationFinding(
+            self._finding(
                 validator="routing",
                 passed=not paused,
                 severity="high",
-                message="No task paused for lack of a safe provider.",
+                pass_message="No task paused for lack of a safe provider.",
+                fail_message=f"Tasks paused for lack of a safe provider: {paused}",
                 metadata={"paused": paused},
             ),
         ]
@@ -110,18 +137,20 @@ class ValidatorRegistry:
             result.task_id for result in results if "worker_output" not in result.output
         ]
         return [
-            ValidationFinding(
+            self._finding(
                 validator="execution",
                 passed=not failed,
                 severity="critical",
-                message="No execution result failed.",
+                pass_message="No execution result failed.",
+                fail_message=f"Execution failed for tasks: {failed}",
                 metadata={"failed": failed},
             ),
-            ValidationFinding(
+            self._finding(
                 validator="execution",
                 passed=not missing_structured,
                 severity="medium",
-                message="Execution results include structured worker output.",
+                pass_message="Execution results include structured worker output.",
+                fail_message=f"Execution results lack structured worker output: {missing_structured}",
                 metadata={"missing_structured": missing_structured},
             ),
         ]
@@ -129,19 +158,20 @@ class ValidatorRegistry:
     def _artifact_findings(self, artifact_paths: list[Path]) -> list[ValidationFinding]:
         missing = [str(path) for path in artifact_paths if not path.exists()]
         return [
-            ValidationFinding(
+            self._finding(
                 validator="artifact",
                 passed=bool(artifact_paths),
                 severity="critical",
-                message="At least one artifact was built.",
+                pass_message="At least one artifact was built.",
+                fail_message="No artifact was built.",
                 metadata={"artifact_count": len(artifact_paths)},
             ),
-            ValidationFinding(
+            self._finding(
                 validator="artifact",
                 passed=not missing,
                 severity="critical",
-                message="All declared artifact paths exist.",
+                pass_message="All declared artifact paths exist.",
+                fail_message=f"Declared artifact paths do not exist: {missing}",
                 metadata={"missing": missing},
             ),
         ]
-

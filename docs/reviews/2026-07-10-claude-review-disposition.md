@@ -1,0 +1,48 @@
+# July 10 Adversarial Review Disposition
+
+Review baseline: `3e74812`. Status is updated phase by phase; `pending` rows are explicit remaining Tranche E work, not silent acceptance.
+
+| Finding | Status | Commit | Evidence / disposition |
+| --- | --- | --- | --- |
+| 1a real pipeline and simulated static DAG diverge | pending E.2 | pending | Stage-worker registry and ADR-001 required. |
+| 1b deterministic adapter only echoes completion | pending E.2 | pending | Real dispatch or truthful `SKIPPED` required. |
+| 1c hardcoded planner and synthetic quality scores | partially fixed | pending E.1/E.2 | E.0 fixed task-rate denominator; score naming/provenance and plan scoring remain. |
+| 2a global chunk fallback fabricates evidence | pending E.1 | pending | Remove fallback and pass consumed pack refs only. |
+| 2b worker refs are stamped without consumption | pending E.1/E.5 | pending | Context-pack consumption contract and provider payload plumbing required. |
+| 2c auditor verifies its own generated citations | pending E.1 | pending | Mutation tests and honest unsupported-task accounting required. |
+| 2d no semantic entailment check | deferred: hosted-quality scope | pending | Tranche E will report only consumed-reference coverage, never factual entailment; live semantic verification is explicitly out of scope. |
+| 3a post-repair continuity/completeness denominator crash | fixed E.0 | pending | `test_post_repair_quality_rates_use_original_and_repair_task_union`; pipeline repair regression. |
+| 3b pass-description appears as violation | fixed E.0 | pending | `test_failed_execution_finding_uses_failure_description`. |
+| 3c evidence audit occurs after repair | fixed E.0 | pending | Recording-order assertion in pipeline repair regression. |
+| 3d audited and delivered product assembled separately | fixed E.0 | pending | Pipeline regression asserts one product assembly. |
+| 3e repair bypasses scheduler | fixed E.0 | pending | Pipeline regression observes second scheduler call; repair attempts persisted. |
+| 4a raw prompt secret persisted at three leak sites | fixed E.0 | pending | `test_secret_in_prompt_never_reaches_files_or_delivery_zip`. |
+| 4b common secret patterns missing | pending E.3 | pending | Quoted/JSON/dotenv/PAT/Google/Slack/JWT/private-key/URL tests required. |
+| 4c npm/cargo allowlist executes untrusted code with parent env | pending E.3 | pending | Remove defaults or add explicit permission; scrub environment. |
+| 4d URL fetch permits SSRF and policy is dead | pending E.3 | pending | Scheme, DNS, private-address, and allowlist tests required. |
+| 4e archive scans only first 50 entries | pending E.3 | pending | Entry-51 traversal and tar link tests required. |
+| 4f `_safe_payload` is a no-op | pending E.3 | pending | Implement redaction or delete safety-implying method. |
+| 4g injection-risk content remains citable | pending E.1/E.3 | pending | Consumed-pack rules and security filtering disposition required. |
+| 5a orchestrator executor is shared mutable run state | pending E.4 | pending | Two-run isolation test required. |
+| 5b timed-out task thread continues after failure | pending E.4 | pending | Completion guard or process isolation required and documented in ADR-001. |
+| 5c reported parallelism is not executed | pending E.2 | pending | Remove fictional telemetry or implement bounded execution. |
+| 5d retries are dormant | pending E.4 | pending | One real retry policy plus flaky pipeline test, or delete. |
+| 5e SQLite lacks WAL/busy timeout | pending E.4 | pending | Connection configuration test required. |
+| 5f MCP cannot cancel inline run; malformed JSON kills loop; notifications answered | pending E.4 | pending | Protocol and concurrency tests required. |
+| 5g states are unused/overloaded and receipts contradict failure | partially fixed E.0 | pending E.4 | `needs_attention` added and receipt withheld; real stage transitions/dead-state removal remain. |
+| 6a routing cannot reshape/pause due fictional local capabilities | pending E.2 | pending | Truthful capabilities and unreachable-branch test required. |
+| 6b context packs never reach providers | pending E.5 | pending | Dry-run payload tests and usage fields required. |
+| 6c repository ingestion reads no file bodies | pending E.5 | pending | Real-file chunk/citation test required. |
+| 6d flagship report prompt is misclassified as repo implementation | pending E.5 | pending | Contract precedence test required. |
+| 6e non-ASCII terms are invisible | pending E.5 | pending | Hindi relevance test required. |
+| 6f delta duplicates cache checks; semantic naming overstates exact cache | pending disposition E.5 | pending | Consolidate or rename without adding telemetry. |
+| 6g timestamps are near-zero defaults | pending disposition E.4/E.5 | pending | Real workers/stages must set measured times. |
+| 6h timestamp-only IDs can collide | pending E.5 | pending | Random suffix and collision test required. |
+| 6i JSON writes are non-atomic | pending E.5 | pending | Atomic replace test required. |
+| 6j dead artifact/executor code | pending E.5 | pending | Remove after E.2 dispatch settles. |
+| 6k PDF builder fails on markup characters and mishandles H2 | pending disposition E.5 | pending | Builder regression tests required or explicit deferral rationale before E.5 commit. |
+| E.0 receipt semantics for quality failure | fixed E.0 | pending | `test_quality_failed_run_needs_attention_without_delivery_receipt`. |
+
+## Rewritten Existing Tests
+
+No existing assertion was weakened or deleted in E.0. New regression coverage was added. Successful-delivery receipt tests remain unchanged; the new test covers the distinct quality-failed terminal path.

@@ -106,7 +106,7 @@ class InputIngestor:
             run_id=run_id,
             invocation_id=invocation.id,
             prompt={
-                "raw": invocation.prompt,
+                "raw": prompt_text,
                 "parsed_intent": self._infer_prompt_intent(invocation.prompt),
                 "quality": invocation.user_options.quality,
                 "budget_profile": invocation.user_options.budget_profile,

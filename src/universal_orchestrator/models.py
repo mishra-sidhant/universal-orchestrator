@@ -71,6 +71,7 @@ class RunState(StrEnum):
     ARTIFACT_VALIDATION = "artifact_validation"
     PACKAGING = "packaging"
     DELIVERED = "delivered"
+    NEEDS_ATTENTION = "needs_attention"
     CANCELLED = "cancelled"
     FAILED = "failed"
 
@@ -725,6 +726,8 @@ class ValidationFinding(StrictModel):
     passed: bool
     severity: Literal["info", "low", "medium", "high", "critical"]
     message: str
+    pass_message: str
+    fail_message: str
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
