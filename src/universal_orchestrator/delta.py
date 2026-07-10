@@ -23,8 +23,8 @@ class DeltaPlanner:
         scheduler: DAGScheduler,
         cache_context: dict[str, Any],
     ) -> DeltaExecutionPlan:
-        previous = runtime.latest_successful_summary(exclude_run_id=manifest.run_id)
         current_hashes = self._manifest_hashes(manifest.model_dump(mode="json"))
+        previous = self._select_previous(manifest.run_id, current_hashes, runtime)
         previous_hashes: set[str] = set()
         warnings: list[str] = []
         previous_run_id: str | None = None
@@ -97,3 +97,23 @@ class DeltaPlanner:
             if content_hash:
                 hashes.add(content_hash)
         return hashes
+
+    def _select_previous(
+        self,
+        run_id: str,
+        current_hashes: set[str],
+        runtime: RuntimeStore,
+    ) -> dict[str, Any] | None:
+        candidates: list[tuple[float, dict[str, Any]]] = []
+        for summary in runtime.successful_summaries(exclude_run_id=run_id):
+            path = Path(summary["artifact_dir"]) / "context_manifest.json"
+            if not path.exists():
+                continue
+            previous_hashes = self._manifest_hashes(read_json(path))
+            union = current_hashes.union(previous_hashes)
+            similarity = len(current_hashes.intersection(previous_hashes)) / max(1, len(union))
+            if similarity > 0:
+                candidates.append((similarity, summary))
+        if not candidates:
+            return None
+        return max(candidates, key=lambda item: item[0])[1]

@@ -147,7 +147,15 @@ class TaskStatus(StrEnum):
     FAILED = "failed"
     SKIPPED = "skipped"
     CACHED = "cached"
+    CANCELLED = "cancelled"
     WAITING_FOR_USER = "waiting_for_user"
+
+
+SUCCESS_TASK_STATUSES = {TaskStatus.COMPLETED, TaskStatus.CACHED}
+
+
+def task_succeeded(status: TaskStatus | str) -> bool:
+    return status in SUCCESS_TASK_STATUSES
 
 
 class RoutingAction(StrEnum):
@@ -189,6 +197,7 @@ class UserOptions(StrictModel):
     budget_profile: BudgetProfile = BudgetProfile.BALANCED
     artifact_types: list[str] = Field(default_factory=list)
     allow_internet: bool = False
+    allow_cloud: bool = False
     allow_repo_writes: bool = False
     allow_shell: bool = False
     privacy_mode: PrivacyMode = PrivacyMode.BALANCED
@@ -241,6 +250,7 @@ class InputRecord(StrictModel):
     size_bytes: int | None = None
     mime_type: str | None = None
     summary: str = ""
+    content_text: str = ""
     metadata: dict[str, Any] = Field(default_factory=dict)
     warnings: list[str] = Field(default_factory=list)
     security_findings: list[SecurityFinding] = Field(default_factory=list)
@@ -277,6 +287,7 @@ class ContextPack(StrictModel):
     task_id: str
     task: str
     cards: list[ContextCard] = Field(default_factory=list)
+    chunks: list[ContextChunk] = Field(default_factory=list)
     files_to_read: list[str] = Field(default_factory=list)
     do_not_touch: list[str] = Field(default_factory=list)
     token_budget: int = 16_000
@@ -338,6 +349,9 @@ class ProvenanceRecord(StrictModel):
     source_id: str
     card_id: str
     chunk_ids: list[str] = Field(default_factory=list)
+    source_name: str = ""
+    source_uri: str = ""
+    chunk_locators: dict[str, str] = Field(default_factory=dict)
     trust_level: str
     content_hash: str | None = None
 
@@ -612,6 +626,13 @@ class EvidenceAuditFinding(StrictModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class EvidenceClaim(StrictModel):
+    task_id: str
+    claim: str
+    evidence_refs: list[str] = Field(default_factory=list)
+    resolved: bool = False
+
+
 class EvidenceAuditReport(StrictModel):
     run_id: str
     passed: bool
@@ -619,6 +640,8 @@ class EvidenceAuditReport(StrictModel):
     provenance_count: int = 0
     cited_source_ids: list[str] = Field(default_factory=list)
     unsupported_task_ids: list[str] = Field(default_factory=list)
+    invalid_evidence_refs: list[str] = Field(default_factory=list)
+    claims: list[EvidenceClaim] = Field(default_factory=list)
     findings: list[EvidenceAuditFinding] = Field(default_factory=list)
 
 
@@ -636,6 +659,26 @@ class ApprovalReport(StrictModel):
     gates: list[ApprovalGate] = Field(default_factory=list)
     blocked: bool = False
     warnings: list[str] = Field(default_factory=list)
+
+
+class EgressDecision(StrictModel):
+    subject: str
+    allowed: bool
+    reason: str
+    input_ids: list[str] = Field(default_factory=list)
+
+
+class ExecutionPolicy(StrictModel):
+    schema_version: str = "1.0"
+    run_id: str
+    privacy_mode: PrivacyMode
+    allow_network_fetch: bool = False
+    allow_hosted_models: bool = False
+    allow_private_data_egress: bool = False
+    allow_shell: bool = False
+    allow_repo_writes: bool = False
+    private_input_ids: list[str] = Field(default_factory=list)
+    decisions: list[EgressDecision] = Field(default_factory=list)
 
 
 class ValidationCommandResult(StrictModel):
@@ -735,6 +778,7 @@ class RuntimeEvent(StrictModel):
 
 
 class RunManifest(StrictModel):
+    schema_version: str = "2.0"
     run_id: str
     invocation: HostInvocation
     state: RunState
@@ -742,6 +786,8 @@ class RunManifest(StrictModel):
     product_contract_path: str
     task_dag_path: str
     quality_report_path: str
+    checksums_path: str | None = None
+    delivery_receipt_path: str | None = None
     artifacts: list[Artifact]
     warnings: list[str] = Field(default_factory=list)
     routing_decisions: list[RoutingDecision] = Field(default_factory=list)

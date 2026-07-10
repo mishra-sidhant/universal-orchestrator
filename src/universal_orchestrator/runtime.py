@@ -74,6 +74,32 @@ class RuntimeStore:
                 )
                 """
             )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS task_attempts (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    run_id TEXT NOT NULL,
+                    task_id TEXT NOT NULL,
+                    attempt INTEGER NOT NULL,
+                    status TEXT NOT NULL,
+                    cache_key TEXT,
+                    warnings TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS failure_records (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    run_id TEXT NOT NULL,
+                    stage TEXT NOT NULL,
+                    error_type TEXT NOT NULL,
+                    message TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                )
+                """
+            )
 
     def record_event(self, event: RuntimeEvent) -> None:
         with self._connect() as conn:
@@ -135,6 +161,46 @@ class RuntimeStore:
                     updated_at=excluded.updated_at
                 """,
                 (run_id, task_id, status, attempt, cache_key, utc_now().isoformat()),
+            )
+
+    def save_task_attempt(
+        self,
+        run_id: str,
+        task_id: str,
+        attempt: int,
+        status: str,
+        cache_key: str | None,
+        warnings: list[str],
+    ) -> None:
+        from universal_orchestrator.models import utc_now
+
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO task_attempts(run_id, task_id, attempt, status, cache_key, warnings, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    run_id,
+                    task_id,
+                    attempt,
+                    status,
+                    cache_key,
+                    json.dumps(warnings),
+                    utc_now().isoformat(),
+                ),
+            )
+
+    def save_failure(self, run_id: str, stage: str, error: Exception) -> None:
+        from universal_orchestrator.models import utc_now
+
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO failure_records(run_id, stage, error_type, message, created_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (run_id, stage, type(error).__name__, str(error), utc_now().isoformat()),
             )
 
     def latest_state(self, run_id: str) -> str | None:
@@ -216,7 +282,19 @@ class RuntimeStore:
     def is_cancel_requested(self, run_id: str) -> bool:
         return self.cancel_status(run_id).get("requested", False)
 
+    def clear_cancel(self, run_id: str) -> None:
+        with self._connect() as conn:
+            conn.execute("DELETE FROM cancellations WHERE run_id=?", (run_id,))
+
     def latest_successful_summary(self, exclude_run_id: str | None = None) -> dict[str, Any] | None:
+        summaries = self.successful_summaries(exclude_run_id=exclude_run_id, limit=1)
+        return summaries[0] if summaries else None
+
+    def successful_summaries(
+        self,
+        exclude_run_id: str | None = None,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
         query = """
             SELECT run_id, state, artifact_dir, quality_passed, updated_at
             FROM run_summaries
@@ -226,18 +304,20 @@ class RuntimeStore:
         if exclude_run_id:
             query += " AND run_id != ?"
             params.append(exclude_run_id)
-        query += " ORDER BY updated_at DESC LIMIT 1"
+        query += " ORDER BY updated_at DESC LIMIT ?"
+        params.append(limit)
         with self._connect() as conn:
-            row = conn.execute(query, params).fetchone()
-        if not row:
-            return None
-        return {
-            "run_id": row[0],
-            "state": row[1],
-            "artifact_dir": row[2],
-            "quality_passed": bool(row[3]),
-            "updated_at": row[4],
-        }
+            rows = conn.execute(query, params).fetchall()
+        return [
+            {
+                "run_id": row[0],
+                "state": row[1],
+                "artifact_dir": row[2],
+                "quality_passed": bool(row[3]),
+                "updated_at": row[4],
+            }
+            for row in rows
+        ]
 
     def list_events(self, run_id: str) -> list[dict[str, Any]]:
         with self._connect() as conn:

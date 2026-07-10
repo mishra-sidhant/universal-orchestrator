@@ -21,7 +21,7 @@ class StructuredWorkerOutputBuilder:
             "status": status,
             "summary": self._summary(task, decision, provider_result),
             "findings": self._findings(task, decision, provider_result, context),
-            "evidence_refs": self._evidence_refs(context),
+            "evidence_refs": self._evidence_refs(task, context),
             "files": self._files(task, context),
             "metrics": self._metrics(task, decision, provider_result, context),
             "risks": self._risks(task, decision, provider_result),
@@ -117,8 +117,11 @@ class StructuredWorkerOutputBuilder:
             )
         return findings
 
-    def _evidence_refs(self, context: dict[str, Any]) -> list[str]:
-        return list(context.get("input_refs", []))[:20]
+    def _evidence_refs(self, task: TaskNode, context: dict[str, Any]) -> list[str]:
+        by_task = context.get("chunk_refs_by_task", {})
+        task_refs = by_task.get(task.id, []) if isinstance(by_task, dict) else []
+        refs = task_refs or context.get("chunk_refs") or context.get("input_refs", [])
+        return list(refs)[:3]
 
     def _files(self, task: TaskNode, context: dict[str, Any]) -> list[dict[str, str]]:
         if task.task_type not in {TaskType.CODE_EDIT, TaskType.CODE_REVIEW, TaskType.RESEARCH, TaskType.SUMMARIZATION}:

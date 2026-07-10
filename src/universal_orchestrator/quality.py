@@ -13,6 +13,7 @@ from universal_orchestrator.models import (
     RoutingDecision,
     TaskDAG,
     TaskStatus,
+    task_succeeded,
 )
 from universal_orchestrator.validators import ValidatorRegistry
 
@@ -93,6 +94,9 @@ class QualityGateEngine:
         skipped_results = [result.task_id for result in results if result.status == TaskStatus.SKIPPED]
         if skipped_results:
             warnings.append(f"Execution skipped for tasks: {skipped_results}")
+        cancelled_results = [result.task_id for result in results if result.status == TaskStatus.CANCELLED]
+        if cancelled_results:
+            violations.append(f"Execution cancelled for tasks: {cancelled_results}")
 
         code_validation = "not_applicable"
         if repo_validation_report and repo_validation_report.command_results:
@@ -105,12 +109,29 @@ class QualityGateEngine:
                 warnings.append("Repository validation commands were detected but not executed.")
 
         passed = not violations
+        validator_pass_rate = (
+            sum(1 for finding in findings if finding.passed) / len(findings) if findings else 0.0
+        )
+        result_success_rate = (
+            sum(1 for result in results if task_succeeded(result.status)) / len(dag.nodes)
+            if dag.nodes
+            else 0.0
+        )
+        parse_rate = manifest.parsed_count / len(manifest.inputs) if manifest.inputs else 0.0
+        completeness = round(
+            100 * (0.4 * validator_pass_rate + 0.4 * result_success_rate + 0.2 * parse_rate)
+        )
+        if violations:
+            completeness = min(completeness, 69)
+        continuity = round(100 * result_success_rate)
+        style_quality = 90 if artifact_paths and not missing_artifacts else 40
+        factuality = round(50 + 40 * parse_rate)
         scores = QualityScore(
-            completeness=95 if passed else 60,
-            factuality=80,
-            citation_support=70 if "source-aware synthesis" in contract.must_have else 100,
-            style_quality=82,
-            continuity=88,
+            completeness=completeness,
+            factuality=factuality,
+            citation_support=0 if "source-aware synthesis" in contract.must_have else 100,
+            style_quality=style_quality,
+            continuity=continuity,
             cost_efficiency=90 if not degraded and not reshaped else 75,
             artifact_integrity="pass" if not missing_artifacts and artifact_paths else "fail",
             code_validation=code_validation,

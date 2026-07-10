@@ -132,10 +132,12 @@ class PartCGapTests(unittest.TestCase):
             )
 
             run_dir = Path(result.artifact_dir)
-            patch_text = (run_dir / "implementation_patch.diff").read_text()
-            patch_validation = loads((run_dir / "patch_validation.json").read_text())
+            patch_text = (run_dir / "patch_plan.md").read_text()
+            patch_validation = loads((run_dir / "patch_plan_validation.json").read_text())
 
-        self.assertTrue(patch_text.startswith("diff --git "))
+        self.assertTrue(patch_text.startswith("# Repository Patch Plan"))
+        self.assertIn("not an implementation patch", patch_text)
+        self.assertFalse((run_dir / "implementation_patch.diff").exists())
         self.assertEqual(patch_validation["errors"], [])
 
     def test_pipeline_writes_delivery_zip(self) -> None:

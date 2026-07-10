@@ -8,7 +8,7 @@ from universal_orchestrator.context import ContextIntelligence
 from universal_orchestrator.contracts import ProductContractCompiler
 from universal_orchestrator.evals import built_in_suite
 from universal_orchestrator.ingestion import InputIngestor
-from universal_orchestrator.models import HostInvocation, InputAttachment, RuntimeEvent
+from universal_orchestrator.models import HostInvocation, RuntimeEvent
 from universal_orchestrator.planning import PlannerEnsemble
 from universal_orchestrator.policy import SecurityPolicy
 from universal_orchestrator.product import FinalProductOwner
@@ -113,4 +113,3 @@ def _passing_quality():
 
 if __name__ == "__main__":
     unittest.main()
-

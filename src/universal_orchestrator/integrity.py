@@ -36,6 +36,22 @@ class ArtifactIntegrityAuditor:
             entries=entries,
         )
 
+    def checksums_payload(self, run_id: str, artifacts: list[Artifact]) -> dict:
+        return {
+            "schema_version": "1.0",
+            "run_id": run_id,
+            "files": [
+                {
+                    "name": artifact.name,
+                    "path": artifact.path,
+                    "size_bytes": artifact.as_path.stat().st_size,
+                    "content_hash": sha256_file(artifact.as_path),
+                }
+                for artifact in sorted(artifacts, key=lambda item: item.name)
+                if artifact.as_path.exists()
+            ],
+        }
+
     def _entry(self, artifact: Artifact) -> ArtifactIntegrityEntry:
         path = artifact.as_path
         errors: list[str] = []

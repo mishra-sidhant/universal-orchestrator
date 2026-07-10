@@ -3,8 +3,10 @@ from __future__ import annotations
 import os
 
 from universal_orchestrator.config import load_env_file
+from universal_orchestrator.execution_policy import PolicyCompiler
 from universal_orchestrator.models import (
     CostTier,
+    ExecutionPolicy,
     ProviderDescriptor,
     ProviderHealth,
     ProviderKind,
@@ -170,8 +172,10 @@ class CapabilityRegistry:
 
 
 class AdaptiveRouter:
-    def __init__(self, registry: CapabilityRegistry) -> None:
+    def __init__(self, registry: CapabilityRegistry, policy: ExecutionPolicy | None = None) -> None:
         self.registry = registry
+        self.policy = policy
+        self.policy_compiler = PolicyCompiler()
 
     def route(self, task: TaskNode) -> RoutingDecision:
         provider_by_id = {provider.id: provider for provider in self.registry.providers}
@@ -248,6 +252,10 @@ class AdaptiveRouter:
                 reasons.append("provider disabled")
             if provider.health.status == ProviderStatus.UNAVAILABLE:
                 reasons.append("provider unavailable")
+            if self.policy:
+                allowed, policy_reason = self.policy_compiler.provider_allowed(self.policy, provider)
+                if not allowed:
+                    reasons.append(policy_reason)
             if not self._within_cost(task, provider):
                 reasons.append(f"provider cost tier {provider.cost_tier} exceeds task max {task.max_cost_tier}")
             capability_score = self._capability_score(task, provider)

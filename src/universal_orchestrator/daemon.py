@@ -20,7 +20,8 @@ def daemon_artifacts(root: Path | str = DEFAULT_DAEMON_ROOT) -> dict:
 
 def daemon_status(run_id: str, root: Path | str = DEFAULT_DAEMON_ROOT) -> dict:
     run_root = Path(root)
-    payload = read_json(run_root / run_id / "run_manifest.json")
+    manifest_path = run_root / run_id / "run_manifest.json"
+    payload = read_json(manifest_path) if manifest_path.exists() else {"run_id": run_id}
     payload["runtime_snapshot"] = RuntimeStore(run_root / "runtime.sqlite3").resumable_snapshot(run_id)
     return payload
 
@@ -32,6 +33,10 @@ def daemon_cancel(
 ) -> dict:
     run_root = Path(root)
     return RuntimeStore(run_root / "runtime.sqlite3").request_cancel(run_id, reason)
+
+
+def daemon_resume(run_id: str, root: Path | str = DEFAULT_DAEMON_ROOT) -> dict:
+    return Orchestrator(Path(root)).resume(run_id).model_dump(mode="json")
 
 
 def create_app():
@@ -66,6 +71,10 @@ def create_app():
     @app.get("/artifacts")
     def artifacts() -> dict:
         return daemon_artifacts(DEFAULT_DAEMON_ROOT)
+
+    @app.post("/runs/{run_id}/resume")
+    def resume_run(run_id: str) -> dict:
+        return daemon_resume(run_id, DEFAULT_DAEMON_ROOT)
 
     return app
 

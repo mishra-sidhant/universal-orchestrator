@@ -79,6 +79,11 @@ def build_parser() -> argparse.ArgumentParser:
     cancel_parser.add_argument("--reason", default="User requested cancellation.")
     cancel_parser.set_defaults(handler=handle_cancel)
 
+    resume_parser = sub.add_parser("resume", help="Resume a failed or cancelled durable run")
+    resume_parser.add_argument("run_id")
+    resume_parser.add_argument("--root", default=".uo/runs")
+    resume_parser.set_defaults(handler=handle_resume)
+
     evals_parser = sub.add_parser("evals", help="List or run built-in world-readiness evaluation cases")
     evals_parser.add_argument("--run", action="store_true", help="Execute the built-in eval suite")
     evals_parser.add_argument("--root", default=".uo/evals", help="Eval artifact root")
@@ -96,6 +101,7 @@ def _add_run_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--budget", default="balanced", choices=["cheap", "balanced", "premium", "unlimited"])
     parser.add_argument("--artifact", action="append", default=[], help="Requested artifact type")
     parser.add_argument("--allow-internet", action="store_true")
+    parser.add_argument("--allow-cloud", action="store_true")
     parser.add_argument("--allow-repo-writes", action="store_true")
     parser.add_argument("--allow-shell", action="store_true")
     parser.add_argument("--root", default=".uo/runs", help="Artifact root")
@@ -170,7 +176,7 @@ def handle_artifacts(args: argparse.Namespace) -> None:
 
 def handle_status(args: argparse.Namespace) -> None:
     path = Path(args.root) / args.run_id / "run_manifest.json"
-    payload = read_json(path)
+    payload = read_json(path) if path.exists() else {"run_id": args.run_id}
     runtime = RuntimeStore(Path(args.root) / "runtime.sqlite3")
     payload["runtime_snapshot"] = runtime.resumable_snapshot(args.run_id)
     print(json.dumps(payload, indent=2, sort_keys=True))
@@ -179,6 +185,11 @@ def handle_status(args: argparse.Namespace) -> None:
 def handle_cancel(args: argparse.Namespace) -> None:
     runtime = RuntimeStore(Path(args.root) / "runtime.sqlite3")
     print(json.dumps(runtime.request_cancel(args.run_id, args.reason), indent=2, sort_keys=True, default=str))
+
+
+def handle_resume(args: argparse.Namespace) -> None:
+    result = Orchestrator(args.root).resume(args.run_id)
+    _print_run_result(result.run_id, result.artifact_dir, result.quality.passed)
 
 
 def handle_evals(args: argparse.Namespace) -> None:
@@ -195,6 +206,7 @@ def _invocation_from_args(args: argparse.Namespace, command: str) -> HostInvocat
         budget_profile=args.budget,
         artifact_types=args.artifact,
         allow_internet=args.allow_internet,
+        allow_cloud=args.allow_cloud,
         allow_repo_writes=args.allow_repo_writes,
         allow_shell=args.allow_shell,
     )

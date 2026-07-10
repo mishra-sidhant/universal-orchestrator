@@ -2,14 +2,16 @@ from __future__ import annotations
 
 from universal_orchestrator.models import (
     ContextCard,
+    ContextChunk,
     ContextManifest,
     ExecutionResult,
     ProductContract,
     ProductPackage,
+    ProvenanceRecord,
     QualityGateResult,
     RoutingDecision,
     TaskDAG,
-    TaskStatus,
+    task_succeeded,
 )
 
 
@@ -23,9 +25,22 @@ class FinalProductOwner:
         decisions: list[RoutingDecision],
         results: list[ExecutionResult],
         quality: QualityGateResult,
+        chunks: list[ContextChunk] | None = None,
+        provenance: list[ProvenanceRecord] | None = None,
     ) -> ProductPackage:
         rejected = self._reject_fragments(results)
-        markdown = self._render_markdown(manifest, contract, cards, dag, decisions, results, quality, rejected)
+        markdown = self._render_markdown(
+            manifest,
+            contract,
+            cards,
+            dag,
+            decisions,
+            results,
+            quality,
+            rejected,
+            chunks or [],
+            provenance or [],
+        )
         return ProductPackage(
             run_id=manifest.run_id,
             final_markdown=markdown,
@@ -39,7 +54,7 @@ class FinalProductOwner:
         rejected: list[str] = []
         for result in results:
             worker_output = result.output.get("worker_output")
-            if result.status != TaskStatus.COMPLETED:
+            if not task_succeeded(result.status):
                 rejected.append(f"{result.task_id}: status {result.status}")
             elif not isinstance(worker_output, dict):
                 rejected.append(f"{result.task_id}: missing structured worker output")
@@ -57,6 +72,8 @@ class FinalProductOwner:
         results: list[ExecutionResult],
         quality: QualityGateResult,
         rejected: list[str],
+        chunks: list[ContextChunk],
+        provenance: list[ProvenanceRecord],
     ) -> str:
         lines = [
             "# Universal Orchestrator Final Product",
@@ -93,7 +110,28 @@ class FinalProductOwner:
                 summary = worker_output.get("summary", "")
                 risks = worker_output.get("risks", [])
                 risk_text = f" Risks: {', '.join(risks)}." if risks else ""
-                lines.append(f"- `{result.task_id}` {summary}{risk_text}")
+                evidence_refs = [
+                    str(ref) for ref in worker_output.get("evidence_refs", []) if ref
+                ]
+                citations = " ".join(f"[{ref}]" for ref in evidence_refs)
+                citation_text = f" Sources: {citations}" if citations else ""
+                lines.append(f"- `{result.task_id}` {summary}{risk_text}{citation_text}")
+        cited_chunk_ids = self._cited_chunk_ids(results)
+        chunks_by_id = {chunk.id: chunk for chunk in chunks}
+        provenance_by_chunk = {
+            chunk_id: record
+            for record in provenance
+            for chunk_id in record.chunk_ids
+        }
+        lines.extend(["", "## Sources", ""])
+        for chunk_id in cited_chunk_ids:
+            chunk = chunks_by_id.get(chunk_id)
+            source = provenance_by_chunk.get(chunk_id)
+            if not chunk:
+                continue
+            source_name = source.source_name if source else str(chunk.metadata.get("source_name", "source"))
+            locator = str(chunk.metadata.get("locator", "location unavailable"))
+            lines.append(f"- [{chunk_id}] {source_name}, {locator}.")
         lines.extend(["", "## Quality", ""])
         lines.append(f"- Completeness: {quality.scores.completeness}")
         lines.append(f"- Artifact integrity: {quality.scores.artifact_integrity}")
@@ -104,3 +142,10 @@ class FinalProductOwner:
         lines.append("")
         return "\n".join(lines)
 
+    def _cited_chunk_ids(self, results: list[ExecutionResult]) -> list[str]:
+        refs: set[str] = set()
+        for result in results:
+            worker_output = result.output.get("worker_output", {})
+            if isinstance(worker_output, dict):
+                refs.update(str(ref) for ref in worker_output.get("evidence_refs", []) if ref)
+        return sorted(refs)

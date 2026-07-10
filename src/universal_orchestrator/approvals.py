@@ -92,7 +92,9 @@ class ApprovalGateEngine:
     def _cloud_gate(self, invocation: HostInvocation) -> ApprovalGate:
         privacy_mode = PrivacyMode(invocation.user_options.privacy_mode)
         required = privacy_mode in {PrivacyMode.LOCAL_ONLY, PrivacyMode.EXPLICIT_APPROVAL}
-        granted = privacy_mode == PrivacyMode.CLOUD_ALLOWED
+        granted = privacy_mode != PrivacyMode.LOCAL_ONLY and (
+            privacy_mode == PrivacyMode.CLOUD_ALLOWED or invocation.user_options.allow_cloud
+        )
         return ApprovalGate(
             name="cloud_provider_execution",
             required=required,

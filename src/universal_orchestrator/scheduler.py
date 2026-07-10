@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
+from time import sleep
+from typing import Callable
+
 from universal_orchestrator.cache import SemanticCache
 from universal_orchestrator.execution import DeterministicExecutor
 from universal_orchestrator.models import (
@@ -44,53 +48,67 @@ class DAGScheduler:
         decisions: list[RoutingDecision],
         executor: DeterministicExecutor,
         cache_context: dict | None = None,
+        cancellation_check: Callable[[], bool] | None = None,
     ) -> tuple[list[ExecutionResult], ScheduleReport]:
         decision_by_task = {decision.task_id: decision for decision in decisions}
         results: list[ExecutionResult] = []
         records: list[ScheduledTaskRecord] = []
         cache_hits: list[str] = []
         execution_order: list[str] = []
+        result_by_task: dict[str, ExecutionResult] = {}
         for batch in self.parallel_batches(dag):
             for task in batch:
                 cache_key = self.cache_key_for_task(task, cache_context)
-                cached = self.cache.get(cache_key) if self.cache else None
-                started = utc_now()
-                if cached:
-                    cache_hits.append(task.id)
-                    result = ExecutionResult(
-                        task_id=task.id,
-                        provider_id=cached.get("provider_id"),
-                        status=TaskStatus.CACHED,
-                        output=cached.get("output", {}),
-                        warnings=["Loaded from scheduler cache."],
-                        started_at=started,
-                        completed_at=utc_now(),
+                if cancellation_check and cancellation_check():
+                    result = self._terminal_result(
+                        task,
+                        TaskStatus.CANCELLED,
+                        "Run cancellation requested before task execution.",
                     )
+                    records.append(self._record(task, result, 0, cache_key))
+                elif self._blocked_by_dependency(task, result_by_task):
+                    result = self._terminal_result(
+                        task,
+                        TaskStatus.SKIPPED,
+                        "Task skipped because a dependency did not complete successfully.",
+                    )
+                    records.append(self._record(task, result, 0, cache_key))
                 else:
-                    result = executor.execute([task], [decision_by_task[task.id]])[0]
-                    if self.cache and result.status == TaskStatus.COMPLETED:
-                        self.cache.set(
-                            cache_key,
-                            {
-                                "provider_id": result.provider_id,
-                                "status": result.status,
-                                "output": result.output,
-                            },
+                    cached = self.cache.get(cache_key) if self.cache else None
+                    if cached and cached.get("schema_version") == "2.0" and cached.get("status") == "completed":
+                        cache_hits.append(task.id)
+                        result = ExecutionResult(
+                            task_id=task.id,
+                            provider_id=cached.get("provider_id"),
+                            status=TaskStatus.CACHED,
+                            output=cached.get("output", {}),
+                            warnings=["Loaded from scheduler cache."],
+                            started_at=utc_now(),
+                            completed_at=utc_now(),
                         )
+                        records.append(self._record(task, result, 0, cache_key))
+                    else:
+                        result = self._execute_with_retries(
+                            task,
+                            decision_by_task[task.id],
+                            executor,
+                            cache_key,
+                            records,
+                            cancellation_check,
+                        )
+                        if self.cache and result.status == TaskStatus.COMPLETED:
+                            self.cache.set(
+                                cache_key,
+                                {
+                                    "schema_version": "2.0",
+                                    "provider_id": result.provider_id,
+                                    "status": "completed",
+                                    "output": result.output,
+                                },
+                            )
                 results.append(result)
+                result_by_task[task.id] = result
                 execution_order.append(task.id)
-                records.append(
-                    ScheduledTaskRecord(
-                        task_id=task.id,
-                        status=result.status,
-                        attempt=1,
-                        dependencies=task.dependencies,
-                        cache_key=cache_key,
-                        started_at=result.started_at,
-                        completed_at=result.completed_at,
-                        warnings=result.warnings,
-                    )
-                )
         report = ScheduleReport(
             run_id=dag.run_id,
             records=records,
@@ -100,6 +118,102 @@ class DAGScheduler:
             failed_tasks=[result.task_id for result in results if result.status == TaskStatus.FAILED],
         )
         return results, report
+
+    def _execute_with_retries(
+        self,
+        task: TaskNode,
+        decision: RoutingDecision,
+        executor: DeterministicExecutor,
+        cache_key: str,
+        records: list[ScheduledTaskRecord],
+        cancellation_check: Callable[[], bool] | None,
+    ) -> ExecutionResult:
+        max_attempts = max(1, task.retry_policy.max_attempts)
+        result = self._terminal_result(task, TaskStatus.FAILED, "Task did not execute.")
+        for attempt in range(1, max_attempts + 1):
+            if cancellation_check and cancellation_check():
+                result = self._terminal_result(
+                    task,
+                    TaskStatus.CANCELLED,
+                    "Run cancellation requested before retry attempt.",
+                )
+                records.append(self._record(task, result, attempt, cache_key))
+                break
+            result = self._execute_with_timeout(task, decision, executor)
+            records.append(self._record(task, result, attempt, cache_key))
+            if result.status == TaskStatus.COMPLETED:
+                break
+            if attempt < max_attempts and task.retry_policy.backoff_seconds > 0:
+                sleep(task.retry_policy.backoff_seconds)
+        return result
+
+    def _execute_with_timeout(
+        self,
+        task: TaskNode,
+        decision: RoutingDecision,
+        executor: DeterministicExecutor,
+    ) -> ExecutionResult:
+        pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix=f"uo-{task.id}")
+        future = pool.submit(executor.execute, [task], [decision])
+        try:
+            return future.result(timeout=max(0, task.timeout_seconds))[0]
+        except FutureTimeoutError:
+            future.cancel()
+            return self._terminal_result(
+                task,
+                TaskStatus.FAILED,
+                f"Task timed out after {task.timeout_seconds} second(s).",
+            )
+        except Exception as exc:
+            return self._terminal_result(
+                task,
+                TaskStatus.FAILED,
+                f"Task execution raised {type(exc).__name__}: {exc}",
+            )
+        finally:
+            pool.shutdown(wait=False, cancel_futures=True)
+
+    def _blocked_by_dependency(
+        self,
+        task: TaskNode,
+        result_by_task: dict[str, ExecutionResult],
+    ) -> bool:
+        successful = {TaskStatus.COMPLETED, TaskStatus.CACHED}
+        return any(
+            dependency not in result_by_task
+            or result_by_task[dependency].status not in successful
+            for dependency in task.dependencies
+        )
+
+    def _terminal_result(self, task: TaskNode, status: TaskStatus, warning: str) -> ExecutionResult:
+        now = utc_now()
+        return ExecutionResult(
+            task_id=task.id,
+            provider_id=None,
+            status=status,
+            output={},
+            warnings=[warning],
+            started_at=now,
+            completed_at=now,
+        )
+
+    def _record(
+        self,
+        task: TaskNode,
+        result: ExecutionResult,
+        attempt: int,
+        cache_key: str,
+    ) -> ScheduledTaskRecord:
+        return ScheduledTaskRecord(
+            task_id=task.id,
+            status=result.status,
+            attempt=attempt,
+            dependencies=task.dependencies,
+            cache_key=cache_key,
+            started_at=result.started_at,
+            completed_at=result.completed_at,
+            warnings=result.warnings,
+        )
 
     def cache_key_for_task(self, task: TaskNode, cache_context: dict | None = None) -> str:
         payload = {

@@ -69,26 +69,24 @@ class ArtifactBuilder:
 
     def build_patch_plan(self, markdown: str, path: Path) -> Artifact:
         path.parent.mkdir(parents=True, exist_ok=True)
-        lines = [
-            "diff --git a/UNIVERSAL_ORCHESTRATOR_DELIVERY.md b/UNIVERSAL_ORCHESTRATOR_DELIVERY.md",
-            "new file mode 100644",
-            "--- /dev/null",
-            "+++ b/UNIVERSAL_ORCHESTRATOR_DELIVERY.md",
-            "@@",
-        ]
-        lines.extend(f"+{line}" if line else "+" for line in markdown.splitlines())
-        path.write_text("\n".join(lines) + "\n")
-        return self._artifact(path, ArtifactType.PATCH)
+        content = (
+            "# Repository Patch Plan\n\n"
+            "No repository changes were applied by this deterministic run. "
+            "This file is a plan, not an implementation patch.\n\n"
+            f"{markdown}"
+        )
+        path.write_text(content)
+        return self._artifact(path, ArtifactType.REPORT)
 
-    def validate_patch(self, path: Path) -> list[str]:
+    def validate_patch_plan(self, path: Path) -> list[str]:
         errors: list[str] = []
         if not path.exists():
-            return ["Patch file does not exist."]
+            return ["Patch plan does not exist."]
         text = path.read_text(errors="replace")
-        if not text.startswith("diff --git "):
-            errors.append("Patch does not start with a git diff header.")
-        if "\n+++" not in text or "\n---" not in text:
-            errors.append("Patch is missing file header markers.")
+        if not text.startswith("# Repository Patch Plan"):
+            errors.append("Patch plan is missing its explicit plan heading.")
+        if "not an implementation patch" not in text:
+            errors.append("Patch plan does not disclose that no code patch was produced.")
         return errors
 
     def build_zip(self, artifacts: list[Artifact], path: Path) -> Artifact:

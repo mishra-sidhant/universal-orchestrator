@@ -70,6 +70,7 @@ class InputIngestor:
                 status=InputStatus.PARSED,
                 content_hash=sha256_bytes(prompt_text.encode("utf-8")),
                 summary=truncate_words(prompt_text, 120),
+                content_text=prompt_text,
                 metadata={"chars": len(prompt_text)},
                 security_findings=prompt_findings,
             )
@@ -189,6 +190,7 @@ class InputIngestor:
             size_bytes=size,
             mime_type=mimetypes.guess_type(path.name)[0],
             summary=truncate_words(redacted, 140),
+            content_text=redacted,
             metadata={"chars_read": len(text), "suffix": path.suffix.lower(), "encoding": encoding},
             warnings=warnings,
             security_findings=findings,
@@ -213,6 +215,7 @@ class InputIngestor:
             warnings.append(f"DOCX parser failed: {exc}")
         text = "\n".join(paragraphs)
         findings = scan_text(text, location=str(path))
+        redacted = redact_text(text)
         return InputRecord(
             id=new_id("input"),
             type=InputType.DOCX,
@@ -223,8 +226,9 @@ class InputIngestor:
             content_hash=sha256_file(path),
             size_bytes=path.stat().st_size,
             mime_type=mimetypes.guess_type(path.name)[0],
-            summary=truncate_words(redact_text(text), 180)
+            summary=truncate_words(redacted, 180)
             or "DOCX file parsed but no text was extracted.",
+            content_text=redacted,
             metadata={"paragraphs": len(paragraphs), "tables": table_count, "suffix": ".docx"},
             warnings=warnings,
             security_findings=findings,
@@ -258,6 +262,7 @@ class InputIngestor:
             warnings.append(f"PPTX parser failed: {exc}")
         text = "\n".join(slide_text)
         findings = scan_text(text, location=str(path))
+        redacted = redact_text(text)
         return InputRecord(
             id=new_id("input"),
             type=InputType.PPTX,
@@ -268,8 +273,9 @@ class InputIngestor:
             content_hash=sha256_file(path),
             size_bytes=path.stat().st_size,
             mime_type=mimetypes.guess_type(path.name)[0],
-            summary=truncate_words(redact_text(text), 180)
+            summary=truncate_words(redacted, 180)
             or "PPTX file parsed but no slide text was extracted.",
+            content_text=redacted,
             metadata={"slides": slide_count, "suffix": ".pptx"},
             warnings=warnings,
             security_findings=findings,
@@ -311,6 +317,7 @@ class InputIngestor:
                 warnings.append(f"Spreadsheet parser failed: {exc}")
         text = "\n".join(text_parts)
         findings = scan_text(text, location=str(path))
+        redacted = redact_text(text)
         return InputRecord(
             id=new_id("input"),
             type=InputType.SPREADSHEET,
@@ -321,8 +328,9 @@ class InputIngestor:
             content_hash=sha256_file(path),
             size_bytes=path.stat().st_size,
             mime_type=mimetypes.guess_type(path.name)[0],
-            summary=truncate_words(redact_text(text), 180)
+            summary=truncate_words(redacted, 180)
             or "Spreadsheet parsed but no cell text was extracted.",
+            content_text=redacted,
             metadata=metadata,
             warnings=warnings,
             security_findings=findings,
@@ -361,6 +369,7 @@ class InputIngestor:
             size_bytes=path.stat().st_size,
             mime_type=mimetypes.guess_type(path.name)[0],
             summary=f"Image metadata extracted: {dimensions}, format={metadata.get('format', 'unknown')}. OCR is not enabled yet.",
+            content_text=f"Image metadata: dimensions={dimensions}; format={metadata.get('format', 'unknown')}.",
             metadata=metadata,
             warnings=warnings,
         )
@@ -406,6 +415,7 @@ class InputIngestor:
             size_bytes=path.stat().st_size,
             mime_type=mimetypes.guess_type(path.name)[0],
             summary=summary,
+            content_text=summary,
             metadata=metadata,
             warnings=warnings,
         )
@@ -444,6 +454,7 @@ class InputIngestor:
             size_bytes=size,
             mime_type="application/pdf",
             summary=truncate_words(redacted, 180),
+            content_text=redacted,
             metadata=metadata,
             warnings=warnings,
             security_findings=findings,
@@ -473,6 +484,7 @@ class InputIngestor:
             size_bytes=size,
             mime_type=mimetypes.guess_type(path.name)[0],
             summary=summary_by_type.get(input_type, f"{input_type} file detected."),
+            content_text=summary_by_type.get(input_type, f"{input_type} file detected."),
             metadata={"suffix": path.suffix.lower()},
             warnings=[] if status == InputStatus.PARSED else ["Structured parser not implemented yet."],
         )
@@ -515,6 +527,7 @@ class InputIngestor:
             content_hash=sha256_bytes(compact_whitespace(str(metadata)).encode("utf-8")),
             size_bytes=total_bytes,
             summary=summary,
+            content_text=summary,
             metadata=metadata,
             warnings=warnings,
         )
@@ -533,6 +546,7 @@ class InputIngestor:
             status=InputStatus.PARTIAL,
             content_hash=sha256_bytes(attachment.uri.encode("utf-8")),
             summary="URL recorded but not fetched because internet access requires explicit runtime permission.",
+            content_text="URL recorded but not fetched because internet access requires explicit runtime permission.",
             metadata={"scheme": parsed.scheme, "netloc": parsed.netloc, "path": parsed.path},
             warnings=["URL fetch not performed in deterministic MVP."],
         )
@@ -565,6 +579,7 @@ class InputIngestor:
         except Exception as exc:
             warnings.append(f"URL fetch failed: {exc}")
         findings = scan_text(text, location=attachment.uri)
+        redacted = redact_text(text)
         return InputRecord(
             id=new_id("input"),
             type=input_type,
@@ -573,7 +588,8 @@ class InputIngestor:
             status=status,
             content_hash=sha256_bytes((text or attachment.uri).encode("utf-8")),
             size_bytes=len(text.encode("utf-8")) if text else None,
-            summary=truncate_words(redact_text(text), 180) if text else "URL fetch attempted but no text was extracted.",
+            summary=truncate_words(redacted, 180) if text else "URL fetch attempted but no text was extracted.",
+            content_text=redacted,
             metadata=metadata,
             warnings=warnings,
             security_findings=findings,

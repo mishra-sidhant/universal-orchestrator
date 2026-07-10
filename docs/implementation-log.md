@@ -180,3 +180,29 @@ Latest Part C eval report:
 ```text
 .uo/evals/part_c/eval_report.json
 ```
+
+## Tranche D Trustworthy Runtime And Delivery
+
+Completed July 10, 2026 after a fresh report-to-code validation:
+
+1. Enforced privacy and egress policy: added an effective execution policy, separated internet fetch from cloud permission, filtered hosted providers during routing, and rechecked policy immediately before adapter execution. `local_only` cannot be bypassed by flags or credentials.
+2. Completed lifecycle behavior: failures persist `failure.json` and SQLite failure records; cancellation is terminal before delivery; the scheduler records retries, timeouts, dependency skips, and attempts; failed or cancelled runs resume from `run_request.json` under the same run ID.
+3. Corrected cache and delta semantics: valid cache hits count as successful outputs, cache records are schema/version checked, malformed entries are quarantined, cache fingerprints include contract/policy/provider/routing context, and delta planning chooses the most similar prior successful run.
+4. Rebuilt artifact finalization: repository analysis emits an honest `patch_plan.md`; payloads are audited before a one-time manifest write; `checksums.json` covers payloads plus the manifest; the ZIP includes manifest/checksums/trace/debug/integrity; `delivery_receipt.json` binds ZIP, manifest, checksums, and validation hashes.
+5. Upgraded context and evidence: ingestion retains redacted extracted text, stable chunks preserve source locators and tail content, task packs include ranked chunks, worker claims cite chunk IDs, and the final report provides inline citations plus a Sources section.
+6. Derived quality and semantic evals: citation/factuality scores come from resolved claims; completeness/continuity come from validation, parsing, and task outcomes; eval gates parse schemas, validate DAGs, reconcile routing IDs, validate worker structures, and recompute checksums.
+7. Hardened distribution: parser and artifact-builder dependencies are declared in the default package, CI covers Python 3.11-3.13, and build validation produces both sdist and wheel.
+
+Validation completed:
+
+```text
+73 unittest tests passed
+Ruff: all checks passed
+Built-in eval suite: 3/3 cases passed
+Package build: universal_orchestrator-0.1.0.tar.gz and universal_orchestrator-0.1.0-py3-none-any.whl
+git diff --check: clean
+```
+
+Strict `mypy src` was also run and exposed a pre-existing backlog in optional provider, ingestion, daemon, and MCP boundary typing. It is documented rather than hidden and is not yet a CI gate.
+
+Provider keys remain intentionally absent. Add them later to repository-root `.env.local` using `.env.example`; hosted runs also require `--allow-internet --allow-cloud`. OpenAI needs `OPENAI_API_KEY` and `OPENAI_MODEL`; Anthropic needs `ANTHROPIC_API_KEY` and `ANTHROPIC_MODEL`; Ollama needs `OLLAMA_BASE_URL` and `OLLAMA_MODEL`.

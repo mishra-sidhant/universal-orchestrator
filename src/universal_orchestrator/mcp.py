@@ -30,6 +30,7 @@ def tool_definitions() -> list[dict[str, Any]]:
                     "quality": {"type": "string", "default": "serious"},
                     "budget": {"type": "string", "default": "balanced"},
                     "allow_internet": {"type": "boolean", "default": False},
+                    "allow_cloud": {"type": "boolean", "default": False},
                 },
             },
         },
@@ -96,6 +97,18 @@ def tool_definitions() -> list[dict[str, Any]]:
                 },
             },
         },
+        {
+            "name": "ai_team.resume",
+            "description": "Resume a failed or cancelled durable run.",
+            "inputSchema": {
+                "type": "object",
+                "required": ["run_id"],
+                "properties": {
+                    "run_id": {"type": "string"},
+                    "root": {"type": "string", "default": ".uo/runs"},
+                },
+            },
+        },
     ]
 
 
@@ -117,6 +130,8 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, A
         return _tool_cancel(args)
     if name == "ai_team.evals":
         return _tool_evals(args)
+    if name == "ai_team.resume":
+        return _tool_resume(args)
     raise ValueError(f"Unknown tool: {name}")
 
 
@@ -161,6 +176,7 @@ def _tool_run(args: dict[str, Any]) -> dict[str, Any]:
         quality=args.get("quality", "serious"),
         budget_profile=args.get("budget", "balanced"),
         allow_internet=bool(args.get("allow_internet", False)),
+        allow_cloud=bool(args.get("allow_cloud", False)),
     )
     invocation = HostInvocation(
         host=Host.API,
@@ -183,7 +199,7 @@ def _tool_run(args: dict[str, Any]) -> dict[str, Any]:
 def _tool_status(args: dict[str, Any]) -> dict[str, Any]:
     root = Path(args.get("root", ".uo/runs"))
     path = root / args["run_id"] / "run_manifest.json"
-    payload = read_json(path)
+    payload = read_json(path) if path.exists() else {"run_id": args["run_id"]}
     runtime = RuntimeStore(root / "runtime.sqlite3")
     payload["runtime_snapshot"] = runtime.resumable_snapshot(args["run_id"])
     return payload
@@ -238,6 +254,16 @@ def _tool_evals(args: dict[str, Any]) -> dict[str, Any]:
             case_ids=args.get("case_ids"),
         ).model_dump(mode="json")
     return built_in_suite().model_dump(mode="json")
+
+
+def _tool_resume(args: dict[str, Any]) -> dict[str, Any]:
+    result = Orchestrator(args.get("root", ".uo/runs")).resume(args["run_id"])
+    return {
+        "run_id": result.run_id,
+        "state": result.state,
+        "artifact_dir": result.artifact_dir,
+        "quality_passed": result.quality.passed,
+    }
 
 
 def _error(request_id: Any, code: int, message: str) -> dict[str, Any]:

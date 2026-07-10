@@ -4,9 +4,20 @@ from pathlib import Path
 import tempfile
 import zipfile
 
-from universal_orchestrator.models import HostInvocation, InputAttachment, StrictModel
+from pydantic import Field, ValidationError
+
+from universal_orchestrator.models import (
+    ContextManifest,
+    ExecutionResult,
+    HostInvocation,
+    InputAttachment,
+    ProductContract,
+    RoutingDecision,
+    StrictModel,
+    TaskDAG,
+)
 from universal_orchestrator.pipeline import Orchestrator
-from universal_orchestrator.utils import ensure_dir, read_json, write_json
+from universal_orchestrator.utils import ensure_dir, read_json, sha256_file, write_json
 
 
 class EvaluationCaseResult(StrictModel):
@@ -14,9 +25,9 @@ class EvaluationCaseResult(StrictModel):
     run_id: str | None = None
     artifact_dir: str | None = None
     passed: bool = False
-    missing_artifacts: list[str] = []
-    failed_gates: list[str] = []
-    notes: list[str] = []
+    missing_artifacts: list[str] = Field(default_factory=list)
+    failed_gates: list[str] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
 
 
 class EvaluationReport(StrictModel):
@@ -135,27 +146,50 @@ class EvaluationRunner:
         return path
 
     def _gate_passed(self, gate: str, run_dir: Path) -> bool:
-        if gate == "artifact_integrity":
-            report = read_json(run_dir / "artifact_integrity_report.json")
-            return bool(report.get("passed"))
-        if gate == "contract_compliance":
-            return (run_dir / "product_contract.json").exists()
-        if gate == "context_manifest":
-            return (run_dir / "context_manifest.json").exists()
-        if gate == "dag_valid":
-            return (run_dir / "task_dag.json").exists()
-        if gate == "routing_complete":
-            return (run_dir / "routing_decisions.json").exists()
-        if gate == "structured_outputs":
-            return "worker_output" in (run_dir / "execution_results.json").read_text()
-        if gate == "archive_path_traversal_detected":
-            manifest = read_json(run_dir / "context_manifest.json")
-            warnings = [
-                warning
-                for item in manifest.get("inputs", [])
-                for warning in item.get("warnings", [])
-            ]
-            return any("unsafe paths" in warning for warning in warnings)
-        if gate == "no_unpack_without_sandbox":
-            return not any(path.name == "escape.txt" for path in run_dir.rglob("*"))
+        try:
+            if gate == "artifact_integrity":
+                report = read_json(run_dir / "artifact_integrity_report.json")
+                checksums = read_json(run_dir / "checksums.json")
+                entries_valid = all(
+                    Path(entry["path"]).exists()
+                    and sha256_file(Path(entry["path"])) == entry["content_hash"]
+                    for entry in checksums.get("files", [])
+                )
+                return bool(report.get("passed")) and bool(checksums.get("files")) and entries_valid
+            if gate == "contract_compliance":
+                contract = ProductContract.model_validate(read_json(run_dir / "product_contract.json"))
+                return bool(contract.primary_artifacts and contract.definition_of_done.gates)
+            if gate == "context_manifest":
+                manifest = ContextManifest.model_validate(read_json(run_dir / "context_manifest.json"))
+                return bool(manifest.inputs and manifest.parsed_count)
+            if gate == "dag_valid":
+                dag = TaskDAG.model_validate(read_json(run_dir / "task_dag.json"))
+                dag.validate_graph()
+                return bool(dag.nodes)
+            if gate == "routing_complete":
+                dag = TaskDAG.model_validate(read_json(run_dir / "task_dag.json"))
+                decisions = [
+                    RoutingDecision.model_validate(item)
+                    for item in read_json(run_dir / "routing_decisions.json")
+                ]
+                return {node.id for node in dag.nodes} == {decision.task_id for decision in decisions}
+            if gate == "structured_outputs":
+                results = [
+                    ExecutionResult.model_validate(item)
+                    for item in read_json(run_dir / "execution_results.json")
+                ]
+                required = {"summary", "findings", "evidence_refs", "risks", "next_actions"}
+                return bool(results) and all(
+                    isinstance(result.output.get("worker_output"), dict)
+                    and required.issubset(result.output["worker_output"])
+                    for result in results
+                )
+            if gate == "archive_path_traversal_detected":
+                manifest = ContextManifest.model_validate(read_json(run_dir / "context_manifest.json"))
+                warnings = [warning for item in manifest.inputs for warning in item.warnings]
+                return any("unsafe paths" in warning for warning in warnings)
+            if gate == "no_unpack_without_sandbox":
+                return not any(path.name == "escape.txt" for path in run_dir.rglob("*"))
+        except (FileNotFoundError, KeyError, TypeError, ValueError, ValidationError):
+            return False
         return False

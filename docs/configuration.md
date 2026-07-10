@@ -22,7 +22,20 @@ Use `.env.example` as the template. `.env.local` is ignored by git.
 - `OLLAMA_BASE_URL`: enables the `ollama.local` provider descriptor.
 - `OLLAMA_MODEL`: model id used by the Ollama adapter when live calls are enabled.
 
-Provider detection is read-only by default. Real provider adapters exist, but they run in dry-run mode unless a run is created with internet access enabled and the provider-specific key/model variables are configured.
+Provider detection is read-only by default. Hosted execution requires `--allow-internet`, `--allow-cloud`, a privacy mode that permits hosted models, and the provider-specific key/model variables. Internet permission alone never grants cloud execution, and `local_only` privacy cannot be overridden by a key or flag.
+
+Add keys later in the repository-root `.env.local` file:
+
+```text
+OPENAI_API_KEY=
+OPENAI_MODEL=
+ANTHROPIC_API_KEY=
+ANTHROPIC_MODEL=
+OLLAMA_BASE_URL=
+OLLAMA_MODEL=
+```
+
+Run `python -m universal_orchestrator configure` to see missing values without printing configured secrets.
 
 ## Commands
 
@@ -37,6 +50,7 @@ PYTHONPATH=src python -m universal_orchestrator repo "Analyze this repo" .
 PYTHONPATH=src python -m universal_orchestrator artifacts
 PYTHONPATH=src python -m universal_orchestrator status <run_id>
 PYTHONPATH=src python -m universal_orchestrator cancel <run_id>
+PYTHONPATH=src python -m universal_orchestrator resume <run_id>
 PYTHONPATH=src python -m universal_orchestrator evals --run
 ```
 
@@ -70,12 +84,14 @@ Endpoints:
 - `POST /runs`
 - `GET /runs/{run_id}`
 - `POST /runs/{run_id}/cancel`
+- `POST /runs/{run_id}/resume`
 - `GET /artifacts`
 
 ## Privacy Defaults
 
 - URL fetch is not performed by the deterministic MVP.
 - Archives are not unpacked yet.
-- Secret-like text is redacted before summaries are created.
+- Secret-like text is redacted before summaries, extracted context, and source chunks are persisted.
 - Untrusted prompt-injection-like content is recorded as a risk card.
 - Hosted provider descriptors are disabled unless their environment variables are present.
+- Hosted models additionally require explicit cloud permission; provider availability is never treated as execution authority.

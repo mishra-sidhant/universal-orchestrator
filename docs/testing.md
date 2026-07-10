@@ -21,7 +21,22 @@ PYTHONPATH=src python -m universal_orchestrator status <run_id>
 When optional dev dependencies are installed, add:
 
 ```bash
-ruff check .
+ruff check src tests
 mypy src
 pytest
+python -m build
 ```
+
+The CI workflow validates Python 3.11, 3.12, and 3.13 with compilation, Ruff, the full `unittest` suite, and source/wheel package builds.
+
+## Tranche D Regression Coverage
+
+- Privacy and egress policy is rechecked at routing and adapter execution boundaries.
+- Failures and cancellations persist terminal state and diagnostics; failed runs resume under the same run ID.
+- Scheduler retries, dependency skips, timeouts, and attempt records are verified.
+- Cached results remain successful fragments, corrupt entries are quarantined, and source references stay stable across runs.
+- Manifest/checksum/ZIP/receipt hashes are recomputed and ZIP inventory is inspected.
+- Extracted source tail content, chunk locators, final citations, and claim resolution are verified.
+- Eval mutation tests prove malformed DAGs, incomplete routing, and damaged worker schemas fail their gates.
+
+Current validated baseline on July 10, 2026: 73 tests passing, Ruff clean, all three built-in world-readiness eval cases passing, and both sdist and wheel building successfully. Strict `mypy src` still reports a pre-existing typing backlog in optional adapters and boundary modules and is therefore not represented as a passing CI gate.

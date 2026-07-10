@@ -11,13 +11,16 @@ from universal_orchestrator.context import ContextIntelligence
 from universal_orchestrator.contracts import ProductContractCompiler
 from universal_orchestrator.delta import DeltaPlanner
 from universal_orchestrator.evidence import EvidenceAuditor
+from universal_orchestrator.errors import RunCancelledError
 from universal_orchestrator.execution import DeterministicExecutor
+from universal_orchestrator.execution_policy import PolicyCompiler
 from universal_orchestrator.ingestion import InputIngestor
 from universal_orchestrator.integrity import ArtifactIntegrityAuditor
 from universal_orchestrator.models import (
     Artifact,
     ArtifactType,
     HostInvocation,
+    InputType,
     ProductContract,
     RuntimeEvent,
     RunManifest,
@@ -35,6 +38,7 @@ from universal_orchestrator.repo_validation import RepoValidationRunner
 from universal_orchestrator.runtime import RuntimeStore
 from universal_orchestrator.routing import AdaptiveRouter, CapabilityRegistry
 from universal_orchestrator.scheduler import DAGScheduler
+from universal_orchestrator.utils import read_json, sha256_file
 
 
 class Orchestrator:
@@ -44,6 +48,7 @@ class Orchestrator:
         self.context = ContextIntelligence()
         self.contracts = ProductContractCompiler()
         self.approvals = ApprovalGateEngine()
+        self.policy_compiler = PolicyCompiler()
         self.planner = PlannerEnsemble()
         self.budget = BudgetController()
         self.delta = DeltaPlanner()
@@ -62,20 +67,96 @@ class Orchestrator:
 
     def run(self, invocation: HostInvocation) -> RunResult:
         run_id = new_id("run")
-        trace = TraceRecorder(run_id)
         started_at = utc_now()
         self.runtime.record_event(RuntimeEvent(run_id=run_id, event_type="received", payload={"host": invocation.host}))
         self.runtime.transition(run_id, RunState.RECEIVED)
+        request_artifact = self.artifact_store.write_json_artifact(
+            run_id, "run_request.json", invocation.model_dump(mode="json")
+        )
+        return self._run_with_failure_boundary(invocation, run_id, started_at, request_artifact)
 
-        manifest = self.ingestor.ingest(invocation, run_id)
+    def resume(self, run_id: str) -> RunResult:
+        state = self.runtime.latest_state(run_id)
+        if state == RunState.DELIVERED:
+            raise ValueError(f"Run {run_id} is already delivered and does not require resume.")
+        request_path = self.artifact_store.run_dir(run_id) / "run_request.json"
+        if not request_path.exists():
+            raise FileNotFoundError(f"Run request is unavailable for {run_id}.")
+        invocation = HostInvocation.model_validate(read_json(request_path))
+        self.runtime.clear_cancel(run_id)
+        self.runtime.record_event(RuntimeEvent(run_id=run_id, event_type="resume_requested"))
+        self.runtime.transition(run_id, RunState.RECEIVED)
+        request_artifact = self.artifact_store.write_json_artifact(
+            run_id, "run_request.json", invocation.model_dump(mode="json")
+        )
+        return self._run_with_failure_boundary(invocation, run_id, utc_now(), request_artifact)
+
+    def _run_with_failure_boundary(
+        self,
+        invocation: HostInvocation,
+        run_id: str,
+        started_at,
+        request_artifact: Artifact,
+    ) -> RunResult:
+        try:
+            self._ensure_not_cancelled(run_id)
+            return self._run_pipeline(invocation, run_id, started_at, request_artifact)
+        except RunCancelledError:
+            if self.runtime.latest_state(run_id) != RunState.CANCELLED:
+                self.runtime.transition(run_id, RunState.CANCELLED)
+            self.runtime.save_run_summary(
+                run_id,
+                str(RunState.CANCELLED),
+                str(self.artifact_store.run_dir(run_id)),
+                False,
+            )
+            self.runtime.record_event(RuntimeEvent(run_id=run_id, event_type="cancelled"))
+            raise
+        except Exception as exc:
+            stage = self.runtime.latest_state(run_id) or str(RunState.RECEIVED)
+            self.runtime.save_failure(run_id, stage, exc)
+            self.artifact_store.write_json_artifact(
+                run_id,
+                "failure.json",
+                {"run_id": run_id, "stage": stage, "error_type": type(exc).__name__, "message": str(exc)},
+            )
+            self.runtime.transition(run_id, RunState.FAILED)
+            self.runtime.save_run_summary(
+                run_id,
+                str(RunState.FAILED),
+                str(self.artifact_store.run_dir(run_id)),
+                False,
+            )
+            self.runtime.record_event(
+                RuntimeEvent(
+                    run_id=run_id,
+                    event_type="failed",
+                    payload={"stage": stage, "error_type": type(exc).__name__},
+                )
+            )
+            raise
+
+    def _run_pipeline(
+        self,
+        invocation: HostInvocation,
+        run_id: str,
+        started_at,
+        request_artifact: Artifact,
+    ) -> RunResult:
+        trace = TraceRecorder(run_id)
+
         self.runtime.transition(run_id, RunState.INGESTING)
+        manifest = self.ingestor.ingest(invocation, run_id)
+        self._ensure_not_cancelled(run_id)
         trace.checkpoint("ingestion", {"input_count": len(manifest.inputs), "parsed_count": manifest.parsed_count})
+        self.runtime.transition(run_id, RunState.CONTEXT_INDEXING)
         raw_cards = self.context.deduplicate_cards(self.context.build_cards(manifest))
         cards = self.context.rank_cards(invocation.prompt, raw_cards)
         chunks = self.context.chunk_manifest(manifest)
         provenance = self.context.provenance(cards, chunks)
         context_index = self.context.build_index(cards)
         conflicts = self.context.detect_conflicts(cards)
+        self._ensure_not_cancelled(run_id)
         trace.checkpoint(
             "context_indexing",
             {"card_count": len(cards), "chunk_count": len(chunks), "conflict_count": len(conflicts)},
@@ -92,38 +173,96 @@ class Orchestrator:
                 "conflicts": conflicts,
             },
         )
-        cache_context = {"context_cache_key": cache_key}
-        contract = self.contracts.compile(invocation, manifest)
         self.runtime.transition(run_id, RunState.CONTRACTING)
+        contract = self.contracts.compile(invocation, manifest)
         trace.checkpoint("contracting", {"run_type": contract.run_type, "artifacts": contract.primary_artifacts})
         approval_report = self.approvals.evaluate(invocation, manifest, contract)
-        dag = self.planner.create_execution_plan(run_id, contract)
+        execution_policy = self.policy_compiler.compile(invocation, manifest)
         self.runtime.transition(run_id, RunState.PLANNING)
-        context_packs = self.context.compile_packs_for_tasks([node.id for node in dag.nodes], cards)
+        dag = self.planner.create_execution_plan(run_id, contract)
+        context_packs = self.context.compile_packs_for_tasks(
+            [node.id for node in dag.nodes],
+            cards,
+            chunks=chunks,
+            task_queries={node.id: f"{node.title} {node.task_type}" for node in dag.nodes},
+        )
         dag, budget_report = self.budget.apply(invocation, dag, context_packs)
         plan_review = self.planner.review_plan(run_id, contract, dag)
-        delta_plan = self.delta.plan(manifest, dag, self.runtime, self.scheduler, cache_context)
+        self._ensure_not_cancelled(run_id)
         trace.checkpoint(
             "planning",
             {
                 "task_count": len(dag.nodes),
                 "budget_profile": budget_report.requested_profile,
-                "reusable_task_count": len(delta_plan.reusable_task_ids),
+                "plan_review_score": plan_review.score,
             },
         )
 
         registry = CapabilityRegistry.from_environment()
-        router = AdaptiveRouter(registry)
-        decisions, routing_telemetry = router.route_all_with_telemetry(run_id, dag.topological_order())
+        router = AdaptiveRouter(registry, execution_policy)
         self.runtime.transition(run_id, RunState.ROUTING)
+        decisions, routing_telemetry = router.route_all_with_telemetry(run_id, dag.topological_order())
+        cache_context = {
+            "schema_version": "2.0",
+            "context_cache_key": cache_key,
+            "contract_key": self.cache.key_for(
+                "contract", contract.model_dump(mode="json", exclude={"id"})
+            ),
+            "policy_key": self.cache.key_for(
+                "policy",
+                {
+                    "schema_version": execution_policy.schema_version,
+                    "privacy_mode": execution_policy.privacy_mode,
+                    "allow_network_fetch": execution_policy.allow_network_fetch,
+                    "allow_hosted_models": execution_policy.allow_hosted_models,
+                    "allow_private_data_egress": execution_policy.allow_private_data_egress,
+                    "allow_shell": execution_policy.allow_shell,
+                    "allow_repo_writes": execution_policy.allow_repo_writes,
+                },
+            ),
+            "providers_key": self.cache.key_for(
+                "providers",
+                [provider.model_dump(mode="json") for provider in registry.providers],
+            ),
+            "routing": {
+                decision.task_id: {
+                    "action": decision.action,
+                    "provider_id": decision.provider_id,
+                }
+                for decision in decisions
+            },
+        }
+        delta_plan = self.delta.plan(manifest, dag, self.runtime, self.scheduler, cache_context)
+        self._ensure_not_cancelled(run_id)
         trace.checkpoint(
             "routing",
-            {"decision_count": len(decisions), "provider_count": routing_telemetry.provider_count},
+            {
+                "decision_count": len(decisions),
+                "provider_count": routing_telemetry.provider_count,
+                "reusable_task_count": len(delta_plan.reusable_task_ids),
+            },
         )
+        source_input_ids = {
+            item.id for item in manifest.inputs if item.type != InputType.PROMPT
+        }
+        source_chunk_refs = [
+            chunk.id for chunk in chunks if chunk.input_id in source_input_ids
+        ] or [chunk.id for chunk in chunks]
+        chunk_refs_by_task = {
+            task_id: [
+                chunk.id
+                for chunk in pack.chunks
+                if chunk.input_id in source_input_ids
+            ][:3]
+            or source_chunk_refs[:3]
+            for task_id, pack in context_packs.items()
+        }
         execution_context = {
             "run_id": run_id,
             "contract": contract.model_dump(mode="json"),
             "input_refs": [item.id for item in manifest.inputs],
+            "chunk_refs": source_chunk_refs,
+            "chunk_refs_by_task": chunk_refs_by_task,
             "files": [item.path for item in manifest.inputs if item.path],
             "security_findings_count": sum(len(item.security_findings) for item in manifest.inputs),
             "context_card_count": len(cards),
@@ -132,18 +271,37 @@ class Orchestrator:
             "delta_reusable_task_count": len(delta_plan.reusable_task_ids),
             "approval_blocked": approval_report.blocked,
             "approval_warning_count": len(approval_report.warnings),
+            "execution_policy": execution_policy.model_dump(mode="json"),
         }
         self.executor = DeterministicExecutor(
             adapters=registry.adapter_registry(),
             prompt=invocation.prompt,
-            allow_network=invocation.user_options.allow_internet,
-            dry_run_external=not invocation.user_options.allow_internet,
+            allow_network=execution_policy.allow_network_fetch and execution_policy.allow_hosted_models,
+            dry_run_external=not (
+                execution_policy.allow_network_fetch and execution_policy.allow_hosted_models
+            ),
             context=execution_context,
+            execution_policy=execution_policy,
         )
         self.runtime.transition(run_id, RunState.EXECUTING)
-        results, schedule_report = self.scheduler.execute(dag, decisions, self.executor, cache_context)
+        results, schedule_report = self.scheduler.execute(
+            dag,
+            decisions,
+            self.executor,
+            cache_context,
+            cancellation_check=lambda: self.runtime.is_cancel_requested(run_id),
+        )
         for record in schedule_report.records:
+            self.runtime.save_task_attempt(
+                run_id,
+                record.task_id,
+                record.attempt,
+                str(record.status),
+                record.cache_key,
+                record.warnings,
+            )
             self.runtime.save_task_record(run_id, record.task_id, str(record.status), record.attempt, record.cache_key)
+        self._ensure_not_cancelled(run_id)
         trace.checkpoint(
             "execution",
             {"result_count": len(results), "cache_hits": len(schedule_report.cache_hits)},
@@ -158,7 +316,7 @@ class Orchestrator:
             },
         )
 
-        artifacts: list[Artifact] = []
+        artifacts: list[Artifact] = [request_artifact]
         artifacts.append(
             self.artifact_store.write_json_artifact(
                 run_id, "context_manifest.json", manifest.model_dump(mode="json")
@@ -201,6 +359,11 @@ class Orchestrator:
         artifacts.append(
             self.artifact_store.write_json_artifact(
                 run_id, "approval_report.json", approval_report.model_dump(mode="json")
+            )
+        )
+        artifacts.append(
+            self.artifact_store.write_json_artifact(
+                run_id, "policy_report.json", execution_policy.model_dump(mode="json")
             )
         )
         artifacts.append(
@@ -310,16 +473,34 @@ class Orchestrator:
             )
         )
         product_package = self.product_owner.assemble(
-            manifest, contract, cards, dag, all_decisions, all_results, quality
+            manifest,
+            contract,
+            cards,
+            dag,
+            all_decisions,
+            all_results,
+            quality,
+            chunks,
+            provenance,
         )
-        evidence_audit = self.evidence.audit(product_package, cards, provenance, all_results)
+        evidence_audit = self.evidence.audit(
+            product_package, cards, provenance, all_results, chunks
+        )
         quality = self.evidence.apply_to_quality(
             quality,
             evidence_audit,
             source_required="source-aware synthesis" in contract.must_have,
         )
         product_package = self.product_owner.assemble(
-            manifest, contract, cards, dag, all_decisions, all_results, quality
+            manifest,
+            contract,
+            cards,
+            dag,
+            all_decisions,
+            all_results,
+            quality,
+            chunks,
+            provenance,
         )
         artifacts.append(
             self.artifact_store.write_json_artifact(
@@ -362,36 +543,30 @@ class Orchestrator:
                 )
             )
         if "patch" in contract.primary_artifacts or contract.run_type == "repo_implementation":
-            patch_path = self.artifact_store.run_dir(run_id) / "implementation_patch.diff"
-            patch_artifact = self.artifact_builder.build_patch_plan(product_package.final_markdown, patch_path)
-            patch_errors = self.artifact_builder.validate_patch(patch_path)
+            patch_path = self.artifact_store.run_dir(run_id) / "patch_plan.md"
+            patch_artifact = self.artifact_builder.build_patch_plan(
+                product_package.final_markdown, patch_path
+            )
+            patch_errors = self.artifact_builder.validate_patch_plan(patch_path)
             artifacts.append(patch_artifact)
             artifacts.append(
                 self.artifact_store.write_json_artifact(
-                    run_id, "patch_validation.json", {"path": str(patch_path), "errors": patch_errors}
+                    run_id,
+                    "patch_plan_validation.json",
+                    {"path": str(patch_path), "errors": patch_errors},
                 )
             )
-        zip_path = self.artifact_store.run_dir(run_id) / "delivery_bundle.zip"
-        zip_artifact = self.artifact_builder.build_zip(artifacts, zip_path)
-        zip_errors = self.artifact_builder.validate_zip(zip_path)
-        artifacts.append(zip_artifact)
-        artifacts.append(
-            self.artifact_store.write_json_artifact(
-                run_id, "zip_validation.json", {"path": str(zip_path), "errors": zip_errors}
-            )
-        )
-        integrity_report = self.integrity.audit(run_id, artifacts, self._expected_artifact_names(contract))
-        artifacts.append(
-            self.artifact_store.write_json_artifact(
-                run_id, "artifact_integrity_report.json", integrity_report.model_dump(mode="json")
-            )
-        )
+
         final_state = RunState.DELIVERED if quality.passed else RunState.VALIDATION
-        trace.checkpoint("final_assembly", {"artifact_count": len(artifacts), "quality_passed": quality.passed})
+        self._ensure_not_cancelled(run_id)
+        trace.checkpoint(
+            "final_assembly",
+            {"artifact_count": len(artifacts), "quality_passed": quality.passed},
+        )
         trace_report = trace.report(
             final_state=final_state,
             event_count=len(self.runtime.list_events(run_id)),
-            artifact_count=len(artifacts) + 2,
+            artifact_count=len(artifacts) + 3,
             warning_count=len(manifest.warnings) + len(quality.warnings),
         )
         artifacts.append(
@@ -406,27 +581,100 @@ class Orchestrator:
             )
         )
 
+        integrity_report = self.integrity.audit(
+            run_id, artifacts, self._expected_artifact_names(contract)
+        )
+        artifacts.append(
+            self.artifact_store.write_json_artifact(
+                run_id,
+                "artifact_integrity_report.json",
+                integrity_report.model_dump(mode="json"),
+            )
+        )
+
+        run_dir = self.artifact_store.run_dir(run_id)
         run_manifest = RunManifest(
             run_id=run_id,
             invocation=invocation,
             state=final_state,
-            context_manifest_path=str(self.artifact_store.run_dir(run_id) / "context_manifest.json"),
-            product_contract_path=str(self.artifact_store.run_dir(run_id) / "product_contract.json"),
-            task_dag_path=str(self.artifact_store.run_dir(run_id) / "task_dag.json"),
-            quality_report_path=str(self.artifact_store.run_dir(run_id) / "quality_report.json"),
-            artifacts=artifacts,
+            context_manifest_path=str(run_dir / "context_manifest.json"),
+            product_contract_path=str(run_dir / "product_contract.json"),
+            task_dag_path=str(run_dir / "task_dag.json"),
+            quality_report_path=str(run_dir / "quality_report.json"),
+            checksums_path=str(run_dir / "checksums.json"),
+            delivery_receipt_path=str(run_dir / "delivery_receipt.json"),
+            artifacts=list(artifacts),
             warnings=manifest.warnings + quality.warnings,
             routing_decisions=all_decisions,
             started_at=started_at,
             completed_at=utc_now(),
         )
         run_manifest_artifact = self.artifact_store.write_run_manifest(run_manifest)
-        run_manifest.artifacts.append(run_manifest_artifact)
-        self.artifact_store.write_run_manifest(run_manifest)
+        checksum_inputs = [*artifacts, run_manifest_artifact]
+        checksums_artifact = self.artifact_store.write_json_artifact(
+            run_id,
+            "checksums.json",
+            self.integrity.checksums_payload(run_id, checksum_inputs),
+        )
+
+        bundle_inputs = [*checksum_inputs, checksums_artifact]
+        zip_path = run_dir / "delivery_bundle.zip"
+        zip_artifact = self.artifact_builder.build_zip(bundle_inputs, zip_path)
+        zip_errors = self.artifact_builder.validate_zip(zip_path)
+        zip_validation_artifact = self.artifact_store.write_json_artifact(
+            run_id,
+            "zip_validation.json",
+            {
+                "schema_version": "1.0",
+                "path": str(zip_path),
+                "content_hash": sha256_file(zip_path),
+                "errors": zip_errors,
+            },
+        )
+        receipt_artifact = self.artifact_store.write_json_artifact(
+            run_id,
+            "delivery_receipt.json",
+            {
+                "schema_version": "1.0",
+                "run_id": run_id,
+                "state": final_state,
+                "bundle": {
+                    "name": zip_artifact.name,
+                    "path": zip_artifact.path,
+                    "content_hash": zip_artifact.content_hash,
+                    "size_bytes": zip_artifact.size_bytes,
+                },
+                "manifest": {
+                    "name": run_manifest_artifact.name,
+                    "content_hash": run_manifest_artifact.content_hash,
+                    "size_bytes": run_manifest_artifact.size_bytes,
+                },
+                "checksums": {
+                    "name": checksums_artifact.name,
+                    "content_hash": checksums_artifact.content_hash,
+                    "size_bytes": checksums_artifact.size_bytes,
+                },
+                "validation": {
+                    "name": zip_validation_artifact.name,
+                    "content_hash": zip_validation_artifact.content_hash,
+                    "errors": zip_errors,
+                },
+                "bundle_inventory": sorted(artifact.name for artifact in bundle_inputs),
+                "issued_at": utc_now().isoformat(),
+            },
+        )
+        delivery_artifacts = [
+            *artifacts,
+            run_manifest_artifact,
+            checksums_artifact,
+            zip_artifact,
+            zip_validation_artifact,
+            receipt_artifact,
+        ]
         self.runtime.save_run_summary(
             run_id,
             str(run_manifest.state),
-            str(self.artifact_store.run_dir(run_id)),
+            str(run_dir),
             quality.passed,
         )
         self.runtime.transition(run_id, run_manifest.state)
@@ -434,7 +682,7 @@ class Orchestrator:
             RuntimeEvent(
                 run_id=run_id,
                 event_type="delivered" if quality.passed else "validation_failed",
-                payload={"artifact_count": len(run_manifest.artifacts), "quality_passed": quality.passed},
+                payload={"artifact_count": len(delivery_artifacts), "quality_passed": quality.passed},
             )
         )
 
@@ -454,8 +702,13 @@ class Orchestrator:
     def artifact_manifest_path(self, run_id: str) -> Path:
         return self.artifact_store.run_dir(run_id) / "run_manifest.json"
 
+    def _ensure_not_cancelled(self, run_id: str) -> None:
+        if self.runtime.is_cancel_requested(run_id):
+            raise RunCancelledError(f"Run {run_id} was cancelled.")
+
     def _expected_artifact_names(self, contract: ProductContract) -> list[str]:
         expected = [
+            "run_request.json",
             "context_manifest.json",
             "context_cards.json",
             "context_chunks.json",
@@ -464,6 +717,7 @@ class Orchestrator:
             "context_index.json",
             "product_contract.json",
             "approval_report.json",
+            "policy_report.json",
             "task_dag.json",
             "plan_review.json",
             "budget_report.json",
@@ -478,13 +732,13 @@ class Orchestrator:
             "quality_report.json",
             "product_package.json",
             "final_report.md",
-            "delivery_bundle.zip",
-            "zip_validation.json",
+            "trace_report.json",
+            "debug_bundle_manifest.json",
         ]
         if "pdf" in contract.primary_artifacts:
             expected.extend(["final_report.pdf", "pdf_validation.json"])
         if "docx" in contract.primary_artifacts:
             expected.extend(["final_report.docx", "docx_validation.json"])
         if "patch" in contract.primary_artifacts or contract.run_type == "repo_implementation":
-            expected.extend(["implementation_patch.diff", "patch_validation.json"])
+            expected.extend(["patch_plan.md", "patch_plan_validation.json"])
         return expected

@@ -13,3 +13,6 @@ class DAGValidationError(UniversalOrchestratorError):
 class ArtifactError(UniversalOrchestratorError):
     """Raised when artifact creation or validation fails."""
 
+
+class RunCancelledError(UniversalOrchestratorError):
+    """Raised when a durable cancellation request stops an active run."""

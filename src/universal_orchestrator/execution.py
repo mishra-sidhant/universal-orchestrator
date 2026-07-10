@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from universal_orchestrator.models import (
+    ExecutionPolicy,
     ExecutionResult,
     ProviderTask,
     RoutingAction,
@@ -22,12 +23,14 @@ class DeterministicExecutor:
         allow_network: bool = False,
         dry_run_external: bool = True,
         context: dict | None = None,
+        execution_policy: ExecutionPolicy | None = None,
     ) -> None:
         self.adapters = adapters
         self.prompt = prompt
         self.allow_network = allow_network
         self.dry_run_external = dry_run_external
         self.context = context or {}
+        self.execution_policy = execution_policy
         self.output_builder = StructuredWorkerOutputBuilder()
 
     def execute(self, tasks: list[TaskNode], decisions: list[RoutingDecision]) -> list[ExecutionResult]:
@@ -46,22 +49,26 @@ class DeterministicExecutor:
             provider_result = None
             adapter = self.adapters.get(decision.provider_id) if self.adapters else None
             if adapter and decision.action in {RoutingAction.ROUTE, RoutingAction.ROUTE_DEGRADED}:
-                provider_result = adapter.execute(
-                    ProviderTask(
-                        task=task,
-                        prompt=self.prompt,
-                        context={
-                            **self.context,
-                            "routing_score": decision.score,
-                            "routing_reason": decision.reason,
-                        },
-                        dry_run=self.dry_run_external and decision.provider_id != "deterministic.tools",
-                        allow_network=self.allow_network,
-                        timeout_seconds=task.timeout_seconds,
+                if self._provider_blocked(adapter.descriptor.kind):
+                    status = TaskStatus.WAITING_FOR_USER
+                    warnings.append("Provider execution blocked by effective execution policy.")
+                else:
+                    provider_result = adapter.execute(
+                        ProviderTask(
+                            task=task,
+                            prompt=self.prompt,
+                            context={
+                                **self.context,
+                                "routing_score": decision.score,
+                                "routing_reason": decision.reason,
+                            },
+                            dry_run=self.dry_run_external and decision.provider_id != "deterministic.tools",
+                            allow_network=self.allow_network,
+                            timeout_seconds=task.timeout_seconds,
+                        )
                     )
-                )
-                status = provider_result.status
-                warnings.extend(provider_result.warnings)
+                    status = provider_result.status
+                    warnings.extend(provider_result.warnings)
 
             worker_output = self.output_builder.build(
                 task,
@@ -88,6 +95,11 @@ class DeterministicExecutor:
                 )
             )
         return results
+
+    def _provider_blocked(self, provider_kind: str) -> bool:
+        if not self.execution_policy:
+            return False
+        return provider_kind == "hosted_model" and not self.execution_policy.allow_hosted_models
 
     def _summary(self, task: TaskNode, decision: RoutingDecision) -> str:
         provider = decision.provider_id or "no provider"

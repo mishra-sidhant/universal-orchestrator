@@ -62,20 +62,43 @@ class ContextIntelligence:
     def chunk_manifest(self, manifest: ContextManifest, max_tokens: int = 220) -> list[ContextChunk]:
         chunks: list[ContextChunk] = []
         for record in manifest.inputs:
-            words = record.summary.split()
-            if not words:
+            text = record.content_text or record.summary
+            if not text.strip():
                 continue
             current: list[str] = []
             ordinal = 0
-            for word in words:
-                current.append(word)
-                if estimate_tokens(" ".join(current)) >= max_tokens:
-                    chunks.append(self._chunk(record.id, ordinal, " ".join(current)))
-                    ordinal += 1
-                    current = []
+            start_line = 1
+            current_line = 1
+            marker: str | None = None
+            for line_number, line in enumerate(text.splitlines() or [text], start=1):
+                line_marker = self._locator_marker(line)
+                for word in line.split():
+                    if not current:
+                        start_line = line_number
+                        marker = line_marker
+                    current.append(word)
+                    current_line = line_number
+                    if estimate_tokens(" ".join(current)) >= max_tokens:
+                        chunks.append(
+                            self._chunk(record, ordinal, " ".join(current), start_line, current_line, marker)
+                        )
+                        ordinal += 1
+                        current = []
+                        marker = None
             if current:
-                chunks.append(self._chunk(record.id, ordinal, " ".join(current)))
+                chunks.append(
+                    self._chunk(record, ordinal, " ".join(current), start_line, current_line, marker)
+                )
         return chunks
+
+    def _locator_marker(self, line: str) -> str | None:
+        match = re.match(r"^(Page|Slide)\s+(\d+):", line, flags=re.IGNORECASE)
+        if match:
+            return f"{match.group(1).lower()} {match.group(2)}"
+        sheet = re.match(r"^Sheet\s+([^:]+):", line, flags=re.IGNORECASE)
+        if sheet:
+            return f"sheet {sheet.group(1).strip()}"
+        return None
 
     def provenance(self, cards: list[ContextCard], chunks: list[ContextChunk]) -> list[ProvenanceRecord]:
         chunks_by_input: dict[str, list[str]] = defaultdict(list)
@@ -88,6 +111,13 @@ class ContextIntelligence:
                 source_id=card.input_id,
                 card_id=card.id,
                 chunk_ids=chunks_by_input.get(card.input_id, []),
+                source_name=card.title,
+                source_uri=str(card.metadata.get("uri", "")),
+                chunk_locators={
+                    chunk.id: str(chunk.metadata.get("locator", ""))
+                    for chunk in chunks
+                    if chunk.input_id == card.input_id
+                },
                 trust_level=card.trust_level,
                 content_hash=hashes_by_input.get(card.input_id),
             )
@@ -128,6 +158,7 @@ class ContextIntelligence:
         task: str,
         cards: list[ContextCard],
         token_budget: int = 16_000,
+        chunks: list[ContextChunk] | None = None,
     ) -> ContextPack:
         selected: list[ContextCard] = []
         used_tokens = 0
@@ -136,6 +167,18 @@ class ContextIntelligence:
                 continue
             selected.append(card)
             used_tokens += card.token_estimate
+        selected_chunks: list[ContextChunk] = []
+        query_terms = self._terms(task)
+        ranked_chunks = sorted(
+            chunks or [],
+            key=lambda chunk: len(query_terms.intersection(self._terms(chunk.text))),
+            reverse=True,
+        )
+        for chunk in ranked_chunks:
+            if used_tokens + chunk.token_estimate > token_budget:
+                continue
+            selected_chunks.append(chunk)
+            used_tokens += chunk.token_estimate
         files_to_read = [
             str(card.metadata["path"])
             for card in selected
@@ -145,6 +188,7 @@ class ContextIntelligence:
             task_id=task_id,
             task=task,
             cards=selected,
+            chunks=selected_chunks,
             files_to_read=files_to_read,
             do_not_touch=[".git/", ".uo/runs/", "node_modules/", ".venv/"],
             token_budget=token_budget,
@@ -155,20 +199,48 @@ class ContextIntelligence:
         task_ids: list[str],
         cards: list[ContextCard],
         token_budget: int = 16_000,
+        chunks: list[ContextChunk] | None = None,
+        task_queries: dict[str, str] | None = None,
     ) -> dict[str, ContextPack]:
         return {
-            task_id: self.compile_pack(task_id, f"Context pack for {task_id}", cards, token_budget)
+            task_id: self.compile_pack(
+                task_id,
+                (task_queries or {}).get(task_id, f"Context pack for {task_id}"),
+                cards,
+                token_budget,
+                chunks,
+            )
             for task_id in task_ids
         }
 
-    def _chunk(self, input_id: str, ordinal: int, text: str) -> ContextChunk:
+    def _chunk(
+        self,
+        record: InputRecord,
+        ordinal: int,
+        text: str,
+        start_line: int,
+        end_line: int,
+        marker: str | None,
+    ) -> ContextChunk:
+        locator = marker or (
+            f"line {start_line}" if start_line == end_line else f"lines {start_line}-{end_line}"
+        )
+        stable_source = sha256_bytes(
+            f"{record.uri}:{record.content_hash or ''}".encode("utf-8")
+        ).removeprefix("sha256:")[:16]
         return ContextChunk(
-            id=f"chunk_{input_id}_{ordinal}",
-            input_id=input_id,
+            id=f"chunk_{stable_source}_{ordinal}",
+            input_id=record.id,
             ordinal=ordinal,
             text=text,
             token_estimate=estimate_tokens(text),
             content_hash=sha256_bytes(text.encode("utf-8")),
+            metadata={
+                "source_name": record.name,
+                "source_uri": record.uri,
+                "path": record.path,
+                "locator": locator,
+            },
         )
 
     def _card_from_record(self, record: InputRecord) -> ContextCard:
@@ -176,6 +248,7 @@ class ContextIntelligence:
         metadata = dict(record.metadata)
         if record.path:
             metadata["path"] = record.path
+        metadata["uri"] = record.uri
         summary = record.summary or f"{record.type} input named {record.name}."
         return ContextCard(
             id=new_id("card"),

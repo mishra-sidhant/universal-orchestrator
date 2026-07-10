@@ -8,7 +8,6 @@ from typing import Any
 
 from universal_orchestrator.models import (
     CostEstimate,
-    CostTier,
     ProviderDescriptor,
     ProviderHealth,
     ProviderResult,
@@ -114,4 +113,3 @@ def health_from_enabled(enabled: bool, configured_message: str, missing_message:
         reliability_score=0.0,
         message=missing_message,
     )
-
