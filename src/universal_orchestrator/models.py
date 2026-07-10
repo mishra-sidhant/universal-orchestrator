@@ -396,6 +396,7 @@ class TaskNode(StrictModel):
     criticality: Criticality = Criticality.MEDIUM
     max_cost_tier: CostTier = CostTier.MEDIUM
     timeout_seconds: int = 300
+    cacheable: bool = True
     retry_policy: RetryPolicy = Field(default_factory=RetryPolicy)
     fallback_policy: FallbackPolicy = Field(default_factory=FallbackPolicy)
     status: TaskStatus = TaskStatus.PENDING

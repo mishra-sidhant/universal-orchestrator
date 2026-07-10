@@ -77,11 +77,11 @@ The first compiler infers:
 
 ## Orchestrator Kernel
 
-The kernel uses `PlannerEnsemble` to create a typed `TaskDAG`. The first planner is deterministic but keeps the ensemble roles visible through tasks for strategy, decomposition, risk review, routing, execution, aggregation, gap analysis, final synthesis, quality, and packaging.
+The kernel uses `PlannerEnsemble` to create a five-node typed `TaskDAG`: context aggregation, gap analysis, extractive synthesis, static artifact construction, and quality evaluation. Every node maps to a concrete function in `StageWorkerRegistry`.
 
-Each run now writes `plan_review.json`, containing deterministic candidate plans from strategic, decomposition, risk, cost, and skeptic planner roles. This is still not a live multi-model ensemble, but it enforces the report's candidate-plan, scoring, merge, and residual-risk contract.
+Each run writes `plan_review.json` with strategic, decomposition, risk, cost, and skeptic views. Their scores derive from contract artifact coverage, registered-worker coverage, dependency coverage, quality-stage coverage, cache safety, and actual cost tiers; no role has a hardcoded score.
 
-Plan review now also includes critical path analysis, cost-tier estimation, parallel batch simulation, max parallelism, and residual risk summaries.
+Plan review includes critical path analysis, cost-tier estimation, batch simulation, and residual risks. The current real DAG is linear and truthfully reports max parallelism of one.
 
 The DAG is validated for missing dependencies and cycles before routing.
 
@@ -107,9 +107,9 @@ Part B adds `routing_telemetry.json`, which records every provider considered fo
 
 ## Execution Plane
 
-`DeterministicExecutor` dispatches through provider adapters and records structured worker outputs. Each task result includes a worker output object with summary, findings, evidence references, file references, metrics, risks, and next actions. External adapters remain dry-run safe unless network access and provider configuration are explicitly enabled.
+`StageWorkerRegistry` dispatches local DAG nodes to real functions and records structured outputs. Missing handlers return `SKIPPED`. `DeterministicExecutor` remains the dry-run provider-adapter boundary for future provider-backed tasks, but its generic local adapter never reports completion.
 
-`DAGScheduler` executes tasks by dependency-ready batches, records every attempt, enforces retry and timeout policies, skips dependents after failure, honors durable cancellation, uses versioned cache entries, and writes `schedule_report.json`. Failed and cancelled runs persist diagnostics and can resume under the same run ID.
+`DAGScheduler` executes real stage tasks by dependency-ready batches, records every attempt, enforces retry and timeout policies, skips dependents after failure, honors durable cancellation, uses versioned cache entries, and writes `schedule_report.json`. It reports cached and executed results through the same observer path. Side-effecting artifact/quality nodes are non-cacheable.
 
 Task cache keys include context, contract, execution policy, provider descriptors, and routing decisions. Malformed entries are quarantined, and cached results are treated as successful product fragments. Delta planning compares against the most relevant prior successful run by input-hash similarity.
 

@@ -50,23 +50,10 @@ class CapabilityRegistry:
                 capabilities={
                     "file_io": 1.0,
                     "artifact_build": 0.95,
-                    "artifact_validation": 0.95,
-                    "contract_validation": 0.9,
-                    "routing": 0.85,
-                    "security_review": 0.75,
-                    "summarization": 0.6,
-                    "classification": 0.65,
-                    "structured_output": 0.8,
-                    "decomposition": 0.55,
-                    "strategic_reasoning": 0.5,
-                    "final_synthesis": 0.55,
-                    "code_reasoning": 0.55,
-                    "repo_navigation": 0.7,
-                    "code_review": 0.55,
-                    "research": 0.55,
-                    "citation_discipline": 0.5,
-                    "critique": 0.55,
-                    "style_quality": 0.6,
+                    "context_aggregation": 1.0,
+                    "gap_analysis": 1.0,
+                    "extractive_synthesis": 1.0,
+                    "quality_evaluation": 1.0,
                 },
                 cost_tier=CostTier.FREE,
                 context_limit_tokens=256_000,
@@ -261,6 +248,8 @@ class AdaptiveRouter:
             capability_score = self._capability_score(task, provider)
             if capability_score <= 0:
                 reasons.append("provider has no matching required capabilities")
+            if not provider.supports(task.required_capabilities):
+                reasons.append("provider capabilities are below task requirements")
             reliability = provider.health.reliability_score
             cost_score = 1.0 - (COST_ORDER[provider.cost_tier] / 4)
             total = 0.0

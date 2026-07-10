@@ -4,12 +4,12 @@ Review baseline: `3e74812`. Status is updated phase by phase; `pending` rows are
 
 | Finding | Status | Commit | Evidence / disposition |
 | --- | --- | --- | --- |
-| 1a real pipeline and simulated static DAG diverge | pending E.2 | pending | Stage-worker registry and ADR-001 required. |
-| 1b deterministic adapter only echoes completion | pending E.2 | pending | Real dispatch or truthful `SKIPPED` required. |
-| 1c hardcoded planner and synthetic quality scores | partially fixed E.1 | pending E.2 | Synthetic quality names removed in E.1; plan scoring remains. |
-| 2a global chunk fallback fabricates evidence | fixed E.1 | pending | `test_empty_task_pack_does_not_fallback_to_global_chunks`. |
-| 2b worker refs are stamped without consumption | partially fixed E.1 | pending E.5 | Per-task consumed-ref contract enforced locally; adapter payload content plumbing remains. |
-| 2c auditor verifies its own generated citations | fixed E.1 | pending | Valid-but-unconsumed mutation and exact unsupported-task tests. |
+| 1a real pipeline and simulated static DAG diverge | fixed E.2 with documented boundaries | pending | Five registered real stages; ADR-001 records pre/post-DAG residuals. |
+| 1b deterministic adapter only echoes completion | fixed E.2 | pending | Adapter skip test and default-report no-echo test. |
+| 1c hardcoded planner and synthetic quality scores | fixed E.2 | pending | E.1 score schema; E.2 contract-coverage mutation changes plan score. |
+| 2a global chunk fallback fabricates evidence | fixed E.1 | 05790dd | `test_empty_task_pack_does_not_fallback_to_global_chunks`. |
+| 2b worker refs are stamped without consumption | partially fixed E.1 | 05790dd / pending E.5 | Per-task consumed-ref contract enforced locally; provider payload content remains. |
+| 2c auditor verifies its own generated citations | fixed E.1 | 05790dd | Valid-but-unconsumed mutation and exact unsupported-task tests. |
 | 2d no semantic entailment check | deferred: hosted-quality scope | pending | `citation_support` is explicitly documented as consumed-reference coverage; factuality field removed. |
 | 3a post-repair continuity/completeness denominator crash | fixed E.0 | fcbb77b | `test_post_repair_quality_rates_use_original_and_repair_task_union`; pipeline repair regression. |
 | 3b pass-description appears as violation | fixed E.0 | fcbb77b | `test_failed_execution_finding_uses_failure_description`. |
@@ -25,12 +25,12 @@ Review baseline: `3e74812`. Status is updated phase by phase; `pending` rows are
 | 4g injection-risk content remains citable | partially fixed E.1 | pending E.3 | Only consumed pack refs can be cited; injection-risk exclusion remains. |
 | 5a orchestrator executor is shared mutable run state | pending E.4 | pending | Two-run isolation test required. |
 | 5b timed-out task thread continues after failure | pending E.4 | pending | Completion guard or process isolation required and documented in ADR-001. |
-| 5c reported parallelism is not executed | pending E.2 | pending | Remove fictional telemetry or implement bounded execution. |
+| 5c reported parallelism is not executed | fixed E.2 for current plan | pending | Real DAG is linear and plan simulation reports max parallelism 1; bounded concurrency remains future work. |
 | 5d retries are dormant | pending E.4 | pending | One real retry policy plus flaky pipeline test, or delete. |
 | 5e SQLite lacks WAL/busy timeout | pending E.4 | pending | Connection configuration test required. |
 | 5f MCP cannot cancel inline run; malformed JSON kills loop; notifications answered | pending E.4 | pending | Protocol and concurrency tests required. |
 | 5g states are unused/overloaded and receipts contradict failure | partially fixed E.0 | pending E.4 | `needs_attention` added and receipt withheld; real stage transitions/dead-state removal remain. |
-| 6a routing cannot reshape/pause due fictional local capabilities | pending E.2 | pending | Truthful capabilities and unreachable-branch test required. |
+| 6a routing cannot reshape/pause due fictional local capabilities | fixed E.2 | pending | Strategic capability mutation reaches RESHAPE/PAUSE. |
 | 6b context packs never reach providers | pending E.5 | pending | Dry-run payload tests and usage fields required. |
 | 6c repository ingestion reads no file bodies | pending E.5 | pending | Real-file chunk/citation test required. |
 | 6d flagship report prompt is misclassified as repo implementation | pending E.5 | pending | Contract precedence test required. |
@@ -48,3 +48,5 @@ Review baseline: `3e74812`. Status is updated phase by phase; `pending` rows are
 No existing assertion was weakened or deleted in E.0. New regression coverage was added. Successful-delivery receipt tests remain unchanged; the new test covers the distinct quality-failed terminal path.
 
 E.1 deliberately rewrote fixture fields in `test_repair.py` and `test_world_readiness.py` to the honest `QualityScore` schema, and changed `test_workers.py` from legacy `input_refs` to `consumed_chunk_refs`. The behavioral assertions remain equally strict; the implicit evidence fallback was removed rather than preserved.
+
+E.2 deliberately rewrote six stale assumptions: budget capping now pins the real all-free DAG; repair routing expects reshape/pause for unimplemented work; deterministic capability tests reject fictional reasoning; repeat-cache coverage expects the three pure stages; planner tests use `T-AGGREGATE`; and E.0 failure injection raises inside the real handler. These changes strengthen truthfulness and do not delete a failure gate.

@@ -6,7 +6,6 @@ from pathlib import Path
 from time import sleep
 from unittest.mock import patch
 
-from universal_orchestrator.contracts import ProductContractCompiler
 from universal_orchestrator.cache import SemanticCache
 from universal_orchestrator.context import ContextIntelligence
 from universal_orchestrator.execution import DeterministicExecutor
@@ -34,7 +33,6 @@ from universal_orchestrator.models import (
     TaskType,
     UserOptions,
 )
-from universal_orchestrator.planning import PlannerEnsemble
 from universal_orchestrator.pipeline import Orchestrator
 from universal_orchestrator.providers.base import ProviderAdapter, ProviderAdapterRegistry
 from universal_orchestrator.routing import AdaptiveRouter, CapabilityRegistry
@@ -113,12 +111,13 @@ class TrancheDTests(unittest.TestCase):
             ),
         )
         manifest = InputIngestor().ingest(invocation, "run_test")
-        contract = ProductContractCompiler().compile(invocation, manifest)
         policy = PolicyCompiler().compile(invocation, manifest)
-        task = next(
-            node
-            for node in PlannerEnsemble().create_execution_plan("run_test", contract).nodes
-            if node.id == "T-002"
+        task = TaskNode(
+            id="T-HOSTED",
+            run_id="run_test",
+            title="Hosted strategic reasoning",
+            task_type=TaskType.PLANNING,
+            required_capabilities={"strategic_reasoning": 0.9},
         )
 
         with patch.dict("os.environ", {"OPENAI_API_KEY": "placeholder"}, clear=False):
@@ -299,7 +298,7 @@ class TrancheDTests(unittest.TestCase):
             schedule = loads((run_dir / "schedule_report.json").read_text())
             package = loads((run_dir / "product_package.json").read_text())
 
-            self.assertEqual(len(schedule["cache_hits"]), 11)
+            self.assertEqual(len(schedule["cache_hits"]), 3)
             self.assertEqual(package["rejected_fragments"], [])
             self.assertTrue(second.quality.passed)
 

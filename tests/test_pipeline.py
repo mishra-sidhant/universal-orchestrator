@@ -92,12 +92,14 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(snapshot["latest_state"], "delivered")
         self.assertTrue(snapshot["tasks"])
 
-    def test_deterministic_registry_can_degrade_core_reasoning_tasks(self) -> None:
+    def test_deterministic_registry_declares_only_real_stage_capabilities(self) -> None:
         capabilities = CapabilityRegistry.from_environment().providers[0].capabilities
 
-        self.assertGreater(capabilities["strategic_reasoning"], 0)
-        self.assertGreater(capabilities["final_synthesis"], 0)
-        self.assertGreater(capabilities["code_reasoning"], 0)
+        self.assertNotIn("strategic_reasoning", capabilities)
+        self.assertNotIn("final_synthesis", capabilities)
+        self.assertNotIn("code_reasoning", capabilities)
+        self.assertEqual(capabilities["context_aggregation"], 1.0)
+        self.assertEqual(capabilities["quality_evaluation"], 1.0)
 
 
 if __name__ == "__main__":

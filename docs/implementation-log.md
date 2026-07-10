@@ -277,3 +277,35 @@ Implemented corrections:
 - Removed synthetic `factuality` and `style_quality`; renamed parser, routing, and artifact-presence proxies honestly. Added `docs/quality-metrics.md` with every formula and limitation.
 
 Existing-test dispositions: `test_workers` now supplies `consumed_chunk_refs` instead of the superseded `input_refs` fallback. Quality fixture constructors use the renamed schema. No threshold or failure assertion was weakened.
+
+## Tranche E.2 One Kernel
+
+Failing-first transcript against `05790dd`:
+
+```text
+test_execution_plan_contains_only_real_stage_nodes:
+expected five stage IDs; got static T-001 through T-011
+
+test_plan_candidate_scores_change_with_real_contract_coverage:
+0.88 was unchanged when artifact coverage was removed
+
+test_deterministic_adapter_never_echo_completes_unimplemented_work:
+expected SKIPPED; got COMPLETED
+
+test_unavailable_strategic_capability_reaches_reshape_or_pause:
+expected RESHAPE/PAUSE; got ROUTE_DEGRADED
+
+test_default_local_run_contains_real_stage_outputs_and_no_echo_lines:
+eleven "completed by local deterministic tools" lines found
+```
+
+Implemented corrections:
+
+- Added `StageWorkerRegistry` with real aggregation, gap, extractive synthesis, static artifact, and quality handlers.
+- Reduced the execution plan to those five registered workers and derived plan scores from observable contract/DAG properties.
+- Removed fictional deterministic reasoning/research/style capabilities; routing now requires all capability thresholds.
+- Generic deterministic adapter calls skip explicitly. Default local reports contain measured/extractive summaries and zero echo-completion lines.
+- Pure stages are cacheable; side-effecting artifact/quality stages rerun. Scheduler observers receive cached and executed results.
+- Added ADR-001 with alternatives, consequences, pre/post-DAG boundaries, and residual coupling.
+
+Existing-test dispositions: budget tests now assert the real all-free plan; repair tests assert unsupported repair work reshapes instead of fake completion; deterministic capability tests assert only registered stage capabilities; cache tests expect three pure hits; old task-ID assertions use the five stage IDs; E.0 failure injection now fails the real first handler before quality runs.

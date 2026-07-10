@@ -74,7 +74,7 @@ class DAGScheduler:
                     )
                     records.append(self._record(task, result, 0, cache_key))
                 else:
-                    cached = self.cache.get(cache_key) if self.cache else None
+                    cached = self.cache.get(cache_key) if self.cache and task.cacheable else None
                     if cached and cached.get("schema_version") == "2.0" and cached.get("status") == "completed":
                         cache_hits.append(task.id)
                         result = ExecutionResult(
@@ -96,7 +96,7 @@ class DAGScheduler:
                             records,
                             cancellation_check,
                         )
-                        if self.cache and result.status == TaskStatus.COMPLETED:
+                        if self.cache and task.cacheable and result.status == TaskStatus.COMPLETED:
                             self.cache.set(
                                 cache_key,
                                 {
@@ -109,6 +109,9 @@ class DAGScheduler:
                 results.append(result)
                 result_by_task[task.id] = result
                 execution_order.append(task.id)
+                observer = getattr(executor, "observe_result", None)
+                if callable(observer):
+                    observer(result)
         report = ScheduleReport(
             run_id=dag.run_id,
             records=records,

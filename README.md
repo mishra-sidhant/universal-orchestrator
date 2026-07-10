@@ -12,8 +12,8 @@ The current milestone is a deterministic local runtime with optional provider ad
 - Secret and prompt-injection risk scanning before context cards are built.
 - Redacted full-text extraction, stable source chunks with locators, provenance, and task-specific context packs.
 - Product contract compiler that turns natural prompts into enforceable definitions of done.
-- Planner ensemble v1 that emits a typed execution DAG.
-- Capability-based provider registry and router with deterministic tools, configured provider detection, and routing telemetry.
+- Property-derived planner review and a five-node typed DAG backed by real local stage workers.
+- Capability-based routing with truthful local capabilities; unsupported work reshapes, pauses, or skips instead of echo-completing.
 - Budget control, relevant-prior-run delta planning, versioned scheduler cache reuse, retries, timeouts, durable cancellation, failure diagnostics, and same-run resume.
 - Approval gates, safe repo validation planning/execution, and daemon/MCP status parity.
 - Quality gate engine with contract, manifest, DAG, routing, security, evidence audit, repo validation, and artifact integrity checks.
@@ -71,4 +71,4 @@ The kernel follows this pipeline:
 
 See [Product Requirements](docs/product-requirements.md) and [Implementation Plan](docs/implementation-plan.md) for the detailed roadmap.
 
-Current limitation: deterministic worker summaries do not prove factual entailment from cited chunks. Evidence refs are now restricted to chunks actually delivered to each task, but `citation_support` means consumed-reference coverage, not factual verification. See [Quality Metric Provenance](docs/quality-metrics.md).
+Current limitation: local synthesis is extractive, not model reasoning, and does not prove factual entailment. Evidence refs are restricted to chunks actually delivered to each task, but `citation_support` means consumed-reference coverage, not factual verification. See [Quality Metric Provenance](docs/quality-metrics.md) and [ADR-001](docs/adr/ADR-001-kernel-unification.md).

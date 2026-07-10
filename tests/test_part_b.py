@@ -42,7 +42,15 @@ class PartBGapTests(unittest.TestCase):
         self.assertEqual(report.effective_max_cost_tier, CostTier.CHEAP)
         self.assertEqual(len(report.task_budgets), len(dag.nodes))
         self.assertTrue(all(COST_ORDER[node.max_cost_tier] <= COST_ORDER[CostTier.CHEAP] for node in adjusted.nodes))
-        self.assertTrue(any(budget.original_max_cost_tier != budget.enforced_max_cost_tier for budget in report.task_budgets))
+        self.assertTrue(
+            all(budget.original_max_cost_tier == CostTier.FREE for budget in report.task_budgets)
+        )
+        self.assertTrue(
+            all(
+                budget.original_max_cost_tier == budget.enforced_max_cost_tier
+                for budget in report.task_budgets
+            )
+        )
 
     def test_pipeline_writes_budget_report(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -33,13 +33,20 @@ class FailFirstScheduler(DAGScheduler):
         self.calls += 1
         if self.events is not None:
             self.events.append(f"scheduler:{self.calls}")
-        results, report = super().execute(*args, **kwargs)
-        if self.calls == 1:
-            results[0] = results[0].model_copy(
-                update={"status": TaskStatus.FAILED, "warnings": ["forced primary failure"]}
-            )
-            report = report.model_copy(update={"failed_tasks": [results[0].task_id]})
-        return results, report
+        executor = args[2]
+        if self.calls != 1 or not hasattr(executor, "handlers"):
+            return super().execute(*args, **kwargs)
+        first_task_id = args[0].nodes[0].id
+        original = executor.handlers[first_task_id]
+
+        def fail_stage(*_args, **_kwargs):
+            raise RuntimeError("forced primary failure")
+
+        executor.handlers[first_task_id] = fail_stage
+        try:
+            return super().execute(*args, **kwargs)
+        finally:
+            executor.handlers[first_task_id] = original
 
 
 class RecordingEvidenceAuditor(EvidenceAuditor):

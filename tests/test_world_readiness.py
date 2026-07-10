@@ -27,7 +27,7 @@ class WorldReadinessTests(unittest.TestCase):
 
         self.assertGreaterEqual(len(review.candidates), 5)
         self.assertGreater(review.score, 0.7)
-        self.assertIn("T-001", review.selected_task_ids)
+        self.assertIn("T-AGGREGATE", review.selected_task_ids)
 
     def test_context_index_and_cache(self) -> None:
         invocation = HostInvocation(prompt="Analyze alpha", attachments=[])

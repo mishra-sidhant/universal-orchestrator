@@ -13,7 +13,7 @@ from universal_orchestrator.models import (
 
 
 class PlannerEnsemble:
-    """Deterministic v1 planner that preserves the report's ensemble shape."""
+    """Derives a small executable stage plan and property-based review."""
 
     def review_plan(self, run_id: str, contract: ProductContract, dag: TaskDAG) -> PlanReview:
         candidates = self.create_candidate_plans(contract, dag)
@@ -79,6 +79,39 @@ class PlannerEnsemble:
 
     def create_candidate_plans(self, contract: ProductContract, dag: TaskDAG) -> list[PlanCandidate]:
         task_ids = [node.id for node in dag.nodes]
+        ids = set(task_ids)
+        artifact_coverage = 1.0 if contract.primary_artifacts else 0.0
+        worker_ids = {
+            "T-AGGREGATE",
+            "T-GAP-ANALYSIS",
+            "T-SYNTHESIS",
+            "T-ARTIFACT-BUILD",
+            "T-QUALITY",
+        }
+        worker_coverage = len(ids.intersection(worker_ids)) / max(1, len(ids))
+        quality_coverage = float({"T-GAP-ANALYSIS", "T-QUALITY"}.issubset(ids))
+        cache_safety = sum(not node.cacheable for node in dag.nodes) / max(1, len(dag.nodes))
+        dependency_coverage = sum(bool(node.dependencies) for node in dag.nodes) / max(
+            1, len(dag.nodes)
+        )
+        scores = {
+            "strategic_planner": round(0.6 * artifact_coverage + 0.4 * worker_coverage, 4),
+            "decomposition_planner": round(
+                0.6 * worker_coverage + 0.4 * dependency_coverage, 4
+            ),
+            "risk_planner": round(0.7 * quality_coverage + 0.3 * cache_safety, 4),
+            "cost_planner": round(
+                sum(
+                    node.max_cost_tier in {CostTier.FREE, CostTier.CHEAP}
+                    for node in dag.nodes
+                )
+                / max(1, len(dag.nodes)),
+                4,
+            ),
+            "skeptic_planner": round(
+                0.5 * quality_coverage + 0.5 * worker_coverage, 4
+            ),
+        }
         return [
             PlanCandidate(
                 role="strategic_planner",
@@ -86,7 +119,7 @@ class PlannerEnsemble:
                 proposed_task_ids=task_ids,
                 strengths=["contract-first planning", "final product owner is explicit"],
                 risks=[] if contract.primary_artifacts else ["primary artifacts are underspecified"],
-                score=0.88,
+                score=scores["strategic_planner"],
             ),
             PlanCandidate(
                 role="decomposition_planner",
@@ -94,7 +127,7 @@ class PlannerEnsemble:
                 proposed_task_ids=task_ids,
                 strengths=["DAG is typed", "repair can target individual failed nodes"],
                 risks=[],
-                score=0.9,
+                score=scores["decomposition_planner"],
             ),
             PlanCandidate(
                 role="risk_planner",
@@ -102,7 +135,7 @@ class PlannerEnsemble:
                 proposed_task_ids=task_ids,
                 strengths=["validation gates are first-class", "routing degradation is surfaced"],
                 risks=["live provider quality is not validated until keys are configured"],
-                score=0.82,
+                score=scores["risk_planner"],
             ),
             PlanCandidate(
                 role="cost_planner",
@@ -110,7 +143,7 @@ class PlannerEnsemble:
                 proposed_task_ids=task_ids,
                 strengths=["deterministic tools cover artifact and validation tasks"],
                 risks=["semantic cache is lexical until embeddings are added"],
-                score=0.78,
+                score=scores["cost_planner"],
             ),
             PlanCandidate(
                 role="skeptic_planner",
@@ -118,121 +151,64 @@ class PlannerEnsemble:
                 proposed_task_ids=task_ids,
                 strengths=["quality gates can reject incomplete packages"],
                 risks=["human-grade acceptance tests still need expansion"],
-                score=0.8,
+                score=scores["skeptic_planner"],
             ),
         ]
 
     def create_execution_plan(self, run_id: str, contract: ProductContract) -> TaskDAG:
+        del contract
         nodes = [
             self._node(
                 run_id,
-                "T-001",
-                "Review product contract",
-                TaskType.PLANNING,
-                {},
+                "T-AGGREGATE",
+                "Aggregate indexed context",
+                TaskType.SUMMARIZATION,
+                {"context_aggregation": 0.9},
                 [],
                 Criticality.HIGH,
-                CostTier.CHEAP,
+                CostTier.FREE,
             ),
             self._node(
                 run_id,
-                "T-002",
-                "Score strategic plan",
-                TaskType.PLANNING,
-                {"strategic_reasoning": 0.7},
-                ["T-001"],
-                Criticality.HIGH,
-                CostTier.PREMIUM,
-            ),
-            self._node(
-                run_id,
-                "T-003",
-                "Decompose execution DAG",
-                TaskType.PLANNING,
-                {"decomposition": 0.75},
-                ["T-001"],
-                Criticality.HIGH,
-                CostTier.MEDIUM,
-            ),
-            self._node(
-                run_id,
-                "T-004",
-                "Evaluate risks and trust boundaries",
+                "T-GAP-ANALYSIS",
+                "Analyze manifest and context gaps",
                 TaskType.VALIDATION,
-                {"security_review": 0.75},
-                ["T-001"],
+                {"gap_analysis": 0.9},
+                ["T-AGGREGATE"],
                 Criticality.HIGH,
-                CostTier.MEDIUM,
+                CostTier.FREE,
             ),
             self._node(
                 run_id,
-                "T-005",
-                "Route executable work",
-                TaskType.ROUTING,
-                {"routing": 0.8},
-                ["T-002", "T-003", "T-004"],
-                Criticality.HIGH,
-                CostTier.CHEAP,
-            ),
-            self._node(
-                run_id,
-                "T-006",
-                "Execute deterministic worker pass",
-                self._execution_task_type(contract),
-                self._execution_capabilities(contract),
-                ["T-005"],
-                Criticality.MEDIUM,
-                CostTier.MEDIUM,
-            ),
-            self._node(
-                run_id,
-                "T-007",
-                "Aggregate structured worker outputs",
-                TaskType.SUMMARIZATION,
-                {"summarization": 0.65, "structured_output": 0.65},
-                ["T-006"],
-                Criticality.MEDIUM,
-                CostTier.CHEAP,
-            ),
-            self._node(
-                run_id,
-                "T-008",
-                "Run gap analysis",
-                TaskType.VALIDATION,
-                {"critique": 0.7, "contract_validation": 0.75},
-                ["T-007"],
-                Criticality.HIGH,
-                CostTier.MEDIUM,
-            ),
-            self._node(
-                run_id,
-                "T-009",
-                "Assemble final product",
+                "T-SYNTHESIS",
+                "Synthesize extractive source findings",
                 TaskType.FINAL_SYNTHESIS,
-                {"final_synthesis": 0.8, "style_quality": 0.65},
-                ["T-008"],
+                {"extractive_synthesis": 0.9},
+                ["T-GAP-ANALYSIS"],
                 Criticality.HIGH,
-                CostTier.PREMIUM,
+                CostTier.FREE,
             ),
             self._node(
                 run_id,
-                "T-010",
-                "Run quality gates",
-                TaskType.VALIDATION,
-                {"artifact_validation": 0.8, "contract_validation": 0.85},
-                ["T-009"],
-                Criticality.MISSION_CRITICAL,
-                CostTier.MEDIUM,
-            ),
-            self._node(
-                run_id,
-                "T-011",
-                "Build artifact package",
+                "T-ARTIFACT-BUILD",
+                "Build static run artifacts",
                 TaskType.ARTIFACT_BUILD,
-                {"artifact_build": 0.85, "file_io": 0.9},
-                ["T-010"],
+                {"artifact_build": 0.9, "file_io": 0.9},
+                ["T-SYNTHESIS"],
                 Criticality.MISSION_CRITICAL,
                 CostTier.FREE,
+                cacheable=False,
+            ),
+            self._node(
+                run_id,
+                "T-QUALITY",
+                "Evaluate runtime quality",
+                TaskType.VALIDATION,
+                {"quality_evaluation": 0.9},
+                ["T-ARTIFACT-BUILD"],
+                Criticality.MISSION_CRITICAL,
+                CostTier.FREE,
+                cacheable=False,
             ),
         ]
         dag = TaskDAG(run_id=run_id, nodes=nodes)
@@ -249,6 +225,7 @@ class PlannerEnsemble:
         dependencies: list[str],
         criticality: Criticality,
         max_cost_tier: CostTier,
+        cacheable: bool = True,
     ) -> TaskNode:
         return TaskNode(
             id=task_id,
@@ -259,22 +236,5 @@ class PlannerEnsemble:
             dependencies=dependencies,
             criticality=criticality,
             max_cost_tier=max_cost_tier,
+            cacheable=cacheable,
         )
-
-    def _execution_task_type(self, contract: ProductContract) -> TaskType:
-        if contract.run_type == "repo_implementation":
-            return TaskType.CODE_EDIT
-        if contract.run_type == "code_review":
-            return TaskType.CODE_REVIEW
-        if contract.run_type == "research_report":
-            return TaskType.RESEARCH
-        return TaskType.SUMMARIZATION
-
-    def _execution_capabilities(self, contract: ProductContract) -> dict[str, float]:
-        if contract.run_type == "repo_implementation":
-            return {"code_reasoning": 0.75, "repo_navigation": 0.7}
-        if contract.run_type == "code_review":
-            return {"code_review": 0.75, "security_review": 0.6}
-        if contract.run_type == "research_report":
-            return {"research": 0.75, "citation_discipline": 0.65}
-        return {"summarization": 0.6, "classification": 0.5}

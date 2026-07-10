@@ -17,15 +17,32 @@ from universal_orchestrator.execution_policy import PolicyCompiler
 from universal_orchestrator.ingestion import InputIngestor
 from universal_orchestrator.integrity import ArtifactIntegrityAuditor
 from universal_orchestrator.models import (
+    ApprovalReport,
     Artifact,
     ArtifactType,
+    BudgetReport,
+    ContextCard,
+    ContextChunk,
+    ContextManifest,
+    ContextPack,
+    DeltaExecutionPlan,
+    ExecutionResult,
+    ExecutionPolicy,
     HostInvocation,
     InputType,
+    PlanReview,
     ProductContract,
+    ProvenanceRecord,
+    QualityGateResult,
+    QualityScore,
+    RepoValidationReport,
+    RoutingDecision,
+    RoutingTelemetryReport,
     RuntimeEvent,
     RunManifest,
     RunResult,
     RunState,
+    TaskDAG,
     new_id,
     utc_now,
 )
@@ -39,6 +56,7 @@ from universal_orchestrator.runtime import RuntimeStore
 from universal_orchestrator.routing import AdaptiveRouter, CapabilityRegistry
 from universal_orchestrator.scheduler import DAGScheduler
 from universal_orchestrator.security import redact_text
+from universal_orchestrator.stages import KernelStageContext, StageWorkerRegistry
 from universal_orchestrator.utils import read_json, sha256_file
 
 
@@ -257,36 +275,69 @@ class Orchestrator:
                 chunk.id for chunk in pack.chunks if chunk.input_id not in source_input_ids
             ]
             chunk_refs_by_task[task_id] = (source_refs or prompt_refs)[:3]
-        execution_context = {
-            "run_id": run_id,
-            "contract": contract.model_dump(mode="json"),
-            "input_refs": [item.id for item in manifest.inputs],
-            "chunk_refs_by_task": chunk_refs_by_task,
-            "files": [item.path for item in manifest.inputs if item.path],
-            "security_findings_count": sum(len(item.security_findings) for item in manifest.inputs),
-            "context_card_count": len(cards),
-            "context_chunk_count": len(chunks),
-            "context_pack_count": len(context_packs),
-            "delta_reusable_task_count": len(delta_plan.reusable_task_ids),
-            "approval_blocked": approval_report.blocked,
-            "approval_warning_count": len(approval_report.warnings),
-            "execution_policy": execution_policy.model_dump(mode="json"),
-        }
-        self.executor = DeterministicExecutor(
-            adapters=registry.adapter_registry(),
-            prompt=invocation.prompt,
-            allow_network=execution_policy.allow_network_fetch and execution_policy.allow_hosted_models,
-            dry_run_external=not (
-                execution_policy.allow_network_fetch and execution_policy.allow_hosted_models
-            ),
-            context=execution_context,
-            execution_policy=execution_policy,
+        repo_validation_report = self.repo_validation.run(invocation, manifest)
+        trace.checkpoint(
+            "repo_validation",
+            {
+                "executed": repo_validation_report.executed,
+                "passed": repo_validation_report.passed,
+                "command_count": len(repo_validation_report.command_results),
+            },
         )
+
+        stage_context: KernelStageContext
+
+        def build_static_artifacts() -> list[Artifact]:
+            return self._build_static_artifacts(
+                run_id=run_id,
+                request_artifact=request_artifact,
+                manifest=manifest,
+                cards=cards,
+                chunks=chunks,
+                provenance=provenance,
+                context_packs=context_packs,
+                context_index=context_index,
+                conflicts=conflicts,
+                cache_key=cache_key,
+                contract=contract,
+                approval_report=approval_report,
+                execution_policy=execution_policy,
+                dag=dag,
+                plan_review=plan_review,
+                budget_report=budget_report,
+                delta_plan=delta_plan,
+                decisions=decisions,
+                routing_telemetry=routing_telemetry,
+                repo_validation_report=repo_validation_report,
+            )
+
+        def evaluate_stage_quality(stage_results: list[ExecutionResult]) -> QualityGateResult:
+            return self.quality.evaluate(
+                manifest=manifest,
+                contract=contract,
+                dag=dag,
+                decisions=decisions,
+                results=stage_results,
+                artifact_paths=[artifact.as_path for artifact in stage_context.artifacts],
+                repo_validation_report=repo_validation_report,
+            )
+
+        stage_context = KernelStageContext(
+            manifest=manifest,
+            contract=contract,
+            cards=cards,
+            chunks=chunks,
+            conflicts=conflicts,
+            chunk_refs_by_task=chunk_refs_by_task,
+            build_static_artifacts=build_static_artifacts,
+            evaluate_quality=evaluate_stage_quality,
+        )
+        executor = StageWorkerRegistry(stage_context)
         self.runtime.transition(run_id, RunState.EXECUTING)
         results, schedule_report = self.scheduler.execute(
             dag,
             decisions,
-            self.executor,
+            executor,
             cache_context,
             cancellation_check=lambda: self.runtime.is_cancel_requested(run_id),
         )
@@ -305,100 +356,7 @@ class Orchestrator:
             "execution",
             {"result_count": len(results), "cache_hits": len(schedule_report.cache_hits)},
         )
-        repo_validation_report = self.repo_validation.run(invocation, manifest)
-        trace.checkpoint(
-            "repo_validation",
-            {
-                "executed": repo_validation_report.executed,
-                "passed": repo_validation_report.passed,
-                "command_count": len(repo_validation_report.command_results),
-            },
-        )
-
-        artifacts: list[Artifact] = [request_artifact]
-        artifacts.append(
-            self.artifact_store.write_json_artifact(
-                run_id, "context_manifest.json", manifest.model_dump(mode="json")
-            )
-        )
-        artifacts.append(
-            self.artifact_store.write_json_artifact(
-                run_id, "context_cards.json", [card.model_dump(mode="json") for card in cards]
-            )
-        )
-        artifacts.append(
-            self.artifact_store.write_json_artifact(
-                run_id, "context_chunks.json", [chunk.model_dump(mode="json") for chunk in chunks]
-            )
-        )
-        artifacts.append(
-            self.artifact_store.write_json_artifact(
-                run_id, "context_provenance.json", [item.model_dump(mode="json") for item in provenance]
-            )
-        )
-        artifacts.append(
-            self.artifact_store.write_json_artifact(
-                run_id,
-                "context_packs.json",
-                {task_id: pack.model_dump(mode="json") for task_id, pack in context_packs.items()},
-            )
-        )
-        artifacts.append(
-            self.artifact_store.write_json_artifact(
-                run_id,
-                "context_index.json",
-                {"terms": context_index, "conflicts": conflicts, "cache_key": cache_key},
-            )
-        )
-        artifacts.append(
-            self.artifact_store.write_json_artifact(
-                run_id, "product_contract.json", contract.model_dump(mode="json")
-            )
-        )
-        artifacts.append(
-            self.artifact_store.write_json_artifact(
-                run_id, "approval_report.json", approval_report.model_dump(mode="json")
-            )
-        )
-        artifacts.append(
-            self.artifact_store.write_json_artifact(
-                run_id, "policy_report.json", execution_policy.model_dump(mode="json")
-            )
-        )
-        artifacts.append(
-            self.artifact_store.write_json_artifact(
-                run_id, "task_dag.json", dag.model_dump(mode="json")
-            )
-        )
-        artifacts.append(
-            self.artifact_store.write_json_artifact(
-                run_id, "plan_review.json", plan_review.model_dump(mode="json")
-            )
-        )
-        artifacts.append(
-            self.artifact_store.write_json_artifact(
-                run_id, "budget_report.json", budget_report.model_dump(mode="json")
-            )
-        )
-        artifacts.append(
-            self.artifact_store.write_json_artifact(
-                run_id, "delta_execution_plan.json", delta_plan.model_dump(mode="json")
-            )
-        )
-        artifacts.append(
-            self.artifact_store.write_json_artifact(
-                run_id,
-                "routing_decisions.json",
-                [decision.model_dump(mode="json") for decision in decisions],
-            )
-        )
-        artifacts.append(
-            self.artifact_store.write_json_artifact(
-                run_id,
-                "routing_telemetry.json",
-                routing_telemetry.model_dump(mode="json"),
-            )
-        )
+        artifacts = stage_context.artifacts or [request_artifact]
         artifacts.append(
             self.artifact_store.write_json_artifact(
                 run_id,
@@ -411,20 +369,19 @@ class Orchestrator:
                 run_id, "schedule_report.json", schedule_report.model_dump(mode="json")
             )
         )
-        artifacts.append(
-            self.artifact_store.write_json_artifact(
-                run_id, "repo_validation_report.json", repo_validation_report.model_dump(mode="json")
-            )
+        quality_payload = next(
+            (
+                result.output.get("worker_output", {}).get("quality_result")
+                for result in results
+                if result.task_id == "T-QUALITY"
+                and isinstance(result.output.get("worker_output"), dict)
+            ),
+            None,
         )
-
-        quality = self.quality.evaluate(
-            manifest=manifest,
-            contract=contract,
-            dag=dag,
-            decisions=decisions,
-            results=results,
-            artifact_paths=[artifact.as_path for artifact in artifacts],
-            repo_validation_report=repo_validation_report,
+        quality = (
+            QualityGateResult.model_validate(quality_payload)
+            if quality_payload
+            else self._missing_quality_stage_result()
         )
         all_decisions = list(decisions)
         all_results = list(results)
@@ -450,7 +407,7 @@ class Orchestrator:
             repair_results, repair_schedule = self.scheduler.execute(
                 repair_dag,
                 repair_decisions,
-                self.executor,
+                executor,
                 {**cache_context, "repair": True},
                 cancellation_check=lambda: self.runtime.is_cancel_requested(run_id),
             )
@@ -767,6 +724,89 @@ class Orchestrator:
             artifact_dir=str(self.artifact_store.run_dir(run_id)),
             manifest=run_manifest,
             quality=quality,
+        )
+
+    def _build_static_artifacts(
+        self,
+        *,
+        run_id: str,
+        request_artifact: Artifact,
+        manifest: ContextManifest,
+        cards: list[ContextCard],
+        chunks: list[ContextChunk],
+        provenance: list[ProvenanceRecord],
+        context_packs: dict[str, ContextPack],
+        context_index: dict[str, list[str]],
+        conflicts: list[str],
+        cache_key: str,
+        contract: ProductContract,
+        approval_report: ApprovalReport,
+        execution_policy: ExecutionPolicy,
+        dag: TaskDAG,
+        plan_review: PlanReview,
+        budget_report: BudgetReport,
+        delta_plan: DeltaExecutionPlan,
+        decisions: list[RoutingDecision],
+        routing_telemetry: RoutingTelemetryReport,
+        repo_validation_report: RepoValidationReport,
+    ) -> list[Artifact]:
+        payloads = [
+            ("context_manifest.json", manifest.model_dump(mode="json")),
+            ("context_cards.json", [card.model_dump(mode="json") for card in cards]),
+            ("context_chunks.json", [chunk.model_dump(mode="json") for chunk in chunks]),
+            (
+                "context_provenance.json",
+                [item.model_dump(mode="json") for item in provenance],
+            ),
+            (
+                "context_packs.json",
+                {task_id: pack.model_dump(mode="json") for task_id, pack in context_packs.items()},
+            ),
+            (
+                "context_index.json",
+                {"terms": context_index, "conflicts": conflicts, "cache_key": cache_key},
+            ),
+            ("product_contract.json", contract.model_dump(mode="json")),
+            ("approval_report.json", approval_report.model_dump(mode="json")),
+            ("policy_report.json", execution_policy.model_dump(mode="json")),
+            ("task_dag.json", dag.model_dump(mode="json")),
+            ("plan_review.json", plan_review.model_dump(mode="json")),
+            ("budget_report.json", budget_report.model_dump(mode="json")),
+            ("delta_execution_plan.json", delta_plan.model_dump(mode="json")),
+            (
+                "routing_decisions.json",
+                [decision.model_dump(mode="json") for decision in decisions],
+            ),
+            ("routing_telemetry.json", routing_telemetry.model_dump(mode="json")),
+            (
+                "repo_validation_report.json",
+                repo_validation_report.model_dump(mode="json"),
+            ),
+        ]
+        return [
+            request_artifact,
+            *[
+                self.artifact_store.write_json_artifact(run_id, name, payload)
+                for name, payload in payloads
+            ],
+        ]
+
+    def _missing_quality_stage_result(self) -> QualityGateResult:
+        message = "Quality stage did not complete; no quality evaluation is available."
+        return QualityGateResult(
+            passed=False,
+            scores=QualityScore(
+                completeness=0,
+                parse_confidence=0,
+                citation_support=0,
+                continuity=0,
+                routing_efficiency=0,
+                artifact_presence="fail",
+                code_validation="not_applicable",
+            ),
+            violations=[message],
+            warnings=[message],
+            repair_task_ids=["T-REPAIR-001"],
         )
 
     def list_runs(self) -> list[Path]:

@@ -1,6 +1,6 @@
 import unittest
 
-from universal_orchestrator.models import QualityGateResult, QualityScore
+from universal_orchestrator.models import QualityGateResult, QualityScore, RoutingAction
 from universal_orchestrator.repair import RepairPlanner
 from universal_orchestrator.routing import AdaptiveRouter, CapabilityRegistry
 
@@ -27,7 +27,13 @@ class RepairPlannerTests(unittest.TestCase):
 
         self.assertEqual(len(dag.nodes), 3)
         self.assertEqual(dag.nodes[-1].id, "T-REPAIR-VALIDATE")
-        self.assertEqual({decision.provider_id for decision in decisions}, {"deterministic.tools"})
+        self.assertTrue(
+            all(
+                decision.action in {RoutingAction.RESHAPE, RoutingAction.PAUSE}
+                for decision in decisions
+            )
+        )
+        self.assertEqual({decision.provider_id for decision in decisions}, {None})
 
 
 if __name__ == "__main__":
