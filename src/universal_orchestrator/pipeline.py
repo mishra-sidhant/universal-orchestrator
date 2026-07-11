@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from universal_orchestrator.approvals import ApprovalGateEngine
 from universal_orchestrator.artifact_builders import ArtifactBuilder
@@ -860,7 +861,7 @@ class Orchestrator:
         decisions: list[RoutingDecision],
         routing_telemetry: RoutingTelemetryReport,
         repo_validation_report: RepoValidationReport,
-        provider_health_report: dict,
+        provider_health_report: dict[str, Any],
     ) -> list[Artifact]:
         payloads = [
             ("context_manifest.json", manifest.model_dump(mode="json")),

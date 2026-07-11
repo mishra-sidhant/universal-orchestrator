@@ -712,3 +712,49 @@ hung transport: 1-second task timeout, needs_attention, reserved_usd=0
 late valid response: 0 ledger rows, 0 repair calls, no successful late commit
 git diff --check: passed
 ```
+
+## Tranche F.7 Native Versus Orchestrated Benchmark
+
+Failing-first transcript against `528cf46`:
+
+```text
+test_tranche_f7 import failed: universal_orchestrator.bench did not exist
+No bench command or native/orchestrated comparison artifact contract existed
+```
+
+Implemented:
+
+- Added `ai-team bench <prompt> [paths...]` and a reusable `BenchmarkRunner`.
+- Built the native arm from one direct call to the strongest healthy configured model with the same ingested source context and an independent cost ceiling/ledger.
+- Built the orchestrated arm through the complete pipeline and copied its final output, cost ledger, quality report, and evidence audit into the comparison directory.
+- Emitted per-path measured latency and actual fixture-priced cost, with both outputs side by side.
+- Set `automated_superiority_claim` to null and stated that only human judgment interprets the measurement.
+- Kept real benching operator-only; no agent or CI live call was made.
+- Reduced the visible strict typing backlog from 79 errors in 19 files to 71 errors in 17 files while annotating the new live paths.
+
+Final Tranche F verification gate (2026-07-11, fixtures only):
+
+```text
+unittest: 157 tests passed
+ruff src tests: All checks passed
+evals --run: 3/3 passed
+doctor: passed with all provider credentials absent
+fixture bench: 1 liveness + 1 native + 1 orchestrated fake request
+fixture bench cost: native=$0.000450, orchestrated=$0.000450
+key sweep: run artifacts 0 matches; delivery ZIP members 0 matches
+local_only with live configuration: 0 transport invocations
+mypy src: visible non-blocking baseline, 71 errors in 17 files
+package: wheel and source distribution built successfully
+git diff --check: passed
+```
+
+### Operator Live Evidence
+
+Pending operator-provided keys in repository-root `.env.local`. The agent and CI did not execute these commands.
+
+```text
+OpenAI smoke: pending operator execution
+Anthropic smoke: pending operator execution
+Ollama smoke: pending operator execution if configured
+Real bench: pending operator execution
+```

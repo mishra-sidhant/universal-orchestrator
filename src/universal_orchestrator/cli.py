@@ -7,6 +7,7 @@ from pathlib import Path
 from time import monotonic
 
 from universal_orchestrator import __version__
+from universal_orchestrator.bench import BenchmarkRunner
 from universal_orchestrator.config import (
     DEFAULT_ENV_FILE,
     configuration_template,
@@ -54,6 +55,10 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser = sub.add_parser("run", help="Run the orchestrator on a prompt and optional paths")
     _add_run_args(run_parser)
     run_parser.set_defaults(handler=handle_run)
+
+    bench_parser = sub.add_parser("bench", help="Measure native and orchestrated output side by side")
+    _add_run_args(bench_parser)
+    bench_parser.set_defaults(handler=handle_bench, root=".uo/bench")
 
     repo_parser = sub.add_parser("repo", help="Repo-focused shortcut for implementation or review tasks")
     _add_run_args(repo_parser)
@@ -137,6 +142,12 @@ def handle_repo(args: argparse.Namespace) -> None:
     invocation = _invocation_from_args(args, command="repo")
     result = Orchestrator(args.root).run(invocation)
     _print_run_result(result.run_id, result.artifact_dir, result.quality.passed)
+
+
+def handle_bench(args: argparse.Namespace) -> None:
+    invocation = _invocation_from_args(args, command="bench")
+    result = BenchmarkRunner(args.root).run(invocation)
+    print(json.dumps(result, indent=2, sort_keys=True))
 
 
 def handle_doctor(args: argparse.Namespace) -> None:

@@ -37,6 +37,8 @@ Without a complete key/model pair, or without the required permissions and budge
 
 Before model routing, the runtime performs a cheap bounded liveness request (`/models`, `/v1/models`, or Ollama `/api/tags`) and caches the result for 60 seconds. These probes do not consume model tokens and are recorded separately from `cost_ledger.json`. A provider-down notice in the final report identifies the family and measured status. `local_only` makes no hosted liveness request, even when keys are present.
 
+`bench` runs one direct strongest-provider path and one full orchestrated path, each with the requested cost ceiling. It writes a comparison directory under `.uo/bench` by default. It makes no automated superiority claim; the operator reviews the side-by-side output, cost, latency, quality, and evidence artifacts.
+
 Add keys later in the repository-root `.env.local` file:
 
 ```text
@@ -79,6 +81,7 @@ PYTHONPATH=src python -m universal_orchestrator configure
 PYTHONPATH=src python -m universal_orchestrator configure --write-example
 PYTHONPATH=src python -m universal_orchestrator providers
 PYTHONPATH=src python -m universal_orchestrator smoke --provider openai.configured
+PYTHONPATH=src python -m universal_orchestrator bench "Compare paths" --allow-internet --allow-cloud --budget premium ./source.pdf
 PYTHONPATH=src python -m universal_orchestrator mcp-server
 PYTHONPATH=src python -m universal_orchestrator run "Build a product package" ./path-or-url
 PYTHONPATH=src python -m universal_orchestrator run "Build a bounded package" --cost-ceiling 0.25 ./path-or-url

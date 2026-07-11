@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Callable
+from typing import Any, Callable
 
 from universal_orchestrator.models import (
     Artifact,
@@ -68,7 +68,7 @@ class StageWorkerRegistry:
         self,
         tasks: list[TaskNode],
         decisions: list[RoutingDecision],
-        completion_guard,
+        completion_guard: Any,
     ) -> list[ExecutionResult]:
         if not completion_guard.is_active():
             return []
@@ -86,7 +86,7 @@ class StageWorkerRegistry:
         self,
         task: TaskNode,
         decision: RoutingDecision,
-        completion_guard=None,
+        completion_guard: Any | None = None,
     ) -> ExecutionResult:
         started_at = utc_now()
         evidence_required = task.id == "T-SYNTHESIS"
@@ -162,7 +162,7 @@ class StageWorkerRegistry:
 
     def _aggregate(
         self, task: TaskNode, decision: RoutingDecision, refs: list[str]
-    ) -> tuple[str, list[dict], dict]:
+    ) -> tuple[str, list[dict[str, Any]], dict[str, Any]]:
         del task, decision, refs
         summary = (
             f"Aggregated {len(self.context.cards)} context card(s) and "
@@ -180,7 +180,7 @@ class StageWorkerRegistry:
 
     def _gap_analysis(
         self, task: TaskNode, decision: RoutingDecision, refs: list[str]
-    ) -> tuple[str, list[dict], dict]:
+    ) -> tuple[str, list[dict[str, Any]], dict[str, Any]]:
         del task, decision, refs
         partial = [
             item.name
@@ -211,8 +211,8 @@ class StageWorkerRegistry:
         task: TaskNode,
         decision: RoutingDecision,
         refs: list[str],
-        completion_guard=None,
-    ) -> tuple[str, list[dict], dict]:
+        completion_guard: Any | None = None,
+    ) -> tuple[str, list[dict[str, Any]], dict[str, Any]]:
         adapter = (
             self.context.provider_adapters.get(decision.provider_id)
             if self.context.provider_adapters
@@ -272,7 +272,7 @@ class StageWorkerRegistry:
     def _extractive_synthesis(
         self,
         refs: list[str],
-    ) -> tuple[str, list[dict], dict]:
+    ) -> tuple[str, list[dict[str, Any]], dict[str, Any]]:
         chunks_by_id = {chunk.id: chunk for chunk in self.context.chunks}
         consumed = [chunks_by_id[ref] for ref in refs if ref in chunks_by_id]
         excerpt = consumed[0].text[:180] if consumed else "No source passage was delivered."
@@ -291,7 +291,7 @@ class StageWorkerRegistry:
 
     def _artifact_build(
         self, task: TaskNode, decision: RoutingDecision, refs: list[str]
-    ) -> tuple[str, list[dict], dict]:
+    ) -> tuple[str, list[dict[str, Any]], dict[str, Any]]:
         del task, decision, refs
         self.context.artifacts = self.context.build_static_artifacts()
         names = [artifact.name for artifact in self.context.artifacts]
@@ -311,7 +311,7 @@ class StageWorkerRegistry:
 
     def _quality(
         self, task: TaskNode, decision: RoutingDecision, refs: list[str]
-    ) -> tuple[str, list[dict], dict]:
+    ) -> tuple[str, list[dict[str, Any]], dict[str, Any]]:
         provisional = self._result(
             task,
             decision,
@@ -341,9 +341,9 @@ class StageWorkerRegistry:
         decision: RoutingDecision,
         status: TaskStatus,
         summary: str,
-        findings: list[dict],
+        findings: list[dict[str, Any]],
         evidence_refs: list[str],
-        started_at,
+        started_at: Any,
         warnings: list[str] | None = None,
     ) -> ExecutionResult:
         worker_output = {

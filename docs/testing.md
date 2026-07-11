@@ -41,4 +41,4 @@ Provider tests use recorded JSON fixtures through `FakeTransport`. The default s
 - Extracted source tail content, chunk locators, final citations, and claim resolution are verified.
 - Eval mutation tests prove malformed DAGs, incomplete routing, and damaged worker schemas fail their gates.
 
-Current validated baseline on July 10, 2026: 73 tests passing, Ruff clean, all three built-in world-readiness eval cases passing, and both sdist and wheel building successfully. Strict `mypy src` still reports a pre-existing typing backlog in optional adapters and boundary modules and is therefore not represented as a passing CI gate.
+Tranche F validated baseline on July 11, 2026: 157 tests passing without keys or provider sockets, Ruff clean, all three built-in world-readiness eval cases passing, fixture bench green, and both sdist and wheel building successfully. Strict `mypy src` reports the visible non-blocking backlog at 71 errors in 17 files, improved from 79 errors in 19 files at the Tranche E baseline.

@@ -25,6 +25,7 @@ from universal_orchestrator.providers import (
     DeterministicToolsAdapter,
     OllamaAdapter,
     OpenAIResponsesAdapter,
+    ProviderAdapter,
     ProviderAdapterRegistry,
 )
 from universal_orchestrator.providers.transport import HTTPTransport
@@ -205,7 +206,7 @@ class CapabilityRegistry:
         ]
 
     def adapter_registry(self) -> ProviderAdapterRegistry:
-        adapters = []
+        adapters: list[ProviderAdapter] = []
         for provider in self.providers:
             if provider.id == "deterministic.tools":
                 adapters.append(DeterministicToolsAdapter(provider))

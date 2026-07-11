@@ -44,7 +44,7 @@ class ModelSynthesisRunner:
         task: TaskNode,
         pack: ContextPack,
         operator_prompt: str,
-        completion_guard=None,
+        completion_guard: Any | None = None,
     ) -> ModelSynthesisResult:
         prompt = self._initial_prompt(operator_prompt)
         first = adapter.execute(self._provider_task(task, pack, prompt, completion_guard))
@@ -79,7 +79,7 @@ class ModelSynthesisRunner:
         task: TaskNode,
         pack: ContextPack,
         prompt: str,
-        completion_guard,
+        completion_guard: Any | None,
     ) -> ProviderTask:
         return ProviderTask(
             task=task,
@@ -93,7 +93,7 @@ class ModelSynthesisRunner:
             timeout_seconds=task.timeout_seconds,
         )
 
-    def _ensure_active(self, completion_guard) -> None:
+    def _ensure_active(self, completion_guard: Any | None) -> None:
         if completion_guard is not None and not completion_guard.is_active():
             raise CompletionLeaseExpired("Provider response arrived after completion lease expiry.")
 

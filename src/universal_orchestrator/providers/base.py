@@ -131,11 +131,12 @@ class ProviderAdapter(ABC):
     ) -> None:
         if authorization is None or self.cost_ledger is None:
             return
+        ledger = self.cost_ledger
         with self._authorization_guard_lock:
             guard = self._authorization_guards.pop(authorization.call_id, None)
 
         def commit() -> None:
-            self.cost_ledger.commit(
+            ledger.commit(
                 authorization,
                 usage.get("input_tokens", 0),
                 usage.get("output_tokens", 0),
@@ -143,7 +144,7 @@ class ProviderAdapter(ABC):
 
         if guard is not None and hasattr(guard, "commit_if_active"):
             if not guard.commit_if_active(commit):
-                self.cost_ledger.release(authorization)
+                ledger.release(authorization)
             return
         commit()
 

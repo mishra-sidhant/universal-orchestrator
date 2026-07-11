@@ -7,13 +7,13 @@ Review baseline: `82b2b59`. This ledger is the Tranche F resume point. `pending`
 | R1 citation score is a keyword constant | fixed F.0 | 9260735 | `test_quality_engine_does_not_infer_citation_score_from_contract_keywords`; measured 1/2 ratio pinned at 50. |
 | R2 final-citation finding is false before assembly | fixed F.0 | 9260735 | Pre-repair audit retained; persisted audit reruns post-assembly and agrees with delivered Sources. |
 | R3 scheduler parallelism | deferred by operator scope | 82b2b59 | Current real DAG is linear and reports 1 honestly; parallel scheduling is explicitly next tranche. |
-| R4 timeout containment for live I/O | fixed F.6 | `Tranche F.6: fence late provider completion` | ADR-002 accepts socket timeout plus completion lease; hung transport proves immediate reservation cleanup and zero late usage/repair/cache commit. |
-| R5 mypy backlog | deferred, visible | e8c28e6 | Non-blocking CI baseline remains visible; live-path code must not increase the undisclosed backlog. |
+| R4 timeout containment for live I/O | fixed F.6 | 528cf46 | ADR-002 accepts socket timeout plus completion lease; hung transport proves immediate reservation cleanup and zero late usage/repair/cache commit. |
+| R5 mypy backlog | deferred, improved and visible | `Tranche F.7: add native versus orchestrated benchmark` | Strict baseline improved from 79 errors/19 files to 71 errors/17 files. It remains non-blocking and explicitly disclosed. |
 | Minor `_summary` name collision | clarified F.0 | 9260735 | Removed `DeterministicExecutor._summary` was dead; `workers.py` `_summary` is the live structured-output formatter. |
 | F.1 injectable transport and fixtures | fixed F.1 | 80a742c | `HTTPTransport`, `UrllibHTTPTransport`, and scripted `FakeTransport`; all adapters fixture-tested without sockets. |
 | F.1 provider error taxonomy | fixed F.1 | 80a742c | Typed auth/rate-limit/transient/fatal/timeout/malformed-output failures; retries are bounded and limited to eligible kinds. |
 | F.1 socket-level call timeout | fixed F.1 | 80a742c | Adapter task timeout is carried on each `HTTPRequest` and passed to `urlopen`, independently of the scheduler lease. |
-| F.1 opt-in smoke command | fixed F.1 | 80a742c | `ai-team smoke --provider`; fixed tiny prompt, explicit key gate, latency and usage output. USD remains unset until F.3 rates. |
+| F.1 opt-in smoke command | fixed F.1/F.3 | 80a742c / b54c2a0 | `ai-team smoke --provider`; fixed tiny prompt, explicit key and budget gates, latency, usage, estimated cost, and actual configured-rate cost. |
 | F.2 outbound redaction | fixed F.2 | f053b00 | Planted source and metadata key are absent from the captured request body; redaction marker is present. |
 | F.2 injection quarantine and delimiters | fixed F.2 | f053b00 | Compiler and renderer both exclude the hostile chunk; retained context has authority preamble and begin/end delimiters. |
 | F.2 local-only with keys | fixed F.2 | f053b00 | Valid key/model, network authority, live adapter, and forged route still produce zero fake-transport requests. |
@@ -29,10 +29,10 @@ Review baseline: `82b2b59`. This ledger is the Tranche F resume point. `pending`
 | F.5 cached provider health | fixed F.5 | b0e5910 | Fixture probes classify healthy/degraded/down, carry socket timeout, cache for TTL, and persist measured health for routing. |
 | F.5 provider-family fallback and actionable pause | fixed F.5 | b0e5910 | OpenAI-down routes Anthropic; all-hosted-down stays extractive with report notice; pause names capability and configuration action. |
 | F.5 Ollama parity | fixed F.5 | b0e5910 | Ollama uses `/api/tags`, shared transport/error/cost machinery, structured synthesis, and a fixture-verified $0 actual row. |
-| F.6 containment decision | fixed F.6 | `Tranche F.6: fence late provider completion` | ADR-002 plus one-second hung-transport proof: run degrades, reservation releases, late response cannot commit or issue repair. |
-| F.7 fixture-backed bench | pending | pending | Native and orchestrated outputs/cost/latency emitted side by side. |
-| F.7 no automated superiority claim | pending | pending | README and artifact wording remain measurement-only. |
-| F.7 operator-only real bench | pending | pending | Keys and real network remain outside agent/CI execution. |
+| F.6 containment decision | fixed F.6 | 528cf46 | ADR-002 plus one-second hung-transport proof: run degrades, reservation releases, late response cannot commit or issue repair. |
+| F.7 fixture-backed bench | fixed F.7 | `Tranche F.7: add native versus orchestrated benchmark` | Fixture bench emits native/orchestrated outputs, independent ledgers, cost, latency, and orchestrated quality/evidence reports in three fake requests. |
+| F.7 no automated superiority claim | fixed F.7 | `Tranche F.7: add native versus orchestrated benchmark` | Comparison schema sets claim to null; README and bundle require human judgment. |
+| F.7 operator-only real bench | implemented; execution pending operator keys | `Tranche F.7: add native versus orchestrated benchmark` | Command and checklist documented. Agent/CI made no real call; operator pastes results into implementation log after keys are added. |
 
 ## Test Rewrites
 
@@ -49,3 +49,5 @@ F.4 adds seven model-path regressions and does not weaken or delete an existing 
 F.5 adds five operating-mode regressions. F.2/F.4 transport-count assertions were refined to distinguish bounded liveness probes from model calls; `local_only` still asserts zero total calls, and pre-call budget enforcement still asserts zero model invocations.
 
 F.6 adds one load-bearing hung-transport regression and does not weaken or delete an existing assertion.
+
+F.7 adds two benchmark regressions and does not weaken or delete an existing assertion.

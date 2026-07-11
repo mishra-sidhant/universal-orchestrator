@@ -6,7 +6,7 @@ The current milestone is a deterministic local runtime with fixture-validated li
 
 ## What Works Now
 
-- Local CLI with `run`, `repo`, `doctor`, `providers`, `artifacts`, `status`, `cancel`, `smoke`, and executable `evals` commands.
+- Local CLI with `run`, `repo`, `doctor`, `providers`, `artifacts`, `status`, `cancel`, `smoke`, `bench`, and executable `evals` commands.
 - Typed Pydantic data models for invocations, manifests, product contracts, DAGs, routing, execution, quality, artifacts, and run manifests.
 - Universal input ingestion MVP for prompts, text/markdown, PDFs, folders, repositories, URLs, images, Office files, spreadsheets, archives, and unknown files.
 - Secret and prompt-injection risk scanning before context cards are built.
@@ -25,6 +25,7 @@ The current milestone is a deterministic local runtime with fixture-validated li
 - Quality failures execute repair tasks through the scheduler; unresolved runs terminate as `needs_attention` and never receive a delivery receipt.
 - Model synthesis accepts only strict structured output, allows one metered reformat repair, audits each claim against delivered chunk IDs, and degrades honestly to extractive synthesis after validation failure.
 - Immutable delivery finalization with a frozen run manifest, checksums, validated ZIP, integrity report, and hash-bound delivery receipt.
+- A native-versus-orchestrated benchmark bundle with side-by-side outputs, per-path cost and latency, plus orchestrated quality/evidence reports. It makes no automated superiority claim; comparison requires human judgment.
 - Standard-library test suite, so the repo can validate without installing pytest.
 
 ## Quick Start
@@ -69,7 +70,7 @@ The kernel follows this pipeline:
 4. Compile a `ProductContract` and `DefinitionOfDone`.
 5. Create a typed `TaskDAG`.
 6. Route tasks by capability, health, risk, and cost.
-7. Execute deterministic MVP workers.
+7. Execute deterministic workers and policy-permitted model synthesis.
 8. Audit declared evidence references and run derived quality gates.
 9. Freeze the manifest, checksums, delivery bundle, validation, and receipt in order.
 
@@ -78,3 +79,18 @@ See [Product Requirements](docs/product-requirements.md) and [Implementation Pla
 Current limitation: keyless synthesis is extractive, and neither local nor model synthesis proves factual entailment. Evidence refs are restricted to chunks actually delivered to each task; `citation_support` means consumed-reference coverage, while the model-path lexical-overlap warning is only a weak diagnostic floor. See [Quality Metric Provenance](docs/quality-metrics.md) and [ADR-001](docs/adr/ADR-001-kernel-unification.md).
 
 Provider capability numbers are configured priors used for routing, not measured quality facts. They remain priors until a versioned benchmark records a measurement.
+
+## Live Setup And Measurement
+
+Add keys and model IDs later in the repository-root `.env.local` file, which is gitignored. Use `.env.example` as the template; never place keys in commands, committed configuration, or benchmark artifacts.
+
+```bash
+uv run python -m universal_orchestrator configure
+uv run python -m universal_orchestrator smoke --provider openai.configured
+uv run python -m universal_orchestrator smoke --provider anthropic.configured
+uv run python -m universal_orchestrator bench \
+  "Compare native and orchestrated output" ./source.pdf \
+  --allow-internet --allow-cloud --budget premium --cost-ceiling 0.50
+```
+
+Run real smoke checks once per configured provider, then one real bench. These are operator actions and are never part of CI. Paste their JSON summaries into `docs/implementation-log.md` under "Operator Live Evidence." `bench` is a measurement instrument: it records outputs, latency, cost, quality, and evidence for review, but never declares a winner.
