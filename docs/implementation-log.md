@@ -682,3 +682,33 @@ all hosted down: extractive path with unavailable notice
 Ollama: 1 probe + 1 synthesis call, actual_usd=0
 git diff --check: passed
 ```
+
+## Tranche F.6 Late-Completion Containment
+
+Failing-first transcript against `b0e5910`:
+
+```text
+hung transport test: scheduler timed out honestly, but cost_ledger.json retained
+reserved_usd=0.016890 at run close; no atomic provider-side lease fence existed
+```
+
+Implemented:
+
+- Extended the scheduler completion guard with timeout cleanups and atomic active-lease commits.
+- Registered provider cost reservations for immediate cleanup when the task lease closes.
+- Propagated the completion guard into model calls; responses are checked before validation and before any repair request.
+- Fenced actual usage commit under the same lease, so timeout and commit have one ordering authority.
+- Added ADR-002 accepting in-process provider I/O with socket deadlines plus the proven scheduler lease, and listed the cases that require stronger isolation.
+
+Validation gate (2026-07-11, fixtures only, no live calls):
+
+```text
+unittest: 155 tests passed
+ruff src tests: All checks passed
+evals --run: 3/3 passed
+doctor: passed with all provider credentials absent
+package: wheel and source distribution built successfully
+hung transport: 1-second task timeout, needs_attention, reserved_usd=0
+late valid response: 0 ledger rows, 0 repair calls, no successful late commit
+git diff --check: passed
+```

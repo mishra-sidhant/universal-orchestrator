@@ -26,6 +26,10 @@ class ModelOutputValidationError(ValueError):
     pass
 
 
+class CompletionLeaseExpired(RuntimeError):
+    pass
+
+
 @dataclass(frozen=True)
 class ModelSynthesisResult:
     output: ModelSynthesisOutput
@@ -40,16 +44,22 @@ class ModelSynthesisRunner:
         task: TaskNode,
         pack: ContextPack,
         operator_prompt: str,
+        completion_guard=None,
     ) -> ModelSynthesisResult:
         prompt = self._initial_prompt(operator_prompt)
-        first = adapter.execute(self._provider_task(task, pack, prompt))
+        first = adapter.execute(self._provider_task(task, pack, prompt, completion_guard))
+        self._ensure_active(completion_guard)
         raw = str(first.output.get("summary", ""))
         try:
             parsed = self._parse(raw)
             return ModelSynthesisResult(parsed, False, self._lexical_warnings(parsed, pack))
         except ModelOutputValidationError as first_error:
             repair_prompt = self._repair_prompt(raw, first_error)
-            repaired = adapter.execute(self._provider_task(task, pack, repair_prompt))
+            self._ensure_active(completion_guard)
+            repaired = adapter.execute(
+                self._provider_task(task, pack, repair_prompt, completion_guard)
+            )
+            self._ensure_active(completion_guard)
             repaired_raw = str(repaired.output.get("summary", ""))
             try:
                 parsed = self._parse(repaired_raw)
@@ -64,15 +74,28 @@ class ModelSynthesisRunner:
             ]
             return ModelSynthesisResult(parsed, True, warnings)
 
-    def _provider_task(self, task: TaskNode, pack: ContextPack, prompt: str) -> ProviderTask:
+    def _provider_task(
+        self,
+        task: TaskNode,
+        pack: ContextPack,
+        prompt: str,
+        completion_guard,
+    ) -> ProviderTask:
         return ProviderTask(
             task=task,
             prompt=prompt,
-            context={"context_pack": pack.model_dump(mode="json")},
+            context={
+                "context_pack": pack.model_dump(mode="json"),
+                "completion_guard": completion_guard,
+            },
             dry_run=False,
             allow_network=True,
             timeout_seconds=task.timeout_seconds,
         )
+
+    def _ensure_active(self, completion_guard) -> None:
+        if completion_guard is not None and not completion_guard.is_active():
+            raise CompletionLeaseExpired("Provider response arrived after completion lease expiry.")
 
     def _parse(self, raw: str) -> ModelSynthesisOutput:
         try:

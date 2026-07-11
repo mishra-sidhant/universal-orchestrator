@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
-from threading import Event
+from threading import Event, Lock
 from time import sleep
 from typing import Callable
 
@@ -25,12 +25,36 @@ class CompletionGuard:
     def __init__(self) -> None:
         self._active = Event()
         self._active.set()
+        self._lock = Lock()
+        self._cleanups: list[Callable[[], None]] = []
 
     def is_active(self) -> bool:
         return self._active.is_set()
 
     def deactivate(self) -> None:
-        self._active.clear()
+        with self._lock:
+            self._active.clear()
+            cleanups = list(self._cleanups)
+            self._cleanups.clear()
+        for cleanup in cleanups:
+            cleanup()
+
+    def register_cleanup(self, cleanup: Callable[[], None]) -> None:
+        run_now = False
+        with self._lock:
+            if self._active.is_set():
+                self._cleanups.append(cleanup)
+            else:
+                run_now = True
+        if run_now:
+            cleanup()
+
+    def commit_if_active(self, commit: Callable[[], None]) -> bool:
+        with self._lock:
+            if not self._active.is_set():
+                return False
+            commit()
+            return True
 
 
 class DAGScheduler:

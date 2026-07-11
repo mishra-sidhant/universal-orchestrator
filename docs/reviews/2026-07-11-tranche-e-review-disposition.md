@@ -7,7 +7,7 @@ Review baseline: `82b2b59`. This ledger is the Tranche F resume point. `pending`
 | R1 citation score is a keyword constant | fixed F.0 | 9260735 | `test_quality_engine_does_not_infer_citation_score_from_contract_keywords`; measured 1/2 ratio pinned at 50. |
 | R2 final-citation finding is false before assembly | fixed F.0 | 9260735 | Pre-repair audit retained; persisted audit reruns post-assembly and agrees with delivered Sources. |
 | R3 scheduler parallelism | deferred by operator scope | 82b2b59 | Current real DAG is linear and reports 1 honestly; parallel scheduling is explicitly next tranche. |
-| R4 timeout containment for live I/O | pending F.6 | pending | ADR-002 and hung-transport proof required before tranche closure. |
+| R4 timeout containment for live I/O | fixed F.6 | `Tranche F.6: fence late provider completion` | ADR-002 accepts socket timeout plus completion lease; hung transport proves immediate reservation cleanup and zero late usage/repair/cache commit. |
 | R5 mypy backlog | deferred, visible | e8c28e6 | Non-blocking CI baseline remains visible; live-path code must not increase the undisclosed backlog. |
 | Minor `_summary` name collision | clarified F.0 | 9260735 | Removed `DeterministicExecutor._summary` was dead; `workers.py` `_summary` is the live structured-output formatter. |
 | F.1 injectable transport and fixtures | fixed F.1 | 80a742c | `HTTPTransport`, `UrllibHTTPTransport`, and scripted `FakeTransport`; all adapters fixture-tested without sockets. |
@@ -26,10 +26,10 @@ Review baseline: `82b2b59`. This ledger is the Tranche F resume point. `pending`
 | F.4 schema validation, one repair, extractive fallback | fixed F.4 | d10f3bd | Tests pin direct success, one-repair success, and two-malformed-response extractive fallback with exactly two model calls. |
 | F.4 model-claim evidence discipline | fixed F.4 | d10f3bd | Fabricated ref makes claim unsupported and run `needs_attention`; low lexical overlap is explicitly warning-only and not entailment. |
 | F.4 real provider routing with keyless default | fixed F.4 | d10f3bd | Complete configuration selects model capability; keyless run remains extractive with zero provider calls. |
-| F.5 cached provider health | fixed F.5 | `Tranche F.5: add measured health and fallback modes` | Fixture probes classify healthy/degraded/down, carry socket timeout, cache for TTL, and persist measured health for routing. |
-| F.5 provider-family fallback and actionable pause | fixed F.5 | `Tranche F.5: add measured health and fallback modes` | OpenAI-down routes Anthropic; all-hosted-down stays extractive with report notice; pause names capability and configuration action. |
-| F.5 Ollama parity | fixed F.5 | `Tranche F.5: add measured health and fallback modes` | Ollama uses `/api/tags`, shared transport/error/cost machinery, structured synthesis, and a fixture-verified $0 actual row. |
-| F.6 containment decision | pending | pending | ADR-002 plus hung-transport late-commit test. |
+| F.5 cached provider health | fixed F.5 | b0e5910 | Fixture probes classify healthy/degraded/down, carry socket timeout, cache for TTL, and persist measured health for routing. |
+| F.5 provider-family fallback and actionable pause | fixed F.5 | b0e5910 | OpenAI-down routes Anthropic; all-hosted-down stays extractive with report notice; pause names capability and configuration action. |
+| F.5 Ollama parity | fixed F.5 | b0e5910 | Ollama uses `/api/tags`, shared transport/error/cost machinery, structured synthesis, and a fixture-verified $0 actual row. |
+| F.6 containment decision | fixed F.6 | `Tranche F.6: fence late provider completion` | ADR-002 plus one-second hung-transport proof: run degrades, reservation releases, late response cannot commit or issue repair. |
 | F.7 fixture-backed bench | pending | pending | Native and orchestrated outputs/cost/latency emitted side by side. |
 | F.7 no automated superiority claim | pending | pending | README and artifact wording remain measurement-only. |
 | F.7 operator-only real bench | pending | pending | Keys and real network remain outside agent/CI execution. |
@@ -47,3 +47,5 @@ F.3 adds five accounting regressions and does not weaken or delete an existing a
 F.4 adds seven model-path regressions and does not weaken or delete an existing assertion.
 
 F.5 adds five operating-mode regressions. F.2/F.4 transport-count assertions were refined to distinguish bounded liveness probes from model calls; `local_only` still asserts zero total calls, and pre-call budget enforcement still asserts zero model invocations.
+
+F.6 adds one load-bearing hung-transport regression and does not weaken or delete an existing assertion.

@@ -72,13 +72,22 @@ class StageWorkerRegistry:
     ) -> list[ExecutionResult]:
         if not completion_guard.is_active():
             return []
-        results = self.execute(tasks, decisions)
+        decision_by_task = {decision.task_id: decision for decision in decisions}
+        results = [
+            self._execute_one(task, decision_by_task[task.id], completion_guard)
+            for task in tasks
+        ]
         return results if completion_guard.is_active() else []
 
     def observe_result(self, result: ExecutionResult) -> None:
         self.observed_results.append(result)
 
-    def _execute_one(self, task: TaskNode, decision: RoutingDecision) -> ExecutionResult:
+    def _execute_one(
+        self,
+        task: TaskNode,
+        decision: RoutingDecision,
+        completion_guard=None,
+    ) -> ExecutionResult:
         started_at = utc_now()
         evidence_required = task.id == "T-SYNTHESIS"
         refs = (
@@ -116,7 +125,12 @@ class StageWorkerRegistry:
                 warnings=[reason],
             )
         try:
-            summary, findings, extra = handler(task, decision, refs)
+            if task.id == "T-SYNTHESIS":
+                summary, findings, extra = self._synthesis(
+                    task, decision, refs, completion_guard
+                )
+            else:
+                summary, findings, extra = handler(task, decision, refs)
             handler_warnings = list(extra.pop("_warnings", []))
             result = self._result(
                 task,
@@ -193,7 +207,11 @@ class StageWorkerRegistry:
         return summary, findings, {"gap_count": gap_count}
 
     def _synthesis(
-        self, task: TaskNode, decision: RoutingDecision, refs: list[str]
+        self,
+        task: TaskNode,
+        decision: RoutingDecision,
+        refs: list[str],
+        completion_guard=None,
     ) -> tuple[str, list[dict], dict]:
         adapter = (
             self.context.provider_adapters.get(decision.provider_id)
@@ -216,6 +234,7 @@ class StageWorkerRegistry:
                     task,
                     pack,
                     self.context.operator_prompt,
+                    completion_guard,
                 )
             except BudgetStopError:
                 raise

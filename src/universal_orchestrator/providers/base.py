@@ -4,6 +4,7 @@ import json
 import random
 from abc import ABC, abstractmethod
 from enum import Enum
+from threading import Lock
 from time import sleep
 from typing import Any, Callable
 
@@ -71,6 +72,8 @@ class ProviderAdapter(ABC):
         self.jitter = jitter or random.random
         self.cost_ledger = cost_ledger
         self.rate_table = rate_table or (cost_ledger.rate_table if cost_ledger else RateTable.load())
+        self._authorization_guards: dict[str, Any] = {}
+        self._authorization_guard_lock = Lock()
 
     @property
     def id(self) -> str:
@@ -107,13 +110,19 @@ class ProviderAdapter(ABC):
         estimate = self.estimate_model_cost(task, model)
         if self.cost_ledger is None:
             return estimate, None
-        return estimate, self.cost_ledger.authorize(
+        authorization = self.cost_ledger.authorize(
             task.task.id,
             self.id,
             model,
             estimate.input_tokens,
             estimate.output_tokens,
         )
+        guard = task.context.get("completion_guard")
+        if guard is not None and hasattr(guard, "register_cleanup"):
+            with self._authorization_guard_lock:
+                self._authorization_guards[authorization.call_id] = guard
+            guard.register_cleanup(lambda: self.release_cost(authorization))
+        return estimate, authorization
 
     def commit_cost(
         self,
@@ -122,14 +131,26 @@ class ProviderAdapter(ABC):
     ) -> None:
         if authorization is None or self.cost_ledger is None:
             return
-        self.cost_ledger.commit(
-            authorization,
-            usage.get("input_tokens", 0),
-            usage.get("output_tokens", 0),
-        )
+        with self._authorization_guard_lock:
+            guard = self._authorization_guards.pop(authorization.call_id, None)
+
+        def commit() -> None:
+            self.cost_ledger.commit(
+                authorization,
+                usage.get("input_tokens", 0),
+                usage.get("output_tokens", 0),
+            )
+
+        if guard is not None and hasattr(guard, "commit_if_active"):
+            if not guard.commit_if_active(commit):
+                self.cost_ledger.release(authorization)
+            return
+        commit()
 
     def release_cost(self, authorization: CostAuthorization | None) -> None:
         if authorization is not None and self.cost_ledger is not None:
+            with self._authorization_guard_lock:
+                self._authorization_guards.pop(authorization.call_id, None)
             self.cost_ledger.release(authorization)
 
     def estimated_output_tokens(self, task: ProviderTask) -> int:
