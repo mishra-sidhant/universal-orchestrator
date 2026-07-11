@@ -1,6 +1,6 @@
 # July 10 Adversarial Review Disposition
 
-Review baseline: `3e74812`. Status is updated phase by phase; `pending` rows are explicit remaining Tranche E work, not silent acceptance.
+Review baseline: `3e74812`. Every row is closed as fixed or explicitly deferred; deferred work includes its scope rationale and the commit that documented the decision.
 
 | Finding | Status | Commit | Evidence / disposition |
 | --- | --- | --- | --- |
@@ -8,9 +8,9 @@ Review baseline: `3e74812`. Status is updated phase by phase; `pending` rows are
 | 1b deterministic adapter only echoes completion | fixed E.2 | 18670f9 | Adapter skip test and default-report no-echo test. |
 | 1c hardcoded planner and synthetic quality scores | fixed E.2 | 18670f9 | E.1 score schema; E.2 contract-coverage mutation changes plan score. |
 | 2a global chunk fallback fabricates evidence | fixed E.1 | 05790dd | `test_empty_task_pack_does_not_fallback_to_global_chunks`. |
-| 2b worker refs are stamped without consumption | fixed E.1/E.5/E.6 | 05790dd / a1ab9f6 / pending | Bounded packs enter provider previews; only synthesis declares source evidence and carries consumed refs. |
+| 2b worker refs are stamped without consumption | fixed E.1/E.5/E.6 | 05790dd / a1ab9f6 / e8c28e6 | Bounded packs enter provider previews; only synthesis declares source evidence and carries consumed refs. |
 | 2c auditor verifies its own generated citations | fixed E.1 | 05790dd | Valid-but-unconsumed mutation and exact unsupported-task tests. |
-| 2d no semantic entailment check | deferred: hosted-quality scope | pending | `citation_support` is explicitly documented as consumed-reference coverage; factuality field removed. |
+| 2d no semantic entailment check | deferred: hosted-quality scope | 05790dd | `citation_support` is explicitly documented as consumed-reference coverage; factuality field removed. |
 | 3a post-repair continuity/completeness denominator crash | fixed E.0 | fcbb77b | `test_post_repair_quality_rates_use_original_and_repair_task_union`; pipeline repair regression. |
 | 3b pass-description appears as violation | fixed E.0 | fcbb77b | `test_failed_execution_finding_uses_failure_description`. |
 | 3c evidence audit occurs after repair | fixed E.0 | fcbb77b | Recording-order assertion in pipeline repair regression. |
@@ -22,7 +22,7 @@ Review baseline: `3e74812`. Status is updated phase by phase; `pending` rows are
 | 4d URL fetch permits SSRF and policy is dead | fixed E.3 | 0aa1437 | Scheme/IP/DNS/override tests and pre-network ingestion test. Dead policy helpers deleted. |
 | 4e archive scans only first 50 entries | fixed E.3 | 0aa1437 | Entry-61 traversal and tar link tests. |
 | 4f `_safe_payload` is a no-op | fixed E.3 | 0aa1437 | Recursive payload redaction test. |
-| 4g injection-risk content remains citable | fixed E.3/E.6 | 0aa1437 / pending | Hostile chunks are excluded while safe chunks in the same source remain citable. |
+| 4g injection-risk content remains citable | fixed E.3/E.6 | 0aa1437 / e8c28e6 | Hostile chunks are excluded while safe chunks in the same source remain citable. |
 | 5a orchestrator executor is shared mutable run state | fixed E.4 | be52ac8 | Obsolete field removed; concurrent two-run isolation test. Daemon creates per-request orchestrators. |
 | 5b timed-out task thread continues after failure | fixed to documented guard boundary E.4 | be52ac8 | Cooperative completion lease fences scheduler cache/record/observer commits; process isolation remains a documented stronger option. |
 | 5c reported parallelism is not executed | fixed E.2 for current plan | 18670f9 | Real DAG is linear and plan simulation reports max parallelism 1; bounded concurrency remains future work. |
@@ -41,8 +41,8 @@ Review baseline: `3e74812`. Status is updated phase by phase; `pending` rows are
 | 6i JSON writes are non-atomic | fixed E.5 | a1ab9f6 | Temporary write, flush/fsync, atomic replace, failure-preserves-old-file test. |
 | 6j dead artifact/executor code | fixed E.5 | a1ab9f6 | Removed stale artifact report renderer and executor summary. |
 | 6k PDF builder fails on markup characters and mishandles H2 | fixed E.5 | a1ab9f6 | HTML escaping and Heading2 rendering; extracted-PDF regression. |
-| E.6 bare-host bootstrap and proof | fixed E.6 | pending | `uv.lock`, README commands, CI 3.11-3.13, non-blocking mypy, warning-free uv tests, accepted proof run. |
-| Static typing backlog | deferred, visible | pending | Non-blocking CI runs `mypy src`; baseline is 79 errors in 19 files. Promotion to blocking waits for adapter/optional-library typing cleanup. |
+| E.6 bare-host bootstrap and proof | fixed E.6 | e8c28e6 | `uv.lock`, README commands, CI 3.11-3.13, non-blocking mypy, warning-free uv tests, accepted proof run. |
+| Static typing backlog | deferred, visible | e8c28e6 | Non-blocking CI runs `mypy src`; baseline is 79 errors in 19 files. Promotion to blocking waits for adapter/optional-library typing cleanup. |
 | E.0 receipt semantics for quality failure | fixed E.0 | fcbb77b | `test_quality_failed_run_needs_attention_without_delivery_receipt`. |
 
 ## Rewritten Existing Tests
