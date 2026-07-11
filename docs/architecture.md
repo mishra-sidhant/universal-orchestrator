@@ -81,7 +81,7 @@ Egress safety is enforced in layers. Context compilation omits chunks with `prom
 
 ## Orchestrator Kernel
 
-The kernel uses `PlannerEnsemble` to create a five-node typed `TaskDAG`: context aggregation, gap analysis, extractive synthesis, static artifact construction, and quality evaluation. Every node maps to a concrete function in `StageWorkerRegistry`.
+The kernel uses `PlannerEnsemble` to create a five-node typed `TaskDAG`: context aggregation, gap analysis, synthesis, static artifact construction, and quality evaluation. Synthesis is model-backed only when configuration, policy, and budget permit it; otherwise it is extractive. Every node maps to a concrete function in `StageWorkerRegistry`.
 
 Each run writes `plan_review.json` with strategic, decomposition, risk, cost, and skeptic views. Their scores derive from contract artifact coverage, registered-worker coverage, dependency coverage, quality-stage coverage, cache safety, and actual cost tiers; no role has a hardcoded score.
 
@@ -115,7 +115,9 @@ Part B adds `routing_telemetry.json`, which records every provider considered fo
 
 ## Execution Plane
 
-`StageWorkerRegistry` dispatches local DAG nodes to real functions and records structured outputs. Missing handlers return `SKIPPED`. `DeterministicExecutor` remains the dry-run provider-adapter boundary for ordinary tasks until model-backed synthesis is connected; its generic local adapter never reports completion. OpenAI, Anthropic, and Ollama share an injectable HTTP transport. The real transport owns socket deadlines, while fixture transports make success, 429, 5xx, timeout, authentication, fatal, and malformed-response behavior testable without sockets. Provider-level retry is bounded, exponential with jitter, honors `Retry-After`, and applies only to rate-limit, transient, and timeout failures. Live responses normalize provider-reported token usage.
+`StageWorkerRegistry` dispatches DAG nodes to typed stage implementations. Missing handlers return `SKIPPED`; the generic local adapter never manufactures completion. When a complete model configuration and execution policy permit it, `T-SYNTHESIS` routes by capability, cost tier, and health to OpenAI, Anthropic, or Ollama. The bounded context pack enters a strict JSON request contract. Output is schema-validated before use, receives at most one separately metered reformat request, and then either becomes a labeled model result or degrades to the existing extractive worker with a warning. Keyless execution stays extractive.
+
+OpenAI, Anthropic, and Ollama share an injectable HTTP transport. The real transport owns socket deadlines, while fixture transports make success, 429, 5xx, timeout, authentication, fatal, and malformed-response behavior testable without sockets. Provider-level retry is bounded, exponential with jitter, honors `Retry-After`, and applies only to rate-limit, transient, and timeout failures. Live responses normalize provider-reported token usage.
 
 `DAGScheduler` executes real stage tasks by dependency-ready batches, records every attempt, enforces retry and timeout policies, skips dependents after failure, honors durable cancellation, uses versioned cache entries, and writes `schedule_report.json`. It reports cached and executed results through the same observer path. Side-effecting artifact/quality nodes are non-cacheable; artifact build has two attempts for transient local I/O failure. Timed work receives a cooperative completion guard, and scheduler-owned cache, record, and observer commits are fenced after timeout.
 

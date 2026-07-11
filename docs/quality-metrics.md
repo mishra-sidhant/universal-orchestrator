@@ -12,6 +12,8 @@
 | `artifact_presence` | `pass`/`fail` | non-empty declared artifact list and every listed path exists at evaluation time | Presence only. Hash/size integrity is authoritative in `artifact_integrity_report.json`. |
 | `code_validation` | `pass`/`fail`/`not_applicable` | actual allowlisted repository command results | Unexecuted or unavailable validation is never reported as pass. |
 
+Model synthesis may emit multiple claims; each is audited independently. A labeled lexical-overlap check warns when claim and cited chunk share little surface text. It is intentionally warning-only and is not semantic entailment, contradiction detection, or factual verification.
+
 ## Deliberately Absent
 
 - `factuality`: removed; parser success was not factual verification.

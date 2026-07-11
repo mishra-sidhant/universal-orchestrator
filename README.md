@@ -2,7 +2,7 @@
 
 Universal Orchestrator is the first implementation pass for the "Universal AI Executive Kernel" product described in the attached architecture report. It is a host-agnostic, model-agnostic orchestration runtime that turns messy user input into typed context, a product contract, an execution DAG, provider routing decisions, quality gates, and final artifacts.
 
-The current milestone is a deterministic local runtime with fixture-validated live provider transports. The explicit `smoke` command can make one key-gated provider call; ordinary pipeline runs remain on the local/extractive path until model-backed synthesis is completed. Routing and execution enforce cloud and privacy policy before any adapter can be called.
+The current milestone is a deterministic local runtime with fixture-validated live provider transports and model-backed synthesis. With a complete provider configuration plus explicit cloud, internet, and premium-budget permission, `T-SYNTHESIS` executes through a selected model; otherwise the established local extractive path remains the default. Routing and execution enforce cloud and privacy policy before any adapter can be called.
 
 ## What Works Now
 
@@ -22,6 +22,7 @@ The current milestone is a deterministic local runtime with fixture-validated li
 - Quality gate engine with contract, manifest, DAG, routing, security, evidence audit, repo validation, and artifact integrity checks.
 - Quality telemetry is provenance-limited: parse coverage, consumed-reference coverage, task continuity, routing efficiency, artifact presence, and executed code validation. It does not claim factuality or style scoring.
 - Quality failures execute repair tasks through the scheduler; unresolved runs terminate as `needs_attention` and never receive a delivery receipt.
+- Model synthesis accepts only strict structured output, allows one metered reformat repair, audits each claim against delivered chunk IDs, and degrades honestly to extractive synthesis after validation failure.
 - Immutable delivery finalization with a frozen run manifest, checksums, validated ZIP, integrity report, and hash-bound delivery receipt.
 - Standard-library test suite, so the repo can validate without installing pytest.
 
@@ -73,6 +74,6 @@ The kernel follows this pipeline:
 
 See [Product Requirements](docs/product-requirements.md) and [Implementation Plan](docs/implementation-plan.md) for the detailed roadmap.
 
-Current limitation: local synthesis is extractive, not model reasoning, and does not prove factual entailment. Evidence refs are restricted to chunks actually delivered to each task, but `citation_support` means consumed-reference coverage, not factual verification. See [Quality Metric Provenance](docs/quality-metrics.md) and [ADR-001](docs/adr/ADR-001-kernel-unification.md).
+Current limitation: keyless synthesis is extractive, and neither local nor model synthesis proves factual entailment. Evidence refs are restricted to chunks actually delivered to each task; `citation_support` means consumed-reference coverage, while the model-path lexical-overlap warning is only a weak diagnostic floor. See [Quality Metric Provenance](docs/quality-metrics.md) and [ADR-001](docs/adr/ADR-001-kernel-unification.md).
 
 Provider capability numbers are configured priors used for routing, not measured quality facts. They remain priors until a versioned benchmark records a measurement.

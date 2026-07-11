@@ -32,6 +32,7 @@ from universal_orchestrator.models import (
     InputType,
     PlanReview,
     ProductContract,
+    ProviderKind,
     ProvenanceRecord,
     QualityGateResult,
     QualityScore,
@@ -203,8 +204,20 @@ class Orchestrator:
         trace.checkpoint("contracting", {"run_type": contract.run_type, "artifacts": contract.primary_artifacts})
         approval_report = self.approvals.evaluate(invocation, manifest, contract)
         execution_policy = self.policy_compiler.compile(invocation, manifest)
+        cost_ledger = CostLedger(run_id, invocation.user_options.cost_ceiling_usd)
+        registry = self.capability_registry or CapabilityRegistry.from_environment()
+        registry.cost_ledger = cost_ledger
+        model_synthesis = self._model_synthesis_available(
+            registry,
+            execution_policy,
+            invocation,
+        )
         self.runtime.transition(run_id, RunState.PLANNING)
-        dag = self.planner.create_execution_plan(run_id, contract)
+        dag = self.planner.create_execution_plan(
+            run_id,
+            contract,
+            model_synthesis=model_synthesis,
+        )
         context_packs = self.context.compile_packs_for_tasks(
             [node.id for node in dag.nodes],
             cards,
@@ -226,9 +239,6 @@ class Orchestrator:
             },
         )
 
-        cost_ledger = CostLedger(run_id, invocation.user_options.cost_ceiling_usd)
-        registry = self.capability_registry or CapabilityRegistry.from_environment()
-        registry.cost_ledger = cost_ledger
         router = AdaptiveRouter(registry, execution_policy)
         self.runtime.transition(run_id, RunState.ROUTING)
         decisions, routing_telemetry = router.route_all_with_telemetry(run_id, dag.topological_order())
@@ -356,6 +366,10 @@ class Orchestrator:
             chunk_refs_by_task=chunk_refs_by_task,
             build_static_artifacts=build_static_artifacts,
             evaluate_quality=evaluate_stage_quality,
+            context_packs=context_packs,
+            provider_adapters=registry.adapter_registry(),
+            operator_prompt=redact_text(invocation.prompt),
+            execution_policy=execution_policy,
         )
         executor = StageWorkerRegistry(stage_context)
         self.runtime.transition(run_id, RunState.EXECUTING)
@@ -568,11 +582,16 @@ class Orchestrator:
                 [finding.model_dump(mode="json") for finding in validation_findings],
             )
         )
-        supported_evidence_refs_by_task = {
-            claim.task_id: claim.evidence_refs
-            for claim in evidence_audit.claims
-            if claim.resolved
-        }
+        supported_evidence_refs_by_task: dict[str, list[str]] = {}
+        for claim in evidence_audit.claims:
+            if not claim.resolved:
+                continue
+            supported_evidence_refs_by_task.setdefault(claim.task_id, [])
+            supported_evidence_refs_by_task[claim.task_id] = list(
+                dict.fromkeys(
+                    [*supported_evidence_refs_by_task[claim.task_id], *claim.evidence_refs]
+                )
+            )
         self.runtime.transition(run_id, RunState.FINAL_ASSEMBLY)
         product_package = self.product_owner.assemble(
             manifest,
@@ -900,6 +919,25 @@ class Orchestrator:
 
     def _redacted_invocation(self, invocation: HostInvocation) -> HostInvocation:
         return invocation.model_copy(update={"prompt": redact_text(invocation.prompt)})
+
+    def _model_synthesis_available(
+        self,
+        registry: CapabilityRegistry,
+        execution_policy: ExecutionPolicy,
+        invocation: HostInvocation,
+    ) -> bool:
+        for provider in registry.available():
+            if provider.kind not in {ProviderKind.HOSTED_MODEL, ProviderKind.LOCAL_MODEL}:
+                continue
+            if provider.capabilities.get("final_synthesis", 0.0) < 0.6:
+                continue
+            allowed, _ = self.policy_compiler.provider_allowed(execution_policy, provider)
+            if not allowed:
+                continue
+            if provider.kind == ProviderKind.HOSTED_MODEL and not invocation.user_options.allow_internet:
+                continue
+            return True
+        return False
 
     def _replace_artifact(self, artifacts: list[Artifact], replacement: Artifact) -> None:
         for index, artifact in enumerate(artifacts):

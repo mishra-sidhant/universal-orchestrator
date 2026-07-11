@@ -610,3 +610,41 @@ pre-call budget stop fixture: 0 transport invocations
 actual usage fixture: 11 input + 7 output tokens, $0.000160 actual
 git diff --check: passed
 ```
+
+## Tranche F.4 Validated Model Synthesis
+
+Failing-first transcript against `b54c2a0`:
+
+```text
+5 focused tests: 2 assertion failures, 3 missing-contract errors
+- no synthesis_path existed
+- configured provider was never selected for T-SYNTHESIS
+- fabricated model refs could not enter the evidence audit
+- tiny ceiling did not budget-stop because no model call was attempted
+- keyless extractive output had no explicit production-path label
+```
+
+Implemented:
+
+- Made planning select a model-capability synthesis node only when a complete configured provider and effective policy permit it; keyless planning remains extractive.
+- Routed model synthesis through the common adapter, transport, timeout, egress, and cost-ledger machinery with a bounded ContextPack and inline chunk IDs.
+- Added strict JSON validation for summary, findings, and per-claim evidence refs. One metered reformat request is allowed; repeated invalid output falls back extractively with a degradation warning.
+- Audited model claims individually, unioned supported refs for final citations, and made fabricated refs fail evidence quality and terminal delivery.
+- Added the explicitly weak lexical-overlap warning floor without claiming entailment.
+- Labeled final production path as `model`, `model_repaired`, `extractive_fallback`, or `extractive`.
+- Tightened provider readiness so key and model must both exist before routing advertises execution.
+
+Validation gate (2026-07-11, fixtures only, no live calls):
+
+```text
+unittest: 149 tests passed
+ruff src tests: All checks passed
+evals --run: 3/3 passed
+doctor: passed with all provider credentials absent
+package: wheel and source distribution built successfully
+model success: 1 fixture call, grounded claim resolved, path=model
+bounded repair: exactly 2 fixture calls; success and extractive fallback both pinned
+fabricated ref: audit failed, claim unsupported, needs_attention
+budget stop: 0 transport calls, needs_attention, stop in both cost and budget reports
+git diff --check: passed
+```

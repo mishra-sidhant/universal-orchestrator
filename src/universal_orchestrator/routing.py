@@ -79,7 +79,7 @@ class CapabilityRegistry:
             ProviderDescriptor(
                 id="openai.configured",
                 kind=ProviderKind.HOSTED_MODEL,
-                enabled=bool(os.getenv("OPENAI_API_KEY")),
+                enabled=bool(os.getenv("OPENAI_API_KEY") and os.getenv("OPENAI_MODEL")),
                 capabilities={
                     "strategic_reasoning": 0.95,
                     "final_synthesis": 0.94,
@@ -94,18 +94,20 @@ class CapabilityRegistry:
                 context_limit_tokens=128_000,
                 health=ProviderHealth(
                     status=ProviderStatus.HEALTHY
-                    if os.getenv("OPENAI_API_KEY")
+                    if os.getenv("OPENAI_API_KEY") and os.getenv("OPENAI_MODEL")
                     else ProviderStatus.UNAVAILABLE,
-                    reliability_score=0.85 if os.getenv("OPENAI_API_KEY") else 0.0,
-                    message="OPENAI_API_KEY detected."
-                    if os.getenv("OPENAI_API_KEY")
-                    else "OPENAI_API_KEY is not configured.",
+                    reliability_score=(
+                        0.85 if os.getenv("OPENAI_API_KEY") and os.getenv("OPENAI_MODEL") else 0.0
+                    ),
+                    message="OpenAI key and model detected."
+                    if os.getenv("OPENAI_API_KEY") and os.getenv("OPENAI_MODEL")
+                    else "OpenAI key and model are not both configured.",
                 ),
             ),
             ProviderDescriptor(
                 id="anthropic.configured",
                 kind=ProviderKind.HOSTED_MODEL,
-                enabled=bool(os.getenv("ANTHROPIC_API_KEY")),
+                enabled=bool(os.getenv("ANTHROPIC_API_KEY") and os.getenv("ANTHROPIC_MODEL")),
                 capabilities={
                     "critique": 0.94,
                     "style_quality": 0.93,
@@ -117,34 +119,42 @@ class CapabilityRegistry:
                 context_limit_tokens=200_000,
                 health=ProviderHealth(
                     status=ProviderStatus.HEALTHY
-                    if os.getenv("ANTHROPIC_API_KEY")
+                    if os.getenv("ANTHROPIC_API_KEY") and os.getenv("ANTHROPIC_MODEL")
                     else ProviderStatus.UNAVAILABLE,
-                    reliability_score=0.85 if os.getenv("ANTHROPIC_API_KEY") else 0.0,
-                    message="ANTHROPIC_API_KEY detected."
-                    if os.getenv("ANTHROPIC_API_KEY")
-                    else "ANTHROPIC_API_KEY is not configured.",
+                    reliability_score=(
+                        0.85
+                        if os.getenv("ANTHROPIC_API_KEY") and os.getenv("ANTHROPIC_MODEL")
+                        else 0.0
+                    ),
+                    message="Anthropic key and model detected."
+                    if os.getenv("ANTHROPIC_API_KEY") and os.getenv("ANTHROPIC_MODEL")
+                    else "Anthropic key and model are not both configured.",
                 ),
             ),
             ProviderDescriptor(
                 id="ollama.local",
                 kind=ProviderKind.LOCAL_MODEL,
-                enabled=bool(os.getenv("OLLAMA_BASE_URL")),
+                enabled=bool(os.getenv("OLLAMA_BASE_URL") and os.getenv("OLLAMA_MODEL")),
                 capabilities={
                     "summarization": 0.72,
                     "classification": 0.7,
                     "extraction": 0.68,
                     "structured_output": 0.55,
+                    "final_synthesis": 0.65,
+                    "citation_discipline": 0.55,
                 },
                 cost_tier=CostTier.FREE,
                 context_limit_tokens=32_000,
                 health=ProviderHealth(
                     status=ProviderStatus.UNKNOWN
-                    if os.getenv("OLLAMA_BASE_URL")
+                    if os.getenv("OLLAMA_BASE_URL") and os.getenv("OLLAMA_MODEL")
                     else ProviderStatus.UNAVAILABLE,
-                    reliability_score=0.5 if os.getenv("OLLAMA_BASE_URL") else 0.0,
-                    message="OLLAMA_BASE_URL detected but health check is not implemented."
-                    if os.getenv("OLLAMA_BASE_URL")
-                    else "OLLAMA_BASE_URL is not configured.",
+                    reliability_score=(
+                        0.5 if os.getenv("OLLAMA_BASE_URL") and os.getenv("OLLAMA_MODEL") else 0.0
+                    ),
+                    message="Ollama base URL and model detected; health is not yet probed."
+                    if os.getenv("OLLAMA_BASE_URL") and os.getenv("OLLAMA_MODEL")
+                    else "Ollama base URL and model are not both configured.",
                 ),
             ),
         ]

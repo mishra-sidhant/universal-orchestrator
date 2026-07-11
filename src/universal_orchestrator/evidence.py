@@ -35,7 +35,7 @@ class EvidenceAuditor:
         claims = self._claims(results, valid_chunk_ids, consumed)
         evidence_claims = [claim for claim in claims if claim.evidence_required]
         unsupported_task_ids = sorted(
-            claim.task_id for claim in claims if not claim.resolved
+            {claim.task_id for claim in claims if not claim.resolved}
         )
         unconsumed_evidence_refs = sorted(
             {
@@ -150,7 +150,7 @@ class EvidenceAuditor:
         warnings = [*quality.warnings, message]
         violations = list(quality.violations)
         passed = quality.passed
-        if source_required:
+        if source_required or evidence_claims:
             violations.append(message)
             passed = False
         return quality.model_copy(
@@ -183,24 +183,53 @@ class EvidenceAuditor:
             worker_output = result.output.get("worker_output", {})
             if not isinstance(worker_output, dict):
                 worker_output = {}
-            refs = [str(ref) for ref in worker_output.get("evidence_refs", []) if ref]
-            claim = str(worker_output.get("summary", "")).strip()
             evidence_required = bool(worker_output.get("evidence_required", True))
-            evidence_resolved = (
-                bool(refs)
-                and all(ref in valid_chunk_ids for ref in refs)
-                and set(refs).issubset(
-                    consumed_chunk_refs_by_task.get(result.task_id, set())
-                )
-            )
+            model_claims = worker_output.get("claims")
+            if isinstance(model_claims, list):
+                for item in model_claims:
+                    if not isinstance(item, dict):
+                        continue
+                    claims.append(
+                        self._claim(
+                            result.task_id,
+                            str(item.get("text", "")).strip(),
+                            [str(ref) for ref in item.get("evidence_refs", []) if ref],
+                            evidence_required,
+                            valid_chunk_ids,
+                            consumed_chunk_refs_by_task,
+                        )
+                    )
+                continue
             claims.append(
-                EvidenceClaim(
-                    task_id=result.task_id,
-                    claim=claim,
-                    evidence_refs=refs,
-                    evidence_required=evidence_required,
-                    resolved=bool(claim)
-                    and (evidence_resolved if evidence_required else not refs),
+                self._claim(
+                    result.task_id,
+                    str(worker_output.get("summary", "")).strip(),
+                    [str(ref) for ref in worker_output.get("evidence_refs", []) if ref],
+                    evidence_required,
+                    valid_chunk_ids,
+                    consumed_chunk_refs_by_task,
                 )
             )
         return claims
+
+    def _claim(
+        self,
+        task_id: str,
+        text: str,
+        refs: list[str],
+        evidence_required: bool,
+        valid_chunk_ids: set[str],
+        consumed_chunk_refs_by_task: dict[str, set[str]],
+    ) -> EvidenceClaim:
+        evidence_resolved = (
+            bool(refs)
+            and all(ref in valid_chunk_ids for ref in refs)
+            and set(refs).issubset(consumed_chunk_refs_by_task.get(task_id, set()))
+        )
+        return EvidenceClaim(
+            task_id=task_id,
+            claim=text,
+            evidence_refs=refs,
+            evidence_required=evidence_required,
+            resolved=bool(text) and (evidence_resolved if evidence_required else not refs),
+        )

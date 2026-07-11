@@ -25,6 +25,16 @@ Use `.env.example` as the template. `.env.local` is ignored by git.
 
 Provider detection is read-only by default. Hosted execution requires `--allow-internet`, `--allow-cloud`, a privacy mode that permits hosted models, and the provider-specific key/model variables. Internet permission alone never grants cloud execution, and `local_only` privacy cannot be overridden by a key or flag.
 
+Model-backed pipeline synthesis also requires `--budget premium` because configured hosted providers are premium-tier routing options. Example:
+
+```bash
+uv run python -m universal_orchestrator run \
+  "Produce a grounded research report" ./source.pdf \
+  --allow-internet --allow-cloud --budget premium --cost-ceiling 0.50
+```
+
+Without a complete key/model pair, or without the required permissions and budget tier, synthesis remains local and extractive. Provider readiness requires the full pair; a key alone is not advertised as executable.
+
 Add keys later in the repository-root `.env.local` file:
 
 ```text

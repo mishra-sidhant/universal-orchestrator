@@ -156,7 +156,12 @@ class PlannerEnsemble:
             ),
         ]
 
-    def create_execution_plan(self, run_id: str, contract: ProductContract) -> TaskDAG:
+    def create_execution_plan(
+        self,
+        run_id: str,
+        contract: ProductContract,
+        model_synthesis: bool = False,
+    ) -> TaskDAG:
         del contract
         nodes = [
             self._node(
@@ -182,12 +187,16 @@ class PlannerEnsemble:
             self._node(
                 run_id,
                 "T-SYNTHESIS",
-                "Synthesize extractive source findings",
+                (
+                    "Synthesize grounded model findings"
+                    if model_synthesis
+                    else "Synthesize extractive source findings"
+                ),
                 TaskType.FINAL_SYNTHESIS,
-                {"extractive_synthesis": 0.9},
+                {"final_synthesis": 0.6} if model_synthesis else {"extractive_synthesis": 0.9},
                 ["T-GAP-ANALYSIS"],
                 Criticality.HIGH,
-                CostTier.FREE,
+                CostTier.PREMIUM if model_synthesis else CostTier.FREE,
             ),
             self._node(
                 run_id,

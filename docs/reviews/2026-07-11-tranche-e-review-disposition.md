@@ -18,14 +18,14 @@ Review baseline: `82b2b59`. This ledger is the Tranche F resume point. `pending`
 | F.2 injection quarantine and delimiters | fixed F.2 | f053b00 | Compiler and renderer both exclude the hostile chunk; retained context has authority preamble and begin/end delimiters. |
 | F.2 local-only with keys | fixed F.2 | f053b00 | Valid key/model, network authority, live adapter, and forged route still produce zero fake-transport requests. |
 | F.2 full key sweep | fixed F.2 | f053b00 | Live-configured full run scans every run artifact and every delivery ZIP member for planted key material; zero matches. |
-| F.3 pre-call cost gate | fixed F.3 | `Tranche F.3: add truthful live cost accounting` | Thread-safe reservation stops before transport and records task, provider, model, estimate, remaining budget, and reason. Default pinned at $0.50. |
-| F.3 actual usage ledger | fixed F.3 | `Tranche F.3: add truthful live cost accounting` | Fixture-reported 11 input/7 output tokens price to $0.000160 and persist with model and rate provenance. |
-| F.3 estimate/actual reconciliation | fixed F.3 | `Tranche F.3: add truthful live cost accounting` | `budget_report.json` carries estimate/actual fields; threshold divergence adds recalibration warning without failing quality. |
-| F.3 configurable rate table | fixed F.3 | `Tranche F.3: add truthful live cost accounting` | Packaged `provider_rates.json` has version, provider defaults, exact-model slots, and documented update procedure. |
-| F.4 model-backed synthesis | pending | pending | Bounded pack with inline chunk IDs; structured result. |
-| F.4 schema validation, one repair, extractive fallback | pending | pending | Malformed fixture degrades honestly after one reformat attempt. |
-| F.4 model-claim evidence discipline | pending | pending | Fabricated ref fails; lexical overlap is warning-only and labeled weak. |
-| F.4 real provider routing with keyless default | pending | pending | Hosted path covered by fixtures; Tranche E local path stays default without keys. |
+| F.3 pre-call cost gate | fixed F.3 | b54c2a0 | Thread-safe reservation stops before transport and records task, provider, model, estimate, remaining budget, and reason. Default pinned at $0.50. |
+| F.3 actual usage ledger | fixed F.3 | b54c2a0 | Fixture-reported 11 input/7 output tokens price to $0.000160 and persist with model and rate provenance. |
+| F.3 estimate/actual reconciliation | fixed F.3 | b54c2a0 | `budget_report.json` carries estimate/actual fields; threshold divergence adds recalibration warning without failing quality. |
+| F.3 configurable rate table | fixed F.3 | b54c2a0 | Packaged `provider_rates.json` has version, provider defaults, exact-model slots, and documented update procedure. |
+| F.4 model-backed synthesis | fixed F.4 | `Tranche F.4: execute validated model synthesis` | Premium, policy-permitted synthesis routes to fixture OpenAI with bounded pack; strict claims enter the worker schema and final report labels the path. |
+| F.4 schema validation, one repair, extractive fallback | fixed F.4 | `Tranche F.4: execute validated model synthesis` | Tests pin direct success, one-repair success, and two-malformed-response extractive fallback with exactly two calls. |
+| F.4 model-claim evidence discipline | fixed F.4 | `Tranche F.4: execute validated model synthesis` | Fabricated ref makes claim unsupported and run `needs_attention`; low lexical overlap is explicitly warning-only and not entailment. |
+| F.4 real provider routing with keyless default | fixed F.4 | `Tranche F.4: execute validated model synthesis` | Complete configuration selects model capability; keyless run remains extractive with zero provider calls. |
 | F.5 cached provider health | pending | pending | Healthy/degraded/down fixture states feed routing. |
 | F.5 provider-family fallback and actionable pause | pending | pending | Final report names degraded mode; pause says what to configure. |
 | F.5 Ollama parity | pending | pending | Same transport, taxonomy, ledger; zero-cost rows. |
@@ -43,3 +43,5 @@ F.1 replaces `test_http_provider_retries_429_and_5xx`, which patched `urllib` in
 F.2 adds four new security regressions and does not weaken or delete an existing assertion.
 
 F.3 adds five accounting regressions and does not weaken or delete an existing assertion.
+
+F.4 adds seven model-path regressions and does not weaken or delete an existing assertion.

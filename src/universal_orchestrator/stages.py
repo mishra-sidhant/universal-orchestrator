@@ -8,6 +8,8 @@ from universal_orchestrator.models import (
     ContextCard,
     ContextChunk,
     ContextManifest,
+    ContextPack,
+    ExecutionPolicy,
     ExecutionResult,
     ProductContract,
     QualityGateResult,
@@ -17,6 +19,10 @@ from universal_orchestrator.models import (
     TaskStatus,
     utc_now,
 )
+from universal_orchestrator.cost_ledger import BudgetStopError
+from universal_orchestrator.execution_policy import PolicyCompiler
+from universal_orchestrator.model_synthesis import ModelOutputValidationError, ModelSynthesisRunner
+from universal_orchestrator.providers.base import ProviderAdapterRegistry
 
 
 @dataclass
@@ -29,6 +35,10 @@ class KernelStageContext:
     chunk_refs_by_task: dict[str, list[str]]
     build_static_artifacts: Callable[[], list[Artifact]]
     evaluate_quality: Callable[[list[ExecutionResult]], QualityGateResult]
+    context_packs: dict[str, ContextPack] = field(default_factory=dict)
+    provider_adapters: ProviderAdapterRegistry | None = None
+    operator_prompt: str = ""
+    execution_policy: ExecutionPolicy | None = None
     artifacts: list[Artifact] = field(default_factory=list)
 
 
@@ -38,6 +48,7 @@ class StageWorkerRegistry:
     def __init__(self, context: KernelStageContext) -> None:
         self.context = context
         self.observed_results: list[ExecutionResult] = []
+        self.model_synthesis = ModelSynthesisRunner()
         self.handlers = {
             "T-AGGREGATE": self._aggregate,
             "T-GAP-ANALYSIS": self._gap_analysis,
@@ -105,6 +116,7 @@ class StageWorkerRegistry:
             )
         try:
             summary, findings, extra = handler(task, decision, refs)
+            handler_warnings = list(extra.pop("_warnings", []))
             result = self._result(
                 task,
                 decision,
@@ -113,6 +125,7 @@ class StageWorkerRegistry:
                 findings,
                 refs,
                 started_at,
+                warnings=handler_warnings,
             )
             worker_output = dict(result.output["worker_output"])
             worker_output.update(extra)
@@ -181,7 +194,59 @@ class StageWorkerRegistry:
     def _synthesis(
         self, task: TaskNode, decision: RoutingDecision, refs: list[str]
     ) -> tuple[str, list[dict], dict]:
-        del task, decision
+        adapter = (
+            self.context.provider_adapters.get(decision.provider_id)
+            if self.context.provider_adapters
+            else None
+        )
+        if adapter and decision.provider_id != "deterministic.tools":
+            if self.context.execution_policy:
+                allowed, reason = PolicyCompiler().provider_allowed(
+                    self.context.execution_policy, adapter.descriptor
+                )
+                if not allowed:
+                    raise RuntimeError(reason)
+            pack = self.context.context_packs.get(task.id)
+            if pack is None:
+                raise RuntimeError("Model synthesis requires a bounded context pack.")
+            try:
+                model_result = self.model_synthesis.run(
+                    adapter,
+                    task,
+                    pack,
+                    self.context.operator_prompt,
+                )
+            except BudgetStopError:
+                raise
+            except ModelOutputValidationError as exc:
+                summary, findings, extra = self._extractive_synthesis(refs)
+                return summary, findings, {
+                    **extra,
+                    "synthesis_path": "extractive_fallback",
+                    "claims": [
+                        {"text": summary, "evidence_refs": refs}
+                    ] if refs else [],
+                    "_warnings": [
+                        f"Model output failed validation; used extractive synthesis fallback: {exc}"
+                    ],
+                }
+            output = model_result.output
+            evidence_refs = list(
+                dict.fromkeys(ref for claim in output.claims for ref in claim.evidence_refs)
+            )
+            return output.summary, output.findings, {
+                "synthesis_path": "model_repaired" if model_result.repaired else "model",
+                "claims": [claim.model_dump(mode="json") for claim in output.claims],
+                "evidence_refs": evidence_refs,
+                "_warnings": model_result.warnings,
+            }
+        summary, findings, extra = self._extractive_synthesis(refs)
+        return summary, findings, {**extra, "synthesis_path": "extractive"}
+
+    def _extractive_synthesis(
+        self,
+        refs: list[str],
+    ) -> tuple[str, list[dict], dict]:
         chunks_by_id = {chunk.id: chunk for chunk in self.context.chunks}
         consumed = [chunks_by_id[ref] for ref in refs if ref in chunks_by_id]
         excerpt = consumed[0].text[:180] if consumed else "No source passage was delivered."

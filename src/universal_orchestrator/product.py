@@ -117,6 +117,9 @@ class FinalProductOwner:
                 citations = " ".join(f"[{ref}]" for ref in evidence_refs)
                 citation_text = f" Sources: {citations}" if citations else ""
                 lines.append(f"- `{result.task_id}` {summary}{risk_text}{citation_text}")
+                if result.task_id == "T-SYNTHESIS":
+                    synthesis_path = worker_output.get("synthesis_path", "unknown")
+                    lines.append(f"- Synthesis path: `{synthesis_path}`")
         cited_chunk_ids = sorted(
             {
                 ref
