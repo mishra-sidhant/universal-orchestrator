@@ -138,7 +138,7 @@ class QualityGateEngine:
         scores = QualityScore(
             completeness=completeness,
             parse_confidence=round(100 * parse_rate),
-            citation_support=0 if "source-aware synthesis" in contract.must_have else 100,
+            citation_support=0,
             continuity=continuity,
             routing_efficiency=routing_efficiency,
             artifact_presence="pass" if not missing_artifacts and artifact_paths else "fail",

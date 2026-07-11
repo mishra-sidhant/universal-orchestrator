@@ -135,6 +135,8 @@ When quality fails, `RepairPlanner` creates a targeted repair DAG from the speci
 
 `EvidenceAuditor` writes `evidence_audit.json`. Source-derived workers explicitly declare `evidence_required=true`; runtime measurements declare false and carry no refs. A source claim resolves only when every cited chunk exists and was consumed by that task. Empty source packs remain unsupported, valid-but-unconsumed refs fail audit, and final Sources include only refs from resolved source claims. `citation_support` measures this required-claim coverage; it does not claim semantic entailment or factuality. All score formulas are documented in `docs/quality-metrics.md`.
 
+Evidence is audited before repair so unsupported claims can trigger repair. After the product is assembled, the persisted audit reruns against the actual final markdown; its `final_citations` finding therefore describes the delivered package rather than a pre-assembly snapshot.
+
 Part C feeds `RepoValidationRunner` into quality scoring: failed executed repo validation becomes a violation, while unapproved shell execution is surfaced as a warning.
 
 ## Artifact Plane

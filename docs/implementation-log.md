@@ -488,3 +488,31 @@ mypy src: non-blocking baseline, 79 errors in 19 files
 flagship proof: run_20260711021842873947_ec53fef0, accepted
 git diff --check: passed
 ```
+
+## Tranche F.0 Citation Honesty Residuals
+
+Failing-first transcript against `82b2b59`:
+
+```text
+3 focused tests: 1 passed, 2 failed
+- non-source contract received synthetic citation_support=100 instead of provisional 0
+- delivered evidence_audit.json persisted final_citations=false although final_report.md had Sources
+- measured audit with one supported and one unsupported evidence-required claim produced 50 (already correct)
+```
+
+Implemented corrections:
+
+- Deleted the contract-keyword citation branch. `QualityGateEngine` emits a provisional zero; only `EvidenceAuditor.apply_to_quality` writes the supported/required claim ratio.
+- Preserved the pre-repair audit and added a post-assembly audit against the actual `ProductPackage`, so the persisted final-citation finding agrees with delivery.
+- Clarified the dead-code ledger wording: removed `DeterministicExecutor._summary` was unrelated to the live `StructuredWorkerOutputBuilder._summary` in `workers.py`.
+
+Validation gate (2026-07-11):
+
+```text
+unittest: 128 tests passed
+ruff src tests: All checks passed
+evals --run: 3/3 passed
+doctor: passed with provider credentials absent
+package: wheel and source distribution built successfully
+git diff --check: passed
+```

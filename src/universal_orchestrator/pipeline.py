@@ -547,16 +547,6 @@ class Orchestrator:
         )
         artifacts.append(
             self.artifact_store.write_json_artifact(
-                run_id, "evidence_audit.json", evidence_audit.model_dump(mode="json")
-            )
-        )
-        artifacts.append(
-            self.artifact_store.write_json_artifact(
-                run_id, "quality_report.json", quality.model_dump(mode="json")
-            )
-        )
-        artifacts.append(
-            self.artifact_store.write_json_artifact(
                 run_id, "product_package.json", product_package.model_dump(mode="json")
             )
         )
@@ -564,6 +554,30 @@ class Orchestrator:
         artifacts.append(
             self.artifact_store.write_text_artifact(
                 run_id, "final_report.md", product_package.final_markdown, ArtifactType.REPORT
+            )
+        )
+        evidence_audit = self.evidence.audit(
+            product_package,
+            cards,
+            provenance,
+            all_results,
+            chunks,
+            run_id=run_id,
+            consumed_chunk_refs_by_task=chunk_refs_by_task,
+        )
+        quality = self.evidence.apply_to_quality(
+            quality,
+            evidence_audit,
+            source_required="source-aware synthesis" in contract.must_have,
+        )
+        artifacts.append(
+            self.artifact_store.write_json_artifact(
+                run_id, "evidence_audit.json", evidence_audit.model_dump(mode="json")
+            )
+        )
+        artifacts.append(
+            self.artifact_store.write_json_artifact(
+                run_id, "quality_report.json", quality.model_dump(mode="json")
             )
         )
         validation_jobs: list[tuple[str, Path]] = []
