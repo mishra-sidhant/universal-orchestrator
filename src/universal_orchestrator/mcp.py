@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from threading import Lock
 from typing import Any, TextIO
 
 from universal_orchestrator.cli import _module_available
@@ -141,15 +143,34 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, A
 
 
 def serve_stdio(stdin: TextIO = sys.stdin, stdout: TextIO = sys.stdout) -> None:
-    for line in stdin:
-        if not line.strip():
-            continue
-        response = handle_json_rpc(json.loads(line))
-        stdout.write(json.dumps(response) + "\n")
-        stdout.flush()
+    write_lock = Lock()
+
+    def write_response(response: dict[str, Any] | None) -> None:
+        if response is None:
+            return
+        with write_lock:
+            stdout.write(json.dumps(response) + "\n")
+            stdout.flush()
+
+    with ThreadPoolExecutor(max_workers=4, thread_name_prefix="uo-mcp-run") as workers:
+        for line in stdin:
+            if not line.strip():
+                continue
+            try:
+                request = json.loads(line)
+            except json.JSONDecodeError as exc:
+                write_response(_error(None, -32700, f"Parse error: {exc.msg}"))
+                continue
+            if not isinstance(request, dict):
+                write_response(_error(None, -32600, "Invalid Request"))
+                continue
+            if _is_run_request(request) and "id" in request:
+                workers.submit(lambda item=request: write_response(handle_json_rpc(item)))
+            else:
+                write_response(handle_json_rpc(request))
 
 
-def handle_json_rpc(request: dict[str, Any]) -> dict[str, Any]:
+def handle_json_rpc(request: dict[str, Any]) -> dict[str, Any] | None:
     request_id = request.get("id")
     method = request.get("method")
     try:
@@ -168,10 +189,22 @@ def handle_json_rpc(request: dict[str, Any]) -> dict[str, Any]:
         elif method == "ping":
             result = {}
         else:
-            return _error(request_id, -32601, f"Method not found: {method}")
-        return {"jsonrpc": "2.0", "id": request_id, "result": result}
+            response = _error(request_id, -32601, f"Method not found: {method}")
+            return None if request_id is None else response
+        response = {"jsonrpc": "2.0", "id": request_id, "result": result}
+        return None if request_id is None else response
     except Exception as exc:  # pragma: no cover - protocol boundary
-        return _error(request_id, -32000, str(exc))
+        response = _error(request_id, -32000, str(exc))
+        return None if request_id is None else response
+
+
+def _is_run_request(request: dict[str, Any]) -> bool:
+    params = request.get("params")
+    return (
+        request.get("method") == "tools/call"
+        and isinstance(params, dict)
+        and params.get("name") == "ai_team.run"
+    )
 
 
 def _tool_run(args: dict[str, Any]) -> dict[str, Any]:

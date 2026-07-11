@@ -348,3 +348,42 @@ doctor: passed
 package: universal_orchestrator-0.1.0.tar.gz and universal_orchestrator-0.1.0-py3-none-any.whl built successfully
 git diff --check: passed
 ```
+
+## Tranche E.4 Runtime Correctness
+
+Failing-first transcript against `0aa1437`:
+
+```text
+8 test methods: 5 failures, 2 errors, 1 apparent pass
+- artifact build retry policy remained max_attempts=1; flaky build ran only once
+- SQLite journal mode was delete rather than wal
+- scheduler called the unguarded executor path and reported an assertion instead of timeout
+- final assembly, artifact build, artifact validation, and packaging states were absent
+- PLAN_REVIEW, AGGREGATING, and GAP_ANALYSIS remained dead enum values
+- malformed JSON raised JSONDecodeError and terminated stdio processing
+- Orchestrator still exposed the stale executor field
+The apparent MCP concurrency pass was found to be a swallowed assertion; the test was strengthened before production changes to require sub-500 ms completion and two successful responses.
+```
+
+Implemented corrections:
+
+- Removed orchestrator-level executor state and proved two concurrent runs keep source context isolated.
+- Enabled SQLite WAL and a 5,000 ms busy timeout on every connection.
+- Added a cooperative per-attempt completion guard; timeout deactivates it before terminal recording, and late work cannot enter scheduler cache, attempt, or observer commits.
+- Added real repair/final-assembly/artifact-build/artifact-validation/packaging transitions and deleted three unused states. Failure injection proves post-DAG stage attribution.
+- Hardened stdio JSON-RPC parsing, notification semantics, and active-run cancellation concurrency.
+- Activated two artifact-build attempts and proved a real pipeline recovers from a transient first failure.
+
+Existing-test disposition: no existing test was weakened or deleted. The artifact construction/validation block was separated without changing artifact names or delivery ordering.
+
+Validation gate (2026-07-11, bundled project runtime):
+
+```text
+unittest: 107 tests passed
+ruff: All checks passed
+evals: 3/3 passed
+doctor: passed
+package: universal_orchestrator-0.1.0.tar.gz and universal_orchestrator-0.1.0-py3-none-any.whl built successfully
+dead-state audit: every remaining RunState has a live runtime or terminal use
+git diff --check: passed
+```

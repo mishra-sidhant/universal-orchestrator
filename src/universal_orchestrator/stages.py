@@ -52,6 +52,17 @@ class StageWorkerRegistry:
         decision_by_task = {decision.task_id: decision for decision in decisions}
         return [self._execute_one(task, decision_by_task[task.id]) for task in tasks]
 
+    def execute_guarded(
+        self,
+        tasks: list[TaskNode],
+        decisions: list[RoutingDecision],
+        completion_guard,
+    ) -> list[ExecutionResult]:
+        if not completion_guard.is_active():
+            return []
+        results = self.execute(tasks, decisions)
+        return results if completion_guard.is_active() else []
+
     def observe_result(self, result: ExecutionResult) -> None:
         self.observed_results.append(result)
 

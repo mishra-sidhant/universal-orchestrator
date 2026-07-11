@@ -12,7 +12,6 @@ from universal_orchestrator.contracts import ProductContractCompiler
 from universal_orchestrator.delta import DeltaPlanner
 from universal_orchestrator.evidence import EvidenceAuditor
 from universal_orchestrator.errors import RunCancelledError
-from universal_orchestrator.execution import DeterministicExecutor
 from universal_orchestrator.execution_policy import PolicyCompiler
 from universal_orchestrator.ingestion import InputIngestor
 from universal_orchestrator.integrity import ArtifactIntegrityAuditor
@@ -71,7 +70,6 @@ class Orchestrator:
         self.planner = PlannerEnsemble()
         self.budget = BudgetController()
         self.delta = DeltaPlanner()
-        self.executor = DeterministicExecutor()
         self.quality = QualityGateEngine()
         self.evidence = EvidenceAuditor()
         self.repo_validation = RepoValidationRunner()
@@ -414,6 +412,7 @@ class Orchestrator:
         self.runtime.transition(run_id, RunState.VALIDATION)
         trace.checkpoint("validation", {"quality_passed": quality.passed, "violations": len(quality.violations)})
         if not quality.passed:
+            self.runtime.transition(run_id, RunState.REPAIR_EXECUTION)
             repair_dag = self.repair.create_repair_dag(run_id, quality)
             repair_decisions = router.route_all(repair_dag.topological_order())
             repair_results, repair_schedule = self.scheduler.execute(
@@ -527,6 +526,7 @@ class Orchestrator:
             for claim in evidence_audit.claims
             if claim.resolved
         }
+        self.runtime.transition(run_id, RunState.FINAL_ASSEMBLY)
         product_package = self.product_owner.assemble(
             manifest,
             contract,
@@ -554,43 +554,44 @@ class Orchestrator:
                 run_id, "product_package.json", product_package.model_dump(mode="json")
             )
         )
+        self.runtime.transition(run_id, RunState.ARTIFACT_BUILD)
         artifacts.append(
             self.artifact_store.write_text_artifact(
                 run_id, "final_report.md", product_package.final_markdown, ArtifactType.REPORT
             )
         )
+        validation_jobs: list[tuple[str, Path]] = []
         if "pdf" in contract.primary_artifacts:
             pdf_path = self.artifact_store.run_dir(run_id) / "final_report.pdf"
             pdf_artifact = self.artifact_builder.build_pdf(product_package.final_markdown, pdf_path)
-            pdf_errors = self.artifact_builder.validate_pdf(pdf_path)
             artifacts.append(pdf_artifact)
-            artifacts.append(
-                self.artifact_store.write_json_artifact(
-                    run_id, "pdf_validation.json", {"path": str(pdf_path), "errors": pdf_errors}
-                )
-            )
+            validation_jobs.append(("pdf", pdf_path))
         if "docx" in contract.primary_artifacts:
             docx_path = self.artifact_store.run_dir(run_id) / "final_report.docx"
             docx_artifact = self.artifact_builder.build_docx(product_package.final_markdown, docx_path)
-            docx_errors = self.artifact_builder.validate_docx(docx_path)
             artifacts.append(docx_artifact)
-            artifacts.append(
-                self.artifact_store.write_json_artifact(
-                    run_id, "docx_validation.json", {"path": str(docx_path), "errors": docx_errors}
-                )
-            )
+            validation_jobs.append(("docx", docx_path))
         if "patch" in contract.primary_artifacts or contract.run_type == "repo_implementation":
             patch_path = self.artifact_store.run_dir(run_id) / "patch_plan.md"
             patch_artifact = self.artifact_builder.build_patch_plan(
                 product_package.final_markdown, patch_path
             )
-            patch_errors = self.artifact_builder.validate_patch_plan(patch_path)
             artifacts.append(patch_artifact)
+            validation_jobs.append(("patch_plan", patch_path))
+
+        self.runtime.transition(run_id, RunState.ARTIFACT_VALIDATION)
+        validators = {
+            "pdf": self.artifact_builder.validate_pdf,
+            "docx": self.artifact_builder.validate_docx,
+            "patch_plan": self.artifact_builder.validate_patch_plan,
+        }
+        for artifact_kind, artifact_path in validation_jobs:
+            validation_errors = validators[artifact_kind](artifact_path)
             artifacts.append(
                 self.artifact_store.write_json_artifact(
                     run_id,
-                    "patch_plan_validation.json",
-                    {"path": str(patch_path), "errors": patch_errors},
+                    f"{artifact_kind}_validation.json",
+                    {"path": str(artifact_path), "errors": validation_errors},
                 )
             )
 
@@ -629,6 +630,7 @@ class Orchestrator:
             )
         )
 
+        self.runtime.transition(run_id, RunState.PACKAGING)
         run_dir = self.artifact_store.run_dir(run_id)
         run_manifest = RunManifest(
             run_id=run_id,

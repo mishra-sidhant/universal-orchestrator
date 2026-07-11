@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
+from threading import Event
 from time import sleep
 from typing import Callable
 
@@ -16,6 +17,20 @@ from universal_orchestrator.models import (
     TaskStatus,
     utc_now,
 )
+
+
+class CompletionGuard:
+    """Cooperative lease that closes when the scheduler declares a timeout."""
+
+    def __init__(self) -> None:
+        self._active = Event()
+        self._active.set()
+
+    def is_active(self) -> bool:
+        return self._active.is_set()
+
+    def deactivate(self) -> None:
+        self._active.clear()
 
 
 class DAGScheduler:
@@ -156,11 +171,17 @@ class DAGScheduler:
         decision: RoutingDecision,
         executor: DeterministicExecutor,
     ) -> ExecutionResult:
+        completion_guard = CompletionGuard()
+        guarded_execute = getattr(executor, "execute_guarded", None)
         pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix=f"uo-{task.id}")
-        future = pool.submit(executor.execute, [task], [decision])
+        if callable(guarded_execute):
+            future = pool.submit(guarded_execute, [task], [decision], completion_guard)
+        else:
+            future = pool.submit(executor.execute, [task], [decision])
         try:
             return future.result(timeout=max(0, task.timeout_seconds))[0]
         except FutureTimeoutError:
+            completion_guard.deactivate()
             future.cancel()
             return self._terminal_result(
                 task,

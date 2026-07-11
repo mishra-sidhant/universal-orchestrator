@@ -37,7 +37,15 @@ Final product rendering, requested PDF/DOCX/patch-plan construction, integrity a
 - Evidence adjustment and repair orchestration remain after the quality node. Repair tasks without a real registered handler reshape/skip and end `needs_attention`; they never echo-complete.
 - Final format builders are not yet individual DAG nodes.
 - Scheduler batches are executed sequentially. The five-node DAG is intentionally linear, so `max_parallelism=1` is truthful.
-- Timeout execution remains thread-based until E.4 adds a late-completion guard.
+- Timeout execution remains thread-based. Tranche E.4 added a per-attempt cooperative completion guard: the scheduler deactivates the lease before recording a timeout, and scheduler-owned cache, attempt, and observer writes occur only on the scheduler thread. Guard-aware workers can also suppress their own late commits. Python cannot forcibly terminate arbitrary in-process worker code, so process isolation remains the stronger future option for untrusted or non-cooperative workers.
+
+## Runtime Correctness Addendum (Tranche E.4)
+
+- Stage registries are constructed inside each run. The obsolete orchestrator-level executor was removed, and concurrent runs share only thread-safe durable/cache services.
+- Every SQLite connection enables WAL and a 5,000 ms busy timeout.
+- `T-ARTIFACT-BUILD` is deliberately non-cacheable and has two attempts; a transient first failure is recorded before the successful retry.
+- Post-DAG work transitions through final assembly, artifact build, artifact validation, and packaging. Repair scheduling has its own state. Unused nominal states were deleted.
+- The stdio host keeps `ai_team.run` on a worker thread, handles parse failures per line, suppresses notification responses, and can process cancellation while a run request is active.
 
 ## Cache Consequences
 

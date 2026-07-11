@@ -16,7 +16,10 @@ class RuntimeStore:
         self._init()
 
     def _connect(self) -> sqlite3.Connection:
-        return sqlite3.connect(self.path)
+        conn = sqlite3.connect(self.path, timeout=5.0)
+        conn.execute("PRAGMA busy_timeout=5000")
+        conn.execute("PRAGMA journal_mode=WAL")
+        return conn
 
     def _init(self) -> None:
         with self._connect() as conn:

@@ -17,19 +17,19 @@ Review baseline: `3e74812`. Status is updated phase by phase; `pending` rows are
 | 3d audited and delivered product assembled separately | fixed E.0 | fcbb77b | Pipeline regression asserts one product assembly. |
 | 3e repair bypasses scheduler | fixed E.0 | fcbb77b | Pipeline regression observes second scheduler call; repair attempts persisted. |
 | 4a raw prompt secret persisted at three leak sites | fixed E.0 | fcbb77b | `test_secret_in_prompt_never_reaches_files_or_delivery_zip`. |
-| 4b common secret patterns missing | fixed E.3 | pending | Nine-family table test includes JSON and dotenv quoting. |
-| 4c npm/cargo allowlist executes untrusted code with parent env | fixed E.3 | pending | Auto-detection/allowlist removed; child-env capture test. |
-| 4d URL fetch permits SSRF and policy is dead | fixed E.3 | pending | Scheme/IP/DNS/override tests and pre-network ingestion test. Dead policy helpers deleted. |
-| 4e archive scans only first 50 entries | fixed E.3 | pending | Entry-61 traversal and tar link tests. |
-| 4f `_safe_payload` is a no-op | fixed E.3 | pending | Recursive payload redaction test. |
-| 4g injection-risk content remains citable | fixed E.3 | pending | Pipeline test proves hostile chunk IDs are disjoint from worker refs. |
-| 5a orchestrator executor is shared mutable run state | pending E.4 | pending | Two-run isolation test required. |
-| 5b timed-out task thread continues after failure | pending E.4 | pending | Completion guard or process isolation required and documented in ADR-001. |
+| 4b common secret patterns missing | fixed E.3 | 0aa1437 | Nine-family table test includes JSON and dotenv quoting. |
+| 4c npm/cargo allowlist executes untrusted code with parent env | fixed E.3 | 0aa1437 | Auto-detection/allowlist removed; child-env capture test. |
+| 4d URL fetch permits SSRF and policy is dead | fixed E.3 | 0aa1437 | Scheme/IP/DNS/override tests and pre-network ingestion test. Dead policy helpers deleted. |
+| 4e archive scans only first 50 entries | fixed E.3 | 0aa1437 | Entry-61 traversal and tar link tests. |
+| 4f `_safe_payload` is a no-op | fixed E.3 | 0aa1437 | Recursive payload redaction test. |
+| 4g injection-risk content remains citable | fixed E.3 | 0aa1437 | Pipeline test proves hostile chunk IDs are disjoint from worker refs. |
+| 5a orchestrator executor is shared mutable run state | fixed E.4 | pending | Obsolete field removed; concurrent two-run isolation test. Daemon creates per-request orchestrators. |
+| 5b timed-out task thread continues after failure | fixed to documented guard boundary E.4 | pending | Cooperative completion lease fences scheduler cache/record/observer commits; process isolation remains a documented stronger option. |
 | 5c reported parallelism is not executed | fixed E.2 for current plan | 18670f9 | Real DAG is linear and plan simulation reports max parallelism 1; bounded concurrency remains future work. |
-| 5d retries are dormant | pending E.4 | pending | One real retry policy plus flaky pipeline test, or delete. |
-| 5e SQLite lacks WAL/busy timeout | pending E.4 | pending | Connection configuration test required. |
-| 5f MCP cannot cancel inline run; malformed JSON kills loop; notifications answered | pending E.4 | pending | Protocol and concurrency tests required. |
-| 5g states are unused/overloaded and receipts contradict failure | partially fixed E.0 | pending E.4 | `needs_attention` added and receipt withheld; real stage transitions/dead-state removal remain. |
+| 5d retries are dormant | fixed E.4 | pending | Artifact build has two attempts; flaky real-pipeline test records failed then completed attempts. |
+| 5e SQLite lacks WAL/busy timeout | fixed E.4 | pending | Every connection verifies WAL and at least 5,000 ms busy timeout. |
+| 5f MCP cannot cancel inline run; malformed JSON kills loop; notifications answered | fixed E.4 | pending | Parse, notification, and active-run cancellation concurrency tests. |
+| 5g states are unused/overloaded and receipts contradict failure | fixed E.0/E.4 | pending | Receipt semantics fixed; real repair/post-DAG transitions emitted; three dead states removed. |
 | 6a routing cannot reshape/pause due fictional local capabilities | fixed E.2 | 18670f9 | Strategic capability mutation reaches RESHAPE/PAUSE. |
 | 6b context packs never reach providers | pending E.5 | pending | Dry-run payload tests and usage fields required. |
 | 6c repository ingestion reads no file bodies | pending E.5 | pending | Real-file chunk/citation test required. |

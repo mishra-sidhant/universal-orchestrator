@@ -6,6 +6,7 @@ from universal_orchestrator.models import (
     PlanCandidate,
     PlanReview,
     ProductContract,
+    RetryPolicy,
     TaskDAG,
     TaskNode,
     TaskType,
@@ -198,6 +199,7 @@ class PlannerEnsemble:
                 Criticality.MISSION_CRITICAL,
                 CostTier.FREE,
                 cacheable=False,
+                max_attempts=2,
             ),
             self._node(
                 run_id,
@@ -226,6 +228,7 @@ class PlannerEnsemble:
         criticality: Criticality,
         max_cost_tier: CostTier,
         cacheable: bool = True,
+        max_attempts: int = 1,
     ) -> TaskNode:
         return TaskNode(
             id=task_id,
@@ -237,4 +240,5 @@ class PlannerEnsemble:
             criticality=criticality,
             max_cost_tier=max_cost_tier,
             cacheable=cacheable,
+            retry_policy=RetryPolicy(max_attempts=max_attempts),
         )

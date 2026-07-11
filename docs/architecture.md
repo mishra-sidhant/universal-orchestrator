@@ -111,7 +111,7 @@ Part B adds `routing_telemetry.json`, which records every provider considered fo
 
 `StageWorkerRegistry` dispatches local DAG nodes to real functions and records structured outputs. Missing handlers return `SKIPPED`. `DeterministicExecutor` remains the dry-run provider-adapter boundary for future provider-backed tasks, but its generic local adapter never reports completion.
 
-`DAGScheduler` executes real stage tasks by dependency-ready batches, records every attempt, enforces retry and timeout policies, skips dependents after failure, honors durable cancellation, uses versioned cache entries, and writes `schedule_report.json`. It reports cached and executed results through the same observer path. Side-effecting artifact/quality nodes are non-cacheable.
+`DAGScheduler` executes real stage tasks by dependency-ready batches, records every attempt, enforces retry and timeout policies, skips dependents after failure, honors durable cancellation, uses versioned cache entries, and writes `schedule_report.json`. It reports cached and executed results through the same observer path. Side-effecting artifact/quality nodes are non-cacheable; artifact build has two attempts for transient local I/O failure. Timed work receives a cooperative completion guard, and scheduler-owned cache, record, and observer commits are fenced after timeout.
 
 Task cache keys include context, contract, execution policy, provider descriptors, and routing decisions. Malformed entries are quarantined, and cached results are treated as successful product fragments. Delta planning compares against the most relevant prior successful run by input-hash similarity.
 
@@ -195,11 +195,13 @@ When repair is triggered, packages also include:
 
 ## Runtime And Evaluation
 
-`RuntimeStore` writes SQLite event and run-summary records under the artifact root. This is the first durable-state layer for resumability, audit, cancellation, and dashboard support.
+`RuntimeStore` writes SQLite event and run-summary records under the artifact root. Every connection uses WAL mode and a 5,000 ms busy timeout so independent run/status/cancel requests can safely share the store.
 
 Part A extends runtime durability with state transitions, task records, and resumable snapshots. Each run persists task status, attempt count, cache key, and lifecycle state transitions.
 
 Runtime durability includes state transitions, attempt and failure records, cancellation requests, terminal-state-aware cancellation rejection, status snapshots, and same-run resume from the persisted `run_request.json`.
+
+The stdio adapter parses each line independently, returns JSON-RPC parse errors without terminating, executes notifications without responding, and dispatches `ai_team.run` to a bounded worker pool. This leaves the input loop free to accept `ai_team.cancel` during the active request. FastAPI creates an orchestrator per run or resume request.
 
 The optional FastAPI daemon exposes artifacts, status, cancellation, and resume through `GET /artifacts`, `GET /runs/{run_id}`, `POST /runs/{run_id}/cancel`, and `POST /runs/{run_id}/resume`.
 
