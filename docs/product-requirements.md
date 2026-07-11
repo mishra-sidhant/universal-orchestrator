@@ -50,6 +50,5 @@ This repository starts with a deterministic local MVP:
 - Phase 5: aggregator, validators, targeted repair, and final product owner.
 - Phase 6: deterministic artifact builders for PDF, DOCX, PPTX, patches, images, and packages.
 - Phase 7: MCP, Claude Code, Cursor, VS Code, Windsurf, and CI adapters.
-- Phase 8: semantic cache, delta execution, budget controller, provider health metrics.
+- Phase 8: exact-match cache, delta execution, budget controller, provider health metrics.
 - Phase 9: hardening, sandboxing, observability, recovery, and durable workflow engine option.
-

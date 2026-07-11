@@ -4,7 +4,13 @@ import os
 from typing import Any
 
 from universal_orchestrator.models import ProviderDescriptor, ProviderResult, ProviderTask, TaskStatus
-from universal_orchestrator.providers.base import JSONHTTPMixin, ProviderAdapter, dry_run_result, unavailable_result
+from universal_orchestrator.providers.base import (
+    JSONHTTPMixin,
+    ProviderAdapter,
+    dry_run_result,
+    render_provider_prompt,
+    unavailable_result,
+)
 
 
 class OllamaAdapter(JSONHTTPMixin, ProviderAdapter):
@@ -18,6 +24,7 @@ class OllamaAdapter(JSONHTTPMixin, ProviderAdapter):
                 self.id,
                 payload,
                 "Ollama request prepared in dry-run mode; no network call was made.",
+                self.estimate_cost(task),
             )
         if not model:
             return unavailable_result(self.id, "OLLAMA_MODEL is not configured.")
@@ -41,10 +48,9 @@ class OllamaAdapter(JSONHTTPMixin, ProviderAdapter):
         return {
             "model": model,
             "stream": False,
-            "prompt": f"Task: {task.task.title}\nType: {task.task.task_type}\nPrompt: {task.prompt}",
+            "prompt": render_provider_prompt(task),
         }
 
 
 def build_adapter(descriptor: ProviderDescriptor) -> OllamaAdapter:
     return OllamaAdapter(descriptor)
-

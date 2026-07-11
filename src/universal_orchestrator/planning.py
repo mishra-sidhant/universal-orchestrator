@@ -143,7 +143,7 @@ class PlannerEnsemble:
                 bias="deterministic and cheap work before premium escalation",
                 proposed_task_ids=task_ids,
                 strengths=["deterministic tools cover artifact and validation tasks"],
-                risks=["semantic cache is lexical until embeddings are added"],
+                risks=["exact-match cache does not provide semantic similarity"],
                 score=scores["cost_planner"],
             ),
             PlanCandidate(

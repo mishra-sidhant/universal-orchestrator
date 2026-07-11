@@ -75,7 +75,7 @@ Quality result:
 Completed after live provider execution was explicitly deferred:
 
 - Added deterministic planner candidate review and `plan_review.json` artifacts.
-- Added context index, conflict markers, and semantic cache metadata.
+- Added context index, conflict markers, and exact-match cache metadata.
 - Added a final product owner that assembles final packages and rejects weak fragments.
 - Added PDF and DOCX artifact builders with deterministic validation.
 - Added structured validator registry and `validation_findings.json`.
@@ -385,5 +385,48 @@ evals: 3/3 passed
 doctor: passed
 package: universal_orchestrator-0.1.0.tar.gz and universal_orchestrator-0.1.0-py3-none-any.whl built successfully
 dead-state audit: every remaining RunState has a live runtime or terminal use
+git diff --check: passed
+```
+
+## Tranche E.5 Real Inputs And Provider Plumbing
+
+Failing-first transcript against `be52ac8`:
+
+```text
+12 test methods produced 11 failures and 2 errors:
+- repo source bodies never appeared in chunks or final citations
+- flagship report+repo prompt compiled as repo_implementation
+- provider previews omitted the ContextPack and returned no usage estimate
+- budget_report.json had no usage ledger
+- Anthropic max_tokens remained fixed at 1024
+- live HTTP helper had no retry/backoff parameters
+- 500 IDs at frozen time collapsed to one value
+- JSON writes never invoked atomic replace
+- SemanticCache name and dead report/executor renderers remained
+- delayed provider execution still reported a near-zero duration
+- PDF extraction lost <x> markup and H2 had no dedicated handling
+The first Unicode probe accidentally ranked via an English title; it was strengthened before production changes with an all-Devanagari card and a tight-budget competing chunk.
+```
+
+Implemented corrections:
+
+- Read and redact repository hot/prompt-matched files under bounded count/byte budgets; chunk locators retain repository path and line range. End-to-end delivery cites an actual source file.
+- Made explicit report/research/PDF intent outrank repository presence and made lexical ranking Unicode-aware.
+- Added one bounded provider-context renderer for OpenAI, Anthropic, and Ollama previews, explicit estimated usage, configurable Anthropic output tokens, and bounded 429/5xx backoff scaffolding behind live execution.
+- Reconciled per-task estimates into a usage ledger inside the existing `budget_report.json`; no JSON artifact type was added.
+- Added random ID entropy, atomic JSON/cache replacement, measured provider-backed timestamps, exact cache naming, and scheduler-owned cache validation for delta planning.
+- Removed dead artifact/executor renderers and fixed PDF markup escaping plus H2 styling.
+
+Existing-test disposition: four cache imports were renamed without changing their assertions. No existing behavioral test was weakened or deleted.
+
+Validation gate (2026-07-11, bundled project runtime):
+
+```text
+unittest: 119 tests passed
+ruff: All checks passed
+evals: 3/3 passed
+doctor: passed
+package: universal_orchestrator-0.1.0.tar.gz and universal_orchestrator-0.1.0-py3-none-any.whl built successfully
+JSON artifact types added: none
 git diff --check: passed
 ```

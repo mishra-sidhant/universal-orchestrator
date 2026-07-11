@@ -6,7 +6,7 @@ from pathlib import Path
 from time import sleep
 from unittest.mock import patch
 
-from universal_orchestrator.cache import SemanticCache
+from universal_orchestrator.cache import ExactMatchCache
 from universal_orchestrator.context import ContextIntelligence
 from universal_orchestrator.execution import DeterministicExecutor
 from universal_orchestrator.execution_policy import PolicyCompiler
@@ -304,7 +304,7 @@ class TrancheDTests(unittest.TestCase):
 
     def test_corrupt_cache_entry_is_quarantined(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            cache = SemanticCache(tmp)
+            cache = ExactMatchCache(tmp)
             key = "task_corrupt"
             (Path(tmp) / f"{key}.json").write_text("{not json")
 

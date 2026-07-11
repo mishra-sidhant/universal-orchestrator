@@ -8,7 +8,7 @@ Review baseline: `3e74812`. Status is updated phase by phase; `pending` rows are
 | 1b deterministic adapter only echoes completion | fixed E.2 | 18670f9 | Adapter skip test and default-report no-echo test. |
 | 1c hardcoded planner and synthetic quality scores | fixed E.2 | 18670f9 | E.1 score schema; E.2 contract-coverage mutation changes plan score. |
 | 2a global chunk fallback fabricates evidence | fixed E.1 | 05790dd | `test_empty_task_pack_does_not_fallback_to_global_chunks`. |
-| 2b worker refs are stamped without consumption | partially fixed E.1 | 05790dd / pending E.5 | Per-task consumed-ref contract enforced locally; provider payload content remains. |
+| 2b worker refs are stamped without consumption | fixed E.1/E.5 | 05790dd / pending | Per-task consumed refs are enforced; bounded packs and chunks enter every provider preview. |
 | 2c auditor verifies its own generated citations | fixed E.1 | 05790dd | Valid-but-unconsumed mutation and exact unsupported-task tests. |
 | 2d no semantic entailment check | deferred: hosted-quality scope | pending | `citation_support` is explicitly documented as consumed-reference coverage; factuality field removed. |
 | 3a post-repair continuity/completeness denominator crash | fixed E.0 | fcbb77b | `test_post_repair_quality_rates_use_original_and_repair_task_union`; pipeline repair regression. |
@@ -23,24 +23,24 @@ Review baseline: `3e74812`. Status is updated phase by phase; `pending` rows are
 | 4e archive scans only first 50 entries | fixed E.3 | 0aa1437 | Entry-61 traversal and tar link tests. |
 | 4f `_safe_payload` is a no-op | fixed E.3 | 0aa1437 | Recursive payload redaction test. |
 | 4g injection-risk content remains citable | fixed E.3 | 0aa1437 | Pipeline test proves hostile chunk IDs are disjoint from worker refs. |
-| 5a orchestrator executor is shared mutable run state | fixed E.4 | pending | Obsolete field removed; concurrent two-run isolation test. Daemon creates per-request orchestrators. |
-| 5b timed-out task thread continues after failure | fixed to documented guard boundary E.4 | pending | Cooperative completion lease fences scheduler cache/record/observer commits; process isolation remains a documented stronger option. |
+| 5a orchestrator executor is shared mutable run state | fixed E.4 | be52ac8 | Obsolete field removed; concurrent two-run isolation test. Daemon creates per-request orchestrators. |
+| 5b timed-out task thread continues after failure | fixed to documented guard boundary E.4 | be52ac8 | Cooperative completion lease fences scheduler cache/record/observer commits; process isolation remains a documented stronger option. |
 | 5c reported parallelism is not executed | fixed E.2 for current plan | 18670f9 | Real DAG is linear and plan simulation reports max parallelism 1; bounded concurrency remains future work. |
-| 5d retries are dormant | fixed E.4 | pending | Artifact build has two attempts; flaky real-pipeline test records failed then completed attempts. |
-| 5e SQLite lacks WAL/busy timeout | fixed E.4 | pending | Every connection verifies WAL and at least 5,000 ms busy timeout. |
-| 5f MCP cannot cancel inline run; malformed JSON kills loop; notifications answered | fixed E.4 | pending | Parse, notification, and active-run cancellation concurrency tests. |
-| 5g states are unused/overloaded and receipts contradict failure | fixed E.0/E.4 | pending | Receipt semantics fixed; real repair/post-DAG transitions emitted; three dead states removed. |
+| 5d retries are dormant | fixed E.4 | be52ac8 | Artifact build has two attempts; flaky real-pipeline test records failed then completed attempts. |
+| 5e SQLite lacks WAL/busy timeout | fixed E.4 | be52ac8 | Every connection verifies WAL and at least 5,000 ms busy timeout. |
+| 5f MCP cannot cancel inline run; malformed JSON kills loop; notifications answered | fixed E.4 | be52ac8 | Parse, notification, and active-run cancellation concurrency tests. |
+| 5g states are unused/overloaded and receipts contradict failure | fixed E.0/E.4 | fcbb77b / be52ac8 | Receipt semantics fixed; real repair/post-DAG transitions emitted; three dead states removed. |
 | 6a routing cannot reshape/pause due fictional local capabilities | fixed E.2 | 18670f9 | Strategic capability mutation reaches RESHAPE/PAUSE. |
-| 6b context packs never reach providers | pending E.5 | pending | Dry-run payload tests and usage fields required. |
-| 6c repository ingestion reads no file bodies | pending E.5 | pending | Real-file chunk/citation test required. |
-| 6d flagship report prompt is misclassified as repo implementation | pending E.5 | pending | Contract precedence test required. |
-| 6e non-ASCII terms are invisible | pending E.5 | pending | Hindi relevance test required. |
-| 6f delta duplicates cache checks; semantic naming overstates exact cache | pending disposition E.5 | pending | Consolidate or rename without adding telemetry. |
-| 6g timestamps are near-zero defaults | pending disposition E.4/E.5 | pending | Real workers/stages must set measured times. |
-| 6h timestamp-only IDs can collide | pending E.5 | pending | Random suffix and collision test required. |
-| 6i JSON writes are non-atomic | pending E.5 | pending | Atomic replace test required. |
-| 6j dead artifact/executor code | pending E.5 | pending | Remove after E.2 dispatch settles. |
-| 6k PDF builder fails on markup characters and mishandles H2 | pending disposition E.5 | pending | Builder regression tests required or explicit deferral rationale before E.5 commit. |
+| 6b context packs never reach providers | fixed dry-run plumbing E.5 | pending | Bounded previews for all adapters; reconciled usage ledger; configurable Anthropic output; 429/5xx retry scaffold. |
+| 6c repository ingestion reads no file bodies | fixed E.5 | pending | A real source body becomes a path-located chunk and delivered citation. |
+| 6d flagship report prompt is misclassified as repo implementation | fixed E.5 | pending | Explicit report/research/PDF intent precedes repo presence. |
+| 6e non-ASCII terms are invisible | fixed E.5 | pending | Devanagari relevance and tight-budget retrieval test. |
+| 6f delta duplicates cache checks; semantic naming overstates exact cache | fixed E.5 | pending | Renamed `ExactMatchCache`; delta delegates validation to scheduler API. |
+| 6g timestamps are near-zero defaults | fixed E.2/E.5 | pending | Stage workers and provider-backed executor set measured boundaries. |
+| 6h timestamp-only IDs can collide | fixed E.5 | pending | Random suffix; 500 IDs remain unique under frozen time. |
+| 6i JSON writes are non-atomic | fixed E.5 | pending | Temporary write, flush/fsync, atomic replace, failure-preserves-old-file test. |
+| 6j dead artifact/executor code | fixed E.5 | pending | Removed stale artifact report renderer and executor summary. |
+| 6k PDF builder fails on markup characters and mishandles H2 | fixed E.5 | pending | HTML escaping and Heading2 rendering; extracted-PDF regression. |
 | E.0 receipt semantics for quality failure | fixed E.0 | fcbb77b | `test_quality_failed_run_needs_attention_without_delivery_receipt`. |
 
 ## Rewritten Existing Tests
@@ -52,3 +52,7 @@ E.1 deliberately rewrote fixture fields in `test_repair.py` and `test_world_read
 E.2 deliberately rewrote six stale assumptions: budget capping now pins the real all-free DAG; repair routing expects reshape/pause for unimplemented work; deterministic capability tests reject fictional reasoning; repeat-cache coverage expects the three pure stages; planner tests use `T-AGGREGATE`; and E.0 failure injection raises inside the real handler. These changes strengthen truthfulness and do not delete a failure gate.
 
 E.3 removed the old world-readiness assertions for test-only path/archive policy helpers because the operator required deletion of unused policy APIs. Live archive and URL boundaries now have materially stronger tests.
+
+E.4 removed three enum members that had no runtime transition. No behavioral assertion was weakened; new tests cover live state attribution and protocol behavior.
+
+E.5 rewrites four test imports from the overstated `SemanticCache` name to `ExactMatchCache`; cache behavior assertions are unchanged. No existing behavioral test was deleted or relaxed.

@@ -35,7 +35,7 @@ Implemented now:
 - Prompt ingestion.
 - Text, Markdown, code, and unknown text-like files.
 - PDF text extraction through `pdfplumber` when available.
-- Folder and repository scans with dependency/build/cache ignores.
+- Folder and repository scans with dependency/build/cache ignores. Repositories read redacted hot files plus prompt-matched files under bounded count/byte budgets.
 - DOCX paragraph/table extraction through `python-docx` when available.
 - PPTX slide and notes extraction through `python-pptx` when available.
 - CSV/TSV and XLSX sampling through the standard library and `openpyxl` when available.
@@ -54,7 +54,7 @@ Context intelligence converts `InputRecord` values into `ContextCard` objects, r
 
 Current ranking is deterministic lexical overlap plus specificity and risk boosts. The system also writes a context index, conflict markers, and cache metadata for reuse and auditability. Future ranking should add embeddings, recency, trust, freshness, authority, and deeper semantic deduplication.
 
-Context chunk IDs are stable across equivalent runs, carry source/line/page/slide/sheet locators, and are ranked into per-task packs. Provenance records bind those chunks back to source names and URIs:
+Context chunk IDs are stable across equivalent runs, carry source/line/page/slide/sheet locators, and are ranked into per-task packs with Unicode-aware word matching. Repository chunks retain file-path and line locators. Provenance records bind those chunks back to source names and URIs:
 
 - `context_chunks.json`
 - `context_provenance.json`
@@ -89,7 +89,7 @@ The DAG is validated for missing dependencies and cycles before routing.
 
 Part B adds `BudgetController` and `DeltaPlanner`:
 
-- `budget_report.json` records per-task token estimates, effective cost caps, and estimated spend.
+- `budget_report.json` records per-task token estimates, effective cost caps, estimated spend, and a per-run estimated usage ledger reconciled to task totals.
 - `delta_execution_plan.json` compares the run against the previous successful run and marks tasks reusable only when inputs are unchanged and the scheduler cache entry exists.
 
 ## Routing Plane
@@ -109,11 +109,13 @@ Part B adds `routing_telemetry.json`, which records every provider considered fo
 
 ## Execution Plane
 
-`StageWorkerRegistry` dispatches local DAG nodes to real functions and records structured outputs. Missing handlers return `SKIPPED`. `DeterministicExecutor` remains the dry-run provider-adapter boundary for future provider-backed tasks, but its generic local adapter never reports completion.
+`StageWorkerRegistry` dispatches local DAG nodes to real functions and records structured outputs. Missing handlers return `SKIPPED`. `DeterministicExecutor` remains the dry-run provider-adapter boundary for future provider-backed tasks, but its generic local adapter never reports completion. OpenAI, Anthropic, and Ollama previews receive the bounded task `ContextPack`; previews redact secrets and expose estimated input/output/total usage. Anthropic's output limit is configurable. Live HTTP code has bounded exponential retry scaffolding for 429 and 5xx responses, but hosted execution remains outside this validation tranche.
 
 `DAGScheduler` executes real stage tasks by dependency-ready batches, records every attempt, enforces retry and timeout policies, skips dependents after failure, honors durable cancellation, uses versioned cache entries, and writes `schedule_report.json`. It reports cached and executed results through the same observer path. Side-effecting artifact/quality nodes are non-cacheable; artifact build has two attempts for transient local I/O failure. Timed work receives a cooperative completion guard, and scheduler-owned cache, record, and observer commits are fenced after timeout.
 
-Task cache keys include context, contract, execution policy, provider descriptors, and routing decisions. Malformed entries are quarantined, and cached results are treated as successful product fragments. Delta planning compares against the most relevant prior successful run by input-hash similarity.
+Task cache keys include context, contract, execution policy, provider descriptors, and routing decisions. `ExactMatchCache` deliberately names its behavior: it does not claim semantic similarity. Malformed entries are quarantined, and cached results are treated as successful product fragments. Delta planning compares against the most relevant prior successful run by input-hash similarity and asks the scheduler's validated cache API for reuse availability instead of probing cache files independently.
+
+Run/card/contract identifiers combine UTC time with random entropy. JSON artifacts and exact-cache entries write to a same-directory temporary file, flush, and atomically replace the destination. Generic provider-backed execution records measured start/completion timestamps.
 
 `RepoValidationRunner` writes `repo_validation_report.json`. It executes only Python unittest commands when `allow_shell` is true. Package-manager and Cargo scripts are not auto-detected because they execute repository-controlled code. Child environments are reduced to `PATH`, `HOME`, `LANG`, and command-declared variables.
 

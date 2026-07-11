@@ -6,7 +6,7 @@ from universal_orchestrator.approvals import ApprovalGateEngine
 from universal_orchestrator.artifact_builders import ArtifactBuilder
 from universal_orchestrator.artifacts import ArtifactStore
 from universal_orchestrator.budget import BudgetController
-from universal_orchestrator.cache import SemanticCache
+from universal_orchestrator.cache import ExactMatchCache
 from universal_orchestrator.context import ContextIntelligence
 from universal_orchestrator.contracts import ProductContractCompiler
 from universal_orchestrator.delta import DeltaPlanner
@@ -78,7 +78,7 @@ class Orchestrator:
         self.artifact_builder = ArtifactBuilder()
         self.debug_bundle = DebugBundleBuilder()
         self.integrity = ArtifactIntegrityAuditor()
-        self.cache = SemanticCache(Path(artifact_root) / "_cache")
+        self.cache = ExactMatchCache(Path(artifact_root) / "_cache")
         self.runtime = RuntimeStore(Path(artifact_root) / "runtime.sqlite3")
         self.scheduler = DAGScheduler(self.cache)
 
@@ -221,6 +221,11 @@ class Orchestrator:
         router = AdaptiveRouter(registry, execution_policy)
         self.runtime.transition(run_id, RunState.ROUTING)
         decisions, routing_telemetry = router.route_all_with_telemetry(run_id, dag.topological_order())
+        budget_report = self.budget.reconcile_estimated_usage(
+            budget_report,
+            decisions,
+            context_packs,
+        )
         cache_context = {
             "schema_version": "2.0",
             "context_cache_key": cache_key,

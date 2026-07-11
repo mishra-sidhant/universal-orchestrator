@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from enum import StrEnum
 from pathlib import Path
+from secrets import token_hex
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -14,7 +15,7 @@ def utc_now() -> datetime:
 
 def new_id(prefix: str) -> str:
     stamp = utc_now().strftime("%Y%m%d%H%M%S%f")
-    return f"{prefix}_{stamp}"
+    return f"{prefix}_{stamp}_{token_hex(4)}"
 
 
 class StrictModel(BaseModel):
@@ -461,6 +462,8 @@ class ProviderDescriptor(StrictModel):
 
 class CostEstimate(StrictModel):
     tier: CostTier
+    input_tokens: int = 0
+    output_tokens: int = 0
     estimated_tokens: int = 0
     estimated_usd: float | None = None
 
@@ -561,6 +564,18 @@ class TaskBudget(StrictModel):
     reason: str = ""
 
 
+class UsageLedgerEntry(StrictModel):
+    task_id: str
+    provider_id: str | None = None
+    input_tokens: int = 0
+    output_tokens: int = 0
+    total_tokens: int = 0
+    estimated_usd: float | None = None
+    token_budget: int = 0
+    within_token_budget: bool = True
+    estimated: bool = True
+
+
 class BudgetReport(StrictModel):
     run_id: str
     requested_profile: BudgetProfile
@@ -570,6 +585,8 @@ class BudgetReport(StrictModel):
     total_estimated_usd: float | None = None
     enforced: bool = True
     task_budgets: list[TaskBudget] = Field(default_factory=list)
+    usage_ledger: list[UsageLedgerEntry] = Field(default_factory=list)
+    usage_reconciled: bool = False
     warnings: list[str] = Field(default_factory=list)
 
 

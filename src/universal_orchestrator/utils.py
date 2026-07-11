@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import re
+import tempfile
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -52,7 +53,25 @@ def json_default(value: Any) -> Any:
 
 def write_json(path: Path, payload: Any) -> None:
     ensure_dir(path.parent)
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True, default=json_default) + "\n")
+    serialized = json.dumps(payload, indent=2, sort_keys=True, default=json_default) + "\n"
+    temp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            temp_path = Path(handle.name)
+            handle.write(serialized)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp_path, path)
+    finally:
+        if temp_path and temp_path.exists():
+            temp_path.unlink()
 
 
 def read_json(path: Path) -> dict[str, Any]:
@@ -72,4 +91,3 @@ def iter_files(root: Path, ignored_names: Iterable[str], max_files: int) -> list
             if len(files) >= max_files:
                 return files
     return files
-

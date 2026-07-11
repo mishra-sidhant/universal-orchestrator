@@ -11,7 +11,7 @@ from pathlib import Path
 from time import monotonic, sleep
 from unittest.mock import patch
 
-from universal_orchestrator.cache import SemanticCache
+from universal_orchestrator.cache import ExactMatchCache
 from universal_orchestrator.mcp import serve_stdio
 from universal_orchestrator.models import (
     ExecutionResult,
@@ -95,7 +95,7 @@ class TrancheE4RuntimeTests(unittest.TestCase):
 
     def test_timed_out_worker_cannot_commit_after_terminal_record(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            cache = SemanticCache(Path(tmp) / "cache")
+            cache = ExactMatchCache(Path(tmp) / "cache")
             scheduler = DAGScheduler(cache)
             task = TaskNode(
                 id="T-TIMEOUT",

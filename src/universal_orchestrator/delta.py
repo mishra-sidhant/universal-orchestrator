@@ -50,9 +50,7 @@ class DeltaPlanner:
         executable: list[str] = []
         for node in dag.topological_order():
             cache_key = scheduler.cache_key_for_task(node, cache_context)
-            cache_available = bool(
-                scheduler.cache and (scheduler.cache.root / f"{cache_key}.json").exists()
-            )
+            cache_available = bool(scheduler.cached_payload_for_task(node, cache_context))
             if previous and not input_hash_changed and cache_available:
                 action = "reuse"
                 reason = "Inputs unchanged and scheduler cache entry is available."

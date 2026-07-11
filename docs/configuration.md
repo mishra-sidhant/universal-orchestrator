@@ -19,6 +19,7 @@ Use `.env.example` as the template. `.env.local` is ignored by git.
 - `ANTHROPIC_MODEL`: model id used by the Anthropic adapter when live calls are enabled.
 - `ANTHROPIC_BASE_URL`: optional Anthropic API base URL override.
 - `ANTHROPIC_VERSION`: optional Anthropic API version override; defaults to `2023-06-01`.
+- `ANTHROPIC_MAX_TOKENS`: optional positive output-token limit; defaults to `4096` and is included in dry-run usage estimates.
 - `OLLAMA_BASE_URL`: enables the `ollama.local` provider descriptor.
 - `OLLAMA_MODEL`: model id used by the Ollama adapter when live calls are enabled.
 
@@ -31,6 +32,7 @@ OPENAI_API_KEY=
 OPENAI_MODEL=
 ANTHROPIC_API_KEY=
 ANTHROPIC_MODEL=
+# ANTHROPIC_MAX_TOKENS=4096
 OLLAMA_BASE_URL=
 OLLAMA_MODEL=
 ```

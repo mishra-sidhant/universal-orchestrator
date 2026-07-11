@@ -4,7 +4,13 @@ import os
 from typing import Any
 
 from universal_orchestrator.models import ProviderDescriptor, ProviderResult, ProviderTask, TaskStatus
-from universal_orchestrator.providers.base import JSONHTTPMixin, ProviderAdapter, dry_run_result, unavailable_result
+from universal_orchestrator.providers.base import (
+    JSONHTTPMixin,
+    ProviderAdapter,
+    dry_run_result,
+    render_provider_prompt,
+    unavailable_result,
+)
 
 
 class AnthropicAdapter(JSONHTTPMixin, ProviderAdapter):
@@ -20,6 +26,7 @@ class AnthropicAdapter(JSONHTTPMixin, ProviderAdapter):
                 self.id,
                 payload,
                 "Anthropic request prepared in dry-run mode; no network call was made.",
+                self.estimate_cost(task),
             )
         if not api_key:
             return unavailable_result(self.id, "ANTHROPIC_API_KEY is not configured.")
@@ -45,15 +52,25 @@ class AnthropicAdapter(JSONHTTPMixin, ProviderAdapter):
     def _payload(self, task: ProviderTask, model: str) -> dict[str, Any]:
         return {
             "model": model,
-            "max_tokens": 1024,
+            "max_tokens": self._max_tokens(),
             "system": "You are a worker inside a larger orchestration kernel. Return concise structured output.",
             "messages": [
                 {
                     "role": "user",
-                    "content": f"Task: {task.task.title}\nType: {task.task.task_type}\nPrompt: {task.prompt}",
+                    "content": render_provider_prompt(task),
                 }
             ],
         }
+
+    def _max_tokens(self) -> int:
+        try:
+            return max(1, int(os.getenv("ANTHROPIC_MAX_TOKENS", "4096")))
+        except ValueError:
+            return 4096
+
+    def estimated_output_tokens(self, task: ProviderTask) -> int:
+        del task
+        return self._max_tokens()
 
     def _extract_output_text(self, response: dict[str, Any]) -> str:
         texts = [
@@ -66,4 +83,3 @@ class AnthropicAdapter(JSONHTTPMixin, ProviderAdapter):
 
 def build_adapter(descriptor: ProviderDescriptor) -> AnthropicAdapter:
     return AnthropicAdapter(descriptor)
-

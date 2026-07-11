@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from html import escape
 from pathlib import Path
 import zipfile
 
@@ -20,9 +21,14 @@ class ArtifactBuilder:
             if not line.strip():
                 story.append(Spacer(1, 8))
                 continue
-            style = styles["Heading1"] if line.startswith("# ") else styles["BodyText"]
+            if line.startswith("# "):
+                style = styles["Heading1"]
+            elif line.startswith("## "):
+                style = styles["Heading2"]
+            else:
+                style = styles["BodyText"]
             text = line.lstrip("#").strip()
-            story.append(Paragraph(text, style))
+            story.append(Paragraph(escape(text), style))
             story.append(Spacer(1, 4))
         doc = SimpleDocTemplate(str(path), pagesize=A4, title="Universal Orchestrator Final Product")
         doc.build(story)

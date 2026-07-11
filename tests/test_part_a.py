@@ -3,7 +3,7 @@ import unittest
 import zipfile
 from pathlib import Path
 
-from universal_orchestrator.cache import SemanticCache
+from universal_orchestrator.cache import ExactMatchCache
 from universal_orchestrator.context import ContextIntelligence
 from universal_orchestrator.contracts import ProductContractCompiler
 from universal_orchestrator.execution import DeterministicExecutor
@@ -28,7 +28,7 @@ class PartAGapTests(unittest.TestCase):
         executor = DeterministicExecutor(adapters=registry.adapter_registry(), prompt=invocation.prompt)
 
         with tempfile.TemporaryDirectory() as tmp:
-            results, report = DAGScheduler(SemanticCache(tmp)).execute(dag, decisions, executor)
+            results, report = DAGScheduler(ExactMatchCache(tmp)).execute(dag, decisions, executor)
 
         self.assertEqual(len(results), len(dag.nodes))
         self.assertGreater(len(report.parallel_batches), 1)

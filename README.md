@@ -11,11 +11,11 @@ The current milestone is a deterministic local runtime with optional provider ad
 - Universal input ingestion MVP for prompts, text/markdown, PDFs, folders, repositories, URLs, images, Office files, spreadsheets, archives, and unknown files.
 - Secret and prompt-injection risk scanning before context cards are built.
 - Common provider/PAT/JWT/private-key/credential-URL redaction, complete archive-member inspection, SSRF/private-network blocking, and child-process environment scrubbing.
-- Redacted full-text extraction, stable source chunks with locators, provenance, and task-specific context packs.
+- Redacted full-text extraction, bounded repository hot/prompt-matched file reads, stable source chunks with path/line locators, provenance, and task-specific context packs.
 - Product contract compiler that turns natural prompts into enforceable definitions of done.
 - Property-derived planner review and a five-node typed DAG backed by real local stage workers.
 - Capability-based routing with truthful local capabilities; unsupported work reshapes, pauses, or skips instead of echo-completing.
-- Budget control, relevant-prior-run delta planning, versioned scheduler cache reuse, retries, timeouts, durable cancellation, failure diagnostics, and same-run resume.
+- Reconciled dry-run usage estimates, budget control, relevant-prior-run delta planning, versioned exact-match cache reuse, retries, timeouts, durable cancellation, failure diagnostics, and same-run resume.
 - Approval gates, safe repo validation planning/execution, and daemon/MCP status parity.
 - Quality gate engine with contract, manifest, DAG, routing, security, evidence audit, repo validation, and artifact integrity checks.
 - Quality telemetry is provenance-limited: parse coverage, consumed-reference coverage, task continuity, routing efficiency, artifact presence, and executed code validation. It does not claim factuality or style scoring.

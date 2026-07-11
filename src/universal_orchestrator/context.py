@@ -72,6 +72,13 @@ class ContextIntelligence:
             marker: str | None = None
             for line_number, line in enumerate(text.splitlines() or [text], start=1):
                 line_marker = self._locator_marker(line)
+                if line_marker and current:
+                    chunks.append(
+                        self._chunk(record, ordinal, " ".join(current), start_line, current_line, marker)
+                    )
+                    ordinal += 1
+                    current = []
+                    marker = None
                 for word in line.split():
                     if not current:
                         start_line = line_number
@@ -92,6 +99,9 @@ class ContextIntelligence:
         return chunks
 
     def _locator_marker(self, line: str) -> str | None:
+        file_line = re.match(r"^File\s+(.+?):(\d+):", line)
+        if file_line:
+            return f"{file_line.group(1)} line {file_line.group(2)}"
         match = re.match(r"^(Page|Slide)\s+(\d+):", line, flags=re.IGNORECASE)
         if match:
             return f"{match.group(1).lower()} {match.group(2)}"
@@ -160,13 +170,7 @@ class ContextIntelligence:
         token_budget: int = 16_000,
         chunks: list[ContextChunk] | None = None,
     ) -> ContextPack:
-        selected: list[ContextCard] = []
         used_tokens = 0
-        for card in cards:
-            if used_tokens + card.token_estimate > token_budget:
-                continue
-            selected.append(card)
-            used_tokens += card.token_estimate
         selected_chunks: list[ContextChunk] = []
         query_terms = self._terms(task)
         ranked_chunks = sorted(
@@ -179,6 +183,12 @@ class ContextIntelligence:
                 continue
             selected_chunks.append(chunk)
             used_tokens += chunk.token_estimate
+        selected: list[ContextCard] = []
+        for card in cards:
+            if used_tokens + card.token_estimate > token_budget:
+                continue
+            selected.append(card)
+            used_tokens += card.token_estimate
         files_to_read = [
             str(card.metadata["path"])
             for card in selected
@@ -222,9 +232,22 @@ class ContextIntelligence:
         end_line: int,
         marker: str | None,
     ) -> ContextChunk:
-        locator = marker or (
-            f"line {start_line}" if start_line == end_line else f"lines {start_line}-{end_line}"
-        )
+        file_marker = re.match(r"^(.+) line (\d+)$", marker or "")
+        if file_marker:
+            local_start = int(file_marker.group(2))
+            local_end = local_start + (end_line - start_line)
+            line_label = (
+                f"line {local_start}"
+                if local_start == local_end
+                else f"lines {local_start}-{local_end}"
+            )
+            locator = f"{file_marker.group(1)} {line_label}"
+        else:
+            locator = marker or (
+                f"line {start_line}"
+                if start_line == end_line
+                else f"lines {start_line}-{end_line}"
+            )
         stable_source = sha256_bytes(
             f"{record.uri}:{record.content_hash or ''}".encode("utf-8")
         ).removeprefix("sha256:")[:16]
@@ -272,4 +295,8 @@ class ContextIntelligence:
         return CardType.SOURCE
 
     def _terms(self, text: str) -> set[str]:
-        return {term for term in re.findall(r"[a-zA-Z0-9_]{3,}", text.lower())}
+        return {
+            term
+            for term in re.findall(r"[^\W_]+(?:[_-][^\W_]+)*", text.casefold(), flags=re.UNICODE)
+            if len(term) >= 2
+        }

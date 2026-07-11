@@ -4,7 +4,13 @@ import os
 from typing import Any
 
 from universal_orchestrator.models import ProviderDescriptor, ProviderResult, ProviderTask, TaskStatus
-from universal_orchestrator.providers.base import JSONHTTPMixin, ProviderAdapter, dry_run_result, unavailable_result
+from universal_orchestrator.providers.base import (
+    JSONHTTPMixin,
+    ProviderAdapter,
+    dry_run_result,
+    render_provider_prompt,
+    unavailable_result,
+)
 from universal_orchestrator.security import redact_text
 
 
@@ -26,6 +32,7 @@ class OpenAIResponsesAdapter(JSONHTTPMixin, ProviderAdapter):
                 self.id,
                 self._safe_payload(payload),
                 "OpenAI request prepared in dry-run mode; no network call was made.",
+                self.estimate_cost(task),
             )
         if not api_key:
             return unavailable_result(self.id, "OPENAI_API_KEY is not configured.")
@@ -65,8 +72,7 @@ class OpenAIResponsesAdapter(JSONHTTPMixin, ProviderAdapter):
         }
 
     def _prompt(self, task: ProviderTask) -> str:
-        context = task.context.get("summary", "")
-        return f"Task: {task.task.title}\nType: {task.task.task_type}\nContext: {context}\nPrompt: {task.prompt}"
+        return render_provider_prompt(task)
 
     def _safe_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self._redact_value(payload)

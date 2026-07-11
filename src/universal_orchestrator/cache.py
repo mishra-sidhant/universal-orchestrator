@@ -5,10 +5,10 @@ from pathlib import Path
 from typing import Any
 from universal_orchestrator.models import utc_now
 
-from universal_orchestrator.utils import ensure_dir, sha256_bytes
+from universal_orchestrator.utils import ensure_dir, sha256_bytes, write_json
 
 
-class SemanticCache:
+class ExactMatchCache:
     def __init__(self, root: Path | str) -> None:
         self.root = ensure_dir(Path(root))
 
@@ -31,5 +31,5 @@ class SemanticCache:
     def set(self, key: str, value: dict[str, Any]) -> Path:
         path = self.root / f"{key}.json"
         ensure_dir(path.parent)
-        path.write_text(json.dumps(value, indent=2, sort_keys=True, default=str) + "\n")
+        write_json(path, value)
         return path

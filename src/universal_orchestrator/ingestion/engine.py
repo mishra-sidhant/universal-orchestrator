@@ -91,6 +91,7 @@ class InputIngestor:
                         invocation.cwd,
                         invocation.user_options.allow_internet,
                         set(invocation.user_options.allowed_url_hosts) or self.allowed_url_hosts,
+                        invocation.prompt,
                     )
                 )
             except Exception as exc:  # pragma: no cover - defensive boundary
@@ -136,6 +137,7 @@ class InputIngestor:
         cwd: str | None,
         allow_network: bool,
         allowed_url_hosts: set[str] | None = None,
+        prompt: str = "",
     ) -> InputRecord:
         input_type = detect_input_type(attachment.uri)
         if input_type in {InputType.URL, InputType.API}:
@@ -157,7 +159,7 @@ class InputIngestor:
             )
 
         if input_type in {InputType.FOLDER, InputType.REPO}:
-            record = self._ingest_folder(path, input_type, attachment)
+            record = self._ingest_folder(path, input_type, attachment, prompt)
             if warning_for_symlink:
                 record.warnings.append(warning_for_symlink)
             return record
@@ -528,7 +530,11 @@ class InputIngestor:
         )
 
     def _ingest_folder(
-        self, path: Path, input_type: InputType, attachment: InputAttachment
+        self,
+        path: Path,
+        input_type: InputType,
+        attachment: InputAttachment,
+        prompt: str = "",
     ) -> InputRecord:
         files = iter_files(path, IGNORED_NAMES, self.max_folder_files)
         suffix_counts: dict[str, int] = {}
@@ -553,8 +559,20 @@ class InputIngestor:
             "suffix_counts": suffix_counts,
             "is_git_repo": (path / ".git").exists(),
         }
+        repo_map = None
         if input_type == InputType.REPO:
-            metadata["repo_map"] = self.repo_analyzer.analyze(path, self.max_folder_files).model_dump(mode="json")
+            repo_map = self.repo_analyzer.analyze(path, self.max_folder_files)
+            metadata["repo_map"] = repo_map.model_dump(mode="json")
+        content_text, content_files, security_findings = self._folder_content(
+            path,
+            files,
+            prompt,
+            set(repo_map.hot_files if repo_map else []),
+        )
+        metadata["content_files"] = content_files
+        summary += f" Read {len(content_files)} relevant file(s) within the content budget."
+        if not content_files:
+            warnings.append("No readable hot or prompt-matched file content was selected.")
         return InputRecord(
             id=new_id("input"),
             type=input_type,
@@ -562,13 +580,74 @@ class InputIngestor:
             uri=attachment.uri,
             path=str(path),
             status=InputStatus.PARSED,
-            content_hash=sha256_bytes(compact_whitespace(str(metadata)).encode("utf-8")),
+            content_hash=sha256_bytes(
+                f"{compact_whitespace(str(metadata))}:{content_text}".encode("utf-8")
+            ),
             size_bytes=total_bytes,
             summary=summary,
-            content_text=summary,
+            content_text=content_text or summary,
             metadata=metadata,
+            security_findings=security_findings,
             warnings=warnings,
         )
+
+    def _folder_content(
+        self,
+        root: Path,
+        files: list[Path],
+        prompt: str,
+        hot_files: set[str],
+    ) -> tuple[str, list[str], list]:
+        prompt_terms = self._unicode_terms(prompt)
+        candidates: list[tuple[int, str, str, list]] = []
+        for file_path in files:
+            try:
+                size = file_path.stat().st_size
+                if size > self.max_file_bytes:
+                    continue
+                raw = file_path.read_bytes()
+            except OSError:
+                continue
+            if b"\x00" in raw:
+                continue
+            encoding = detect_text_encoding(raw)
+            text = raw.decode(encoding, errors="replace")
+            relative = str(file_path.relative_to(root))
+            matched = bool(
+                prompt_terms.intersection(self._unicode_terms(f"{relative} {text}"))
+            )
+            if relative not in hot_files and not matched:
+                continue
+            priority = 2 if relative in hot_files else 1
+            candidates.append((priority, relative, text, scan_text(text, location=relative)))
+
+        selected_text: list[str] = []
+        selected_files: list[str] = []
+        findings = []
+        used_bytes = 0
+        for _, relative, text, file_findings in sorted(
+            candidates, key=lambda item: (-item[0], item[1])
+        )[:50]:
+            redacted = redact_text(text)
+            encoded_size = len(redacted.encode("utf-8"))
+            if used_bytes + encoded_size > self.max_file_bytes:
+                continue
+            lines = redacted.splitlines() or [redacted]
+            selected_text.append(f"File {relative}:1: {lines[0]}")
+            selected_text.extend(lines[1:])
+            selected_files.append(relative)
+            findings.extend(file_findings)
+            used_bytes += encoded_size
+        return "\n".join(selected_text), selected_files, findings
+
+    def _unicode_terms(self, text: str) -> set[str]:
+        import re
+
+        return {
+            term
+            for term in re.findall(r"[^\W_]+(?:[_-][^\W_]+)*", text.casefold())
+            if len(term) >= 2
+        }
 
     def _ingest_url(
         self,

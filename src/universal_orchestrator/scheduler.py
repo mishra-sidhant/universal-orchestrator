@@ -5,7 +5,7 @@ from threading import Event
 from time import sleep
 from typing import Callable
 
-from universal_orchestrator.cache import SemanticCache
+from universal_orchestrator.cache import ExactMatchCache
 from universal_orchestrator.execution import DeterministicExecutor
 from universal_orchestrator.models import (
     ExecutionResult,
@@ -34,7 +34,7 @@ class CompletionGuard:
 
 
 class DAGScheduler:
-    def __init__(self, cache: SemanticCache | None = None) -> None:
+    def __init__(self, cache: ExactMatchCache | None = None) -> None:
         self.cache = cache
 
     def parallel_batches(self, dag: TaskDAG) -> list[list[TaskNode]]:
@@ -89,7 +89,7 @@ class DAGScheduler:
                     )
                     records.append(self._record(task, result, 0, cache_key))
                 else:
-                    cached = self.cache.get(cache_key) if self.cache and task.cacheable else None
+                    cached = self.cached_payload(cache_key, task.cacheable)
                     if cached and cached.get("schema_version") == "2.0" and cached.get("status") == "completed":
                         cache_hits.append(task.id)
                         result = ExecutionResult(
@@ -252,3 +252,16 @@ class DAGScheduler:
         if self.cache:
             return self.cache.key_for("task", payload)
         return f"task_{task.id}"
+
+    def cached_payload(self, cache_key: str, cacheable: bool = True) -> dict | None:
+        return self.cache.get(cache_key) if self.cache and cacheable else None
+
+    def cached_payload_for_task(
+        self,
+        task: TaskNode,
+        cache_context: dict | None = None,
+    ) -> dict | None:
+        return self.cached_payload(
+            self.cache_key_for_task(task, cache_context),
+            task.cacheable,
+        )

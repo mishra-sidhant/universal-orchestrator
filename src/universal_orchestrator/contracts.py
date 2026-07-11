@@ -82,11 +82,13 @@ class ProductContractCompiler:
         )
 
     def _infer_run_type(self, prompt: str, input_types: set[str]) -> str:
+        if any(word in prompt for word in ["report", "research", "pdf"]):
+            return "research_report"
         if InputType.REPO in input_types or any(word in prompt for word in ["repo", "codebase"]):
             if any(word in prompt for word in ["review", "audit"]):
                 return "code_review"
             return "repo_implementation"
-        if any(word in prompt for word in ["report", "research", "pdf", "document"]):
+        if "document" in prompt:
             return "research_report"
         if any(word in prompt for word in ["image", "screenshot", "visual"]):
             return "visual_task"
@@ -110,4 +112,3 @@ class ProductContractCompiler:
         if len(prompt) > 180:
             return prompt[:177] + "..."
         return f"{prompt} -> {', '.join(primary_artifacts)}"
-

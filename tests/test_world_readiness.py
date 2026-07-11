@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 
 from universal_orchestrator.artifact_builders import ArtifactBuilder
-from universal_orchestrator.cache import SemanticCache
+from universal_orchestrator.cache import ExactMatchCache
 from universal_orchestrator.context import ContextIntelligence
 from universal_orchestrator.contracts import ProductContractCompiler
 from universal_orchestrator.evals import built_in_suite
@@ -37,7 +37,7 @@ class WorldReadinessTests(unittest.TestCase):
         index = context.build_index(cards)
 
         with tempfile.TemporaryDirectory() as tmp:
-            cache = SemanticCache(tmp)
+            cache = ExactMatchCache(tmp)
             key = cache.key_for("cards", {"count": len(cards)})
             cache.set(key, {"terms": len(index)})
 

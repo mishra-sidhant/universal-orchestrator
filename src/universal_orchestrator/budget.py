@@ -6,10 +6,12 @@ from universal_orchestrator.models import (
     ContextPack,
     CostTier,
     HostInvocation,
+    RoutingDecision,
     TaskBudget,
     TaskDAG,
     TaskNode,
     TaskType,
+    UsageLedgerEntry,
 )
 
 
@@ -120,8 +122,48 @@ class BudgetController:
         capability_load = int(sum(node.required_capabilities.values()) * 1_000)
         context_tokens = 0
         if pack:
-            context_tokens = min(pack.token_budget, sum(card.token_estimate for card in pack.cards))
+            context_tokens = min(
+                pack.token_budget,
+                sum(card.token_estimate for card in pack.cards)
+                + sum(chunk.token_estimate for chunk in pack.chunks),
+            )
         return base + capability_load + context_tokens
+
+    def reconcile_estimated_usage(
+        self,
+        report: BudgetReport,
+        decisions: list[RoutingDecision],
+        context_packs: dict[str, ContextPack],
+    ) -> BudgetReport:
+        provider_by_task = {decision.task_id: decision.provider_id for decision in decisions}
+        ledger: list[UsageLedgerEntry] = []
+        for budget in report.task_budgets:
+            pack = context_packs.get(budget.task_id)
+            input_tokens = 0
+            if pack:
+                input_tokens = min(
+                    budget.estimated_tokens,
+                    sum(card.token_estimate for card in pack.cards)
+                    + sum(chunk.token_estimate for chunk in pack.chunks),
+                )
+            output_tokens = max(0, budget.estimated_tokens - input_tokens)
+            ledger.append(
+                UsageLedgerEntry(
+                    task_id=budget.task_id,
+                    provider_id=provider_by_task.get(budget.task_id),
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    total_tokens=budget.estimated_tokens,
+                    estimated_usd=budget.estimated_usd,
+                    token_budget=budget.token_budget,
+                    within_token_budget=budget.estimated_tokens <= budget.token_budget,
+                    estimated=True,
+                )
+            )
+        reconciled = sum(item.total_tokens for item in ledger) == report.total_estimated_tokens
+        return report.model_copy(
+            update={"usage_ledger": ledger, "usage_reconciled": reconciled}
+        )
 
     def estimate_usd(self, tokens: int, cost_tier: CostTier) -> float:
         rate = USD_PER_MILLION_TOKENS[cost_tier]

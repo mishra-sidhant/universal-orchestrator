@@ -8,6 +8,7 @@ from universal_orchestrator.models import (
     RoutingDecision,
     TaskNode,
     TaskStatus,
+    utc_now,
 )
 from universal_orchestrator.providers import ProviderAdapterRegistry
 from universal_orchestrator.workers import StructuredWorkerOutputBuilder
@@ -37,6 +38,7 @@ class DeterministicExecutor:
         decision_by_task = {decision.task_id: decision for decision in decisions}
         results: list[ExecutionResult] = []
         for task in tasks:
+            started_at = utc_now()
             decision = decision_by_task[task.id]
             refs_by_task = self.context.get("chunk_refs_by_task", {})
             consumed_refs = (
@@ -48,6 +50,12 @@ class DeterministicExecutor:
                 if key not in {"chunk_refs", "chunk_refs_by_task"}
             }
             task_context["consumed_chunk_refs"] = consumed_refs
+            context_packs = self.context.get("context_packs", {})
+            if isinstance(context_packs, dict) and task.id in context_packs:
+                pack = context_packs[task.id]
+                task_context["context_pack"] = (
+                    pack.model_dump(mode="json") if hasattr(pack, "model_dump") else pack
+                )
             warnings: list[str] = []
             status = TaskStatus.COMPLETED
             if decision.action in {RoutingAction.RESHAPE, RoutingAction.PAUSE}:
@@ -102,6 +110,8 @@ class DeterministicExecutor:
                         "provider_output": provider_result.output if provider_result else None,
                     },
                     warnings=warnings,
+                    started_at=started_at,
+                    completed_at=utc_now(),
                 )
             )
         return results
@@ -110,7 +120,3 @@ class DeterministicExecutor:
         if not self.execution_policy:
             return False
         return provider_kind == "hosted_model" and not self.execution_policy.allow_hosted_models
-
-    def _summary(self, task: TaskNode, decision: RoutingDecision) -> str:
-        provider = decision.provider_id or "no provider"
-        return f"{task.title} handled by {provider} with action={decision.action}."

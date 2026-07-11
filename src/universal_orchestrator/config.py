@@ -15,7 +15,11 @@ PROVIDER_ENV_VARS: dict[str, list[str]] = {
 
 OPTIONAL_ENV_VARS: dict[str, list[str]] = {
     "openai.configured": ["OPENAI_BASE_URL"],
-    "anthropic.configured": ["ANTHROPIC_BASE_URL", "ANTHROPIC_VERSION"],
+    "anthropic.configured": [
+        "ANTHROPIC_BASE_URL",
+        "ANTHROPIC_VERSION",
+        "ANTHROPIC_MAX_TOKENS",
+    ],
     "ollama.local": [],
 }
 
@@ -90,6 +94,7 @@ def configuration_template() -> str:
             "ANTHROPIC_MODEL=",
             "# ANTHROPIC_BASE_URL=https://api.anthropic.com",
             "# ANTHROPIC_VERSION=2023-06-01",
+            "# ANTHROPIC_MAX_TOKENS=4096",
             "",
             "OLLAMA_BASE_URL=http://127.0.0.1:11434",
             "OLLAMA_MODEL=",
@@ -104,4 +109,3 @@ def write_env_example(path: Path | str = ".env.example", overwrite: bool = False
         return target
     target.write_text(configuration_template())
     return target
-
