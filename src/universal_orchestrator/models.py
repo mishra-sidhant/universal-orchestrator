@@ -199,6 +199,7 @@ class UserOptions(StrictModel):
     artifact_types: list[str] = Field(default_factory=list)
     allow_internet: bool = False
     allow_cloud: bool = False
+    allowed_url_hosts: list[str] = Field(default_factory=list)
     allow_repo_writes: bool = False
     allow_shell: bool = False
     privacy_mode: PrivacyMode = PrivacyMode.BALANCED

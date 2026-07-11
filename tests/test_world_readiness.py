@@ -57,15 +57,13 @@ class WorldReadinessTests(unittest.TestCase):
             self.assertEqual(builder.validate_pdf(pdf), [])
             self.assertEqual(builder.validate_docx(docx), [])
 
-    def test_security_policy_and_runtime_store(self) -> None:
+    def test_network_policy_and_runtime_store(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            policy = SecurityPolicy(root)
+            policy = SecurityPolicy()
             store = RuntimeStore(root / "runtime.sqlite3")
             store.record_event(RuntimeEvent(run_id="run_test", event_type="received"))
 
-            self.assertTrue(policy.is_path_inside_workspace(root / "file.txt"))
-            self.assertFalse(policy.is_archive_member_safe("../bad.txt"))
             self.assertFalse(policy.is_url_allowed("https://example.com", allow_internet=False))
             self.assertEqual(store.list_events("run_test")[0]["event_type"], "received")
 

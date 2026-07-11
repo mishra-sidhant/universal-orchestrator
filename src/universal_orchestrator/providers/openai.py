@@ -5,6 +5,7 @@ from typing import Any
 
 from universal_orchestrator.models import ProviderDescriptor, ProviderResult, ProviderTask, TaskStatus
 from universal_orchestrator.providers.base import JSONHTTPMixin, ProviderAdapter, dry_run_result, unavailable_result
+from universal_orchestrator.security import redact_text
 
 
 class OpenAIResponsesAdapter(JSONHTTPMixin, ProviderAdapter):
@@ -68,7 +69,16 @@ class OpenAIResponsesAdapter(JSONHTTPMixin, ProviderAdapter):
         return f"Task: {task.task.title}\nType: {task.task.task_type}\nContext: {context}\nPrompt: {task.prompt}"
 
     def _safe_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
-        return payload
+        return self._redact_value(payload)
+
+    def _redact_value(self, value: Any) -> Any:
+        if isinstance(value, str):
+            return redact_text(value)
+        if isinstance(value, list):
+            return [self._redact_value(item) for item in value]
+        if isinstance(value, dict):
+            return {key: self._redact_value(item) for key, item in value.items()}
+        return value
 
     def _extract_output_text(self, response: dict[str, Any]) -> str:
         if isinstance(response.get("output_text"), str):
@@ -83,4 +93,3 @@ class OpenAIResponsesAdapter(JSONHTTPMixin, ProviderAdapter):
 
 def build_adapter(descriptor: ProviderDescriptor) -> OpenAIResponsesAdapter:
     return OpenAIResponsesAdapter(descriptor)
-

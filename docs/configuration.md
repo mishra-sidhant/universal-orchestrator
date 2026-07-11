@@ -46,6 +46,7 @@ PYTHONPATH=src python -m universal_orchestrator configure --write-example
 PYTHONPATH=src python -m universal_orchestrator providers
 PYTHONPATH=src python -m universal_orchestrator mcp-server
 PYTHONPATH=src python -m universal_orchestrator run "Build a product package" ./path-or-url
+PYTHONPATH=src python -m universal_orchestrator run "Fetch approved host" --allow-internet --allow-url-host approved.example ./url
 PYTHONPATH=src python -m universal_orchestrator repo "Analyze this repo" .
 PYTHONPATH=src python -m universal_orchestrator artifacts
 PYTHONPATH=src python -m universal_orchestrator status <run_id>
@@ -89,9 +90,11 @@ Endpoints:
 
 ## Privacy Defaults
 
-- URL fetch is not performed by the deterministic MVP.
+- URL fetch is not performed without explicit internet permission.
+- Internet-enabled URL fetch accepts only HTTP(S), rejects credentials in URLs, DNS failures, loopback, link-local, private, reserved, multicast, and unspecified addresses, and does not follow redirects. `--allow-url-host` is an explicit exact-host override and restriction.
 - Archives are not unpacked yet.
 - Secret-like text is redacted before summaries, extracted context, and source chunks are persisted.
 - Untrusted prompt-injection-like content is recorded as a risk card.
 - Hosted provider descriptors are disabled unless their environment variables are present.
 - Hosted models additionally require explicit cloud permission; provider availability is never treated as execution authority.
+- Repository validation never auto-runs `npm test` or `cargo test`; Python unittest subprocesses receive only `PATH`, `HOME`, `LANG`, and explicitly declared command variables.

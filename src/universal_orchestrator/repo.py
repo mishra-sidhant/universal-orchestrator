@@ -88,8 +88,4 @@ class RepoAnalyzer:
         commands: list[str] = []
         if "pyproject.toml" in package_files or (root / "tests").exists():
             commands.append("PYTHONPATH=src python -m unittest discover -s tests")
-        if "package.json" in package_files:
-            commands.append("npm test")
-        if "Cargo.toml" in package_files:
-            commands.append("cargo test")
         return commands

@@ -30,6 +30,11 @@ def tool_definitions() -> list[dict[str, Any]]:
                     "quality": {"type": "string", "default": "serious"},
                     "budget": {"type": "string", "default": "balanced"},
                     "allow_internet": {"type": "boolean", "default": False},
+                    "allowed_url_hosts": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "default": [],
+                    },
                     "allow_cloud": {"type": "boolean", "default": False},
                 },
             },
@@ -176,6 +181,7 @@ def _tool_run(args: dict[str, Any]) -> dict[str, Any]:
         quality=args.get("quality", "serious"),
         budget_profile=args.get("budget", "balanced"),
         allow_internet=bool(args.get("allow_internet", False)),
+        allowed_url_hosts=[str(host) for host in args.get("allowed_url_hosts", [])],
         allow_cloud=bool(args.get("allow_cloud", False)),
     )
     invocation = HostInvocation(

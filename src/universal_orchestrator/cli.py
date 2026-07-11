@@ -101,6 +101,7 @@ def _add_run_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--budget", default="balanced", choices=["cheap", "balanced", "premium", "unlimited"])
     parser.add_argument("--artifact", action="append", default=[], help="Requested artifact type")
     parser.add_argument("--allow-internet", action="store_true")
+    parser.add_argument("--allow-url-host", action="append", default=[])
     parser.add_argument("--allow-cloud", action="store_true")
     parser.add_argument("--allow-repo-writes", action="store_true")
     parser.add_argument("--allow-shell", action="store_true")
@@ -206,6 +207,7 @@ def _invocation_from_args(args: argparse.Namespace, command: str) -> HostInvocat
         budget_profile=args.budget,
         artifact_types=args.artifact,
         allow_internet=args.allow_internet,
+        allowed_url_hosts=args.allow_url_host,
         allow_cloud=args.allow_cloud,
         allow_repo_writes=args.allow_repo_writes,
         allow_shell=args.allow_shell,

@@ -266,10 +266,22 @@ class Orchestrator:
         source_input_ids = {
             item.id for item in manifest.inputs if item.type != InputType.PROMPT
         }
+        injection_risk_input_ids = {
+            item.id
+            for item in manifest.inputs
+            if item.type != InputType.PROMPT
+            and any(
+                finding.kind == "prompt_injection_risk"
+                for finding in item.security_findings
+            )
+        }
         chunk_refs_by_task: dict[str, list[str]] = {}
         for task_id, pack in context_packs.items():
             source_refs = [
-                chunk.id for chunk in pack.chunks if chunk.input_id in source_input_ids
+                chunk.id
+                for chunk in pack.chunks
+                if chunk.input_id in source_input_ids
+                and chunk.input_id not in injection_risk_input_ids
             ]
             prompt_refs = [
                 chunk.id for chunk in pack.chunks if chunk.input_id not in source_input_ids

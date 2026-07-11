@@ -40,8 +40,8 @@ Implemented now:
 - PPTX slide and notes extraction through `python-pptx` when available.
 - CSV/TSV and XLSX sampling through the standard library and `openpyxl` when available.
 - Image metadata extraction through Pillow when available.
-- Archive inventory for ZIP/TAR without unpacking, including path traversal warnings.
-- URL/API inventory without network fetch by default; permission-gated fetch is available.
+- Full-member ZIP/TAR safety scans without unpacking, including traversal and tar link warnings.
+- URL/API inventory without network fetch by default; permission-gated fetch enforces scheme, credentials, DNS, public-address, exact-host override, and no-redirect policy.
 - Binary metadata records for remaining media and unknown formats.
 
 Planned:
@@ -59,6 +59,8 @@ Context chunk IDs are stable across equivalent runs, carry source/line/page/slid
 - `context_chunks.json`
 - `context_provenance.json`
 - `context_packs.json`
+
+Chunks from non-prompt inputs carrying `prompt_injection_risk` are persisted for audit but excluded from task-consumed evidence refs.
 
 ## Product Plane
 
@@ -113,7 +115,7 @@ Part B adds `routing_telemetry.json`, which records every provider considered fo
 
 Task cache keys include context, contract, execution policy, provider descriptors, and routing decisions. Malformed entries are quarantined, and cached results are treated as successful product fragments. Delta planning compares against the most relevant prior successful run by input-hash similarity.
 
-Part C adds `RepoValidationRunner`, which writes `repo_validation_report.json`. It detects repo test commands from repo maps, executes only allowlisted commands when `allow_shell` is true, and otherwise records the exact skipped validation plan.
+`RepoValidationRunner` writes `repo_validation_report.json`. It executes only Python unittest commands when `allow_shell` is true. Package-manager and Cargo scripts are not auto-detected because they execute repository-controlled code. Child environments are reduced to `PATH`, `HOME`, `LANG`, and command-declared variables.
 
 ## Quality Plane
 

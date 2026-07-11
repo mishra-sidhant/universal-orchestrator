@@ -21,6 +21,7 @@ from universal_orchestrator.models import (
     InputType,
     new_id,
 )
+from universal_orchestrator.policy import SecurityPolicy
 from universal_orchestrator.repo import RepoAnalyzer
 from universal_orchestrator.security import redact_text, scan_text
 from universal_orchestrator.utils import compact_whitespace, iter_files, sha256_bytes, sha256_file, truncate_words
@@ -43,9 +44,15 @@ IGNORED_NAMES = {
 
 
 class InputIngestor:
-    def __init__(self, max_file_bytes: int = 5_000_000, max_folder_files: int = 500) -> None:
+    def __init__(
+        self,
+        max_file_bytes: int = 5_000_000,
+        max_folder_files: int = 500,
+        allowed_url_hosts: set[str] | None = None,
+    ) -> None:
         self.limits = IngestionLimits(max_file_bytes=max_file_bytes, max_folder_files=max_folder_files)
         self.repo_analyzer = RepoAnalyzer()
+        self.allowed_url_hosts = allowed_url_hosts
 
     @property
     def max_file_bytes(self) -> int:
@@ -83,6 +90,7 @@ class InputIngestor:
                         attachment,
                         invocation.cwd,
                         invocation.user_options.allow_internet,
+                        set(invocation.user_options.allowed_url_hosts) or self.allowed_url_hosts,
                     )
                 )
             except Exception as exc:  # pragma: no cover - defensive boundary
@@ -100,7 +108,14 @@ class InputIngestor:
 
         for link in invocation.links:
             if not any(item.uri == link for item in records):
-                records.append(self._ingest_url(InputAttachment(uri=link), invocation.cwd, invocation.user_options.allow_internet))
+                records.append(
+                    self._ingest_url(
+                        InputAttachment(uri=link),
+                        invocation.cwd,
+                        invocation.user_options.allow_internet,
+                        set(invocation.user_options.allowed_url_hosts) or self.allowed_url_hosts,
+                    )
+                )
 
         return ContextManifest(
             run_id=run_id,
@@ -116,11 +131,15 @@ class InputIngestor:
         )
 
     def _ingest_attachment(
-        self, attachment: InputAttachment, cwd: str | None, allow_network: bool
+        self,
+        attachment: InputAttachment,
+        cwd: str | None,
+        allow_network: bool,
+        allowed_url_hosts: set[str] | None = None,
     ) -> InputRecord:
         input_type = detect_input_type(attachment.uri)
         if input_type in {InputType.URL, InputType.API}:
-            return self._ingest_url(attachment, cwd, allow_network)
+            return self._ingest_url(attachment, cwd, allow_network, allowed_url_hosts)
 
         original_path = Path(attachment.uri).expanduser()
         warning_for_symlink = symlink_warning(original_path)
@@ -376,33 +395,52 @@ class InputIngestor:
 
     def _ingest_archive(self, path: Path, attachment: InputAttachment) -> InputRecord:
         warnings: list[str] = []
-        metadata: dict[str, object] = {"suffix": path.suffix.lower(), "entries": 0, "unsafe_paths": []}
+        metadata: dict[str, object] = {
+            "suffix": path.suffix.lower(),
+            "entries": 0,
+            "unsafe_paths": [],
+            "unsafe_links": [],
+        }
         entries: list[str] = []
+        all_entry_names: list[str] = []
+        unsafe_links: list[str] = []
         try:
             if zipfile.is_zipfile(path):
                 with zipfile.ZipFile(path) as archive:
                     infos = archive.infolist()
                     metadata["entries"] = len(infos)
                     metadata["uncompressed_bytes"] = sum(info.file_size for info in infos)
-                    entries = [info.filename for info in infos[:50]]
+                    all_entry_names = [info.filename for info in infos]
+                    entries = all_entry_names[:50]
             elif tarfile.is_tarfile(path):
                 with tarfile.open(path) as archive:
                     members = archive.getmembers()
                     metadata["entries"] = len(members)
                     metadata["uncompressed_bytes"] = sum(member.size for member in members)
-                    entries = [member.name for member in members[:50]]
+                    all_entry_names = [member.name for member in members]
+                    entries = all_entry_names[:50]
+                    unsafe_links = [
+                        member.name for member in members if member.issym() or member.islnk()
+                    ]
             else:
                 warnings.append("Archive type is not supported for safe inventory yet.")
         except Exception as exc:
             warnings.append(f"Archive inventory failed: {exc}")
-        unsafe = [name for name in entries if name.startswith("/") or ".." in Path(name).parts]
+        unsafe = [
+            name
+            for name in all_entry_names
+            if name.startswith("/") or ".." in Path(name).parts
+        ]
         metadata["unsafe_paths"] = unsafe
+        metadata["unsafe_links"] = unsafe_links
         if metadata.get("entries", 0) > self.limits.max_archive_entries:
             warnings.append(f"Archive exceeds max entries: {metadata['entries']}")
         if metadata.get("uncompressed_bytes", 0) > self.limits.max_archive_uncompressed_bytes:
             warnings.append(f"Archive exceeds max uncompressed bytes: {metadata['uncompressed_bytes']}")
         if unsafe:
             warnings.append(f"Archive contains unsafe paths: {unsafe[:5]}")
+        if unsafe_links:
+            warnings.append(f"Archive contains symbolic or hard links: {unsafe_links[:5]}")
         summary = f"Archive inventory: {metadata.get('entries', 0)} entries. Sample: {', '.join(entries[:10])}"
         return InputRecord(
             id=new_id("input"),
@@ -532,12 +570,18 @@ class InputIngestor:
             warnings=warnings,
         )
 
-    def _ingest_url(self, attachment: InputAttachment, cwd: str | None, allow_network: bool) -> InputRecord:
+    def _ingest_url(
+        self,
+        attachment: InputAttachment,
+        cwd: str | None,
+        allow_network: bool,
+        allowed_url_hosts: set[str] | None = None,
+    ) -> InputRecord:
         del cwd
         input_type = detect_input_type(attachment.uri)
         parsed = urlparse(attachment.uri)
         if allow_network:
-            return self._fetch_url(attachment, input_type, parsed)
+            return self._fetch_url(attachment, input_type, parsed, allowed_url_hosts)
         return InputRecord(
             id=new_id("input"),
             type=input_type,
@@ -551,18 +595,43 @@ class InputIngestor:
             warnings=["URL fetch not performed in deterministic MVP."],
         )
 
-    def _fetch_url(self, attachment: InputAttachment, input_type: InputType, parsed) -> InputRecord:
+    def _fetch_url(
+        self,
+        attachment: InputAttachment,
+        input_type: InputType,
+        parsed,
+        allowed_url_hosts: set[str] | None = None,
+    ) -> InputRecord:
         warnings: list[str] = []
         metadata: dict[str, object] = {"scheme": parsed.scheme, "netloc": parsed.netloc, "path": parsed.path}
         text = ""
         status = InputStatus.PARTIAL
+        policy = SecurityPolicy()
+        if not policy.is_url_allowed(
+            attachment.uri,
+            allow_internet=True,
+            allowed_hosts=allowed_url_hosts,
+        ):
+            return InputRecord(
+                id=new_id("input"),
+                type=input_type,
+                name=attachment.name or parsed.netloc or attachment.uri,
+                uri=attachment.uri,
+                status=InputStatus.PARTIAL,
+                content_hash=sha256_bytes(attachment.uri.encode("utf-8")),
+                summary="URL fetch blocked by network safety policy.",
+                content_text="URL fetch blocked by network safety policy.",
+                metadata=metadata,
+                warnings=["URL fetch blocked by scheme, host, or private-address policy."],
+            )
         try:
             request = urllib.request.Request(
                 attachment.uri,
                 headers={"User-Agent": "universal-orchestrator/0.1"},
                 method="GET",
             )
-            with urllib.request.urlopen(request, timeout=10) as response:
+            opener = urllib.request.build_opener(_NoRedirectHandler())
+            with opener.open(request, timeout=10) as response:
                 content_type = response.headers.get("content-type")
                 metadata["content_type"] = content_type
                 raw = response.read(self.max_file_bytes)
@@ -610,3 +679,9 @@ class InputIngestor:
             return "none"
         top = sorted(counts.items(), key=lambda item: item[1], reverse=True)[:5]
         return ", ".join(f"{suffix}={count}" for suffix, count in top)
+
+
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        del req, fp, code, msg, headers, newurl
+        return None

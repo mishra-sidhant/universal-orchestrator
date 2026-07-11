@@ -309,3 +309,42 @@ Implemented corrections:
 - Added ADR-001 with alternatives, consequences, pre/post-DAG boundaries, and residual coupling.
 
 Existing-test dispositions: budget tests now assert the real all-free plan; repair tests assert unsupported repair work reshapes instead of fake completion; deterministic capability tests assert only registered stage capabilities; cache tests expect three pure hits; old task-ID assertions use the five stage IDs; E.0 failure injection now fails the real first handler before quality runs.
+
+## Tranche E.3 Security Floor
+
+Failing-first transcript against `18670f9`:
+
+```text
+9 test methods produced 15 failures and 2 errors:
+- JSON/dotenv quoted values, GitHub, Google, Slack, JWT, private-key, and credential-URL patterns escaped
+- traversal at ZIP entry 61 was absent from unsafe_paths
+- tar unsafe_links key was absent
+- 127.0.0.1 was allowed and metadata-endpoint ingestion reached the network mock
+- npm test and cargo test were auto-detected
+- OPENAI_API_KEY, ANTHROPIC_API_KEY, and unrelated parent variables reached subprocess env
+- OpenAI _safe_payload returned the secret unchanged
+- an injection-flagged source chunk appeared in worker evidence refs
+```
+
+Implemented corrections:
+
+- Expanded scan/redaction patterns for every requested secret family, including quoted JSON/dotenv values and multiline private keys.
+- Archive inventory samples remain bounded for display, but safety checks inspect every member and flag all tar symbolic/hard links.
+- URL policy resolves hosts and blocks unsafe schemes, URL credentials, DNS failures, and non-public address classes. Redirects are disabled; exact-host overrides are exposed through CLI/MCP.
+- Removed automatic npm/cargo test detection and allowlisting. Python validation subprocesses receive a minimal environment.
+- OpenAI dry-run payload redaction is recursive.
+- Injection-flagged source chunks remain auditable but cannot enter consumed evidence refs.
+- Deleted policy authority/path/archive helpers that had no runtime caller; real archive behavior is covered at ingestion.
+
+Existing-test disposition: the world-readiness policy test no longer calls deleted test-only path/archive helpers; stronger archive and SSRF tests cover live boundaries.
+
+Validation gate (2026-07-11, bundled project runtime):
+
+```text
+unittest: 97 tests passed
+ruff: All checks passed
+evals: 3/3 passed
+doctor: passed
+package: universal_orchestrator-0.1.0.tar.gz and universal_orchestrator-0.1.0-py3-none-any.whl built successfully
+git diff --check: passed
+```

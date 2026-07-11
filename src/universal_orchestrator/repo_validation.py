@@ -94,10 +94,6 @@ class RepoValidationRunner:
             tokens[0] = sys.executable
             if tokens[1:3] == ["-m", "unittest"]:
                 return env_updates, tokens
-        if tokens == ["npm", "test"]:
-            return env_updates, tokens
-        if tokens == ["cargo", "test"]:
-            return env_updates, tokens
         return None
 
     def _run_command(
@@ -108,7 +104,12 @@ class RepoValidationRunner:
         argv: list[str],
     ) -> ValidationCommandResult:
         started = perf_counter()
-        env = {**os.environ, **env_updates}
+        env = {
+            key: os.environ[key]
+            for key in ("PATH", "HOME", "LANG")
+            if key in os.environ
+        }
+        env.update(env_updates)
         try:
             completed = subprocess.run(
                 argv,
