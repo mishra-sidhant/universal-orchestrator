@@ -16,5 +16,5 @@
 
 - `factuality`: removed; parser success was not factual verification.
 - `style_quality`: removed; file existence was not a style or render check.
-- `cost_efficiency`: renamed to `routing_efficiency`; `budget_report.json` now carries estimated dry-run usage, but no live execution evidence supports a cost-effectiveness score.
+- `cost_efficiency`: renamed to `routing_efficiency`; `budget_report.json` and `cost_ledger.json` carry estimate/actual spend accounting, but no automated cost-effectiveness or superiority score is claimed.
 - `artifact_integrity`: renamed to `artifact_presence` inside `QualityScore`; final cryptographic integrity remains a separate report.

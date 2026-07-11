@@ -8,6 +8,7 @@ from universal_orchestrator.artifacts import ArtifactStore
 from universal_orchestrator.budget import BudgetController
 from universal_orchestrator.cache import ExactMatchCache
 from universal_orchestrator.context import ContextIntelligence
+from universal_orchestrator.cost_ledger import CostLedger
 from universal_orchestrator.contracts import ProductContractCompiler
 from universal_orchestrator.delta import DeltaPlanner
 from universal_orchestrator.evidence import EvidenceAuditor
@@ -225,7 +226,9 @@ class Orchestrator:
             },
         )
 
+        cost_ledger = CostLedger(run_id, invocation.user_options.cost_ceiling_usd)
         registry = self.capability_registry or CapabilityRegistry.from_environment()
+        registry.cost_ledger = cost_ledger
         router = AdaptiveRouter(registry, execution_policy)
         self.runtime.transition(run_id, RunState.ROUTING)
         decisions, routing_telemetry = router.route_all_with_telemetry(run_id, dag.topological_order())
@@ -326,6 +329,7 @@ class Orchestrator:
                 dag=dag,
                 plan_review=plan_review,
                 budget_report=budget_report,
+                cost_ledger=cost_ledger,
                 delta_plan=delta_plan,
                 decisions=decisions,
                 routing_telemetry=routing_telemetry,
@@ -522,6 +526,38 @@ class Orchestrator:
                 "repair_execution",
                 {"repair_tasks": len(repair_dag.nodes), "quality_passed": quality.passed},
             )
+        cost_ledger_report = cost_ledger.snapshot()
+        budget_report = self.budget.reconcile_actual_usage(budget_report, cost_ledger_report)
+        self._replace_artifact(
+            artifacts,
+            self.artifact_store.write_json_artifact(
+                run_id, "cost_ledger.json", cost_ledger_report.model_dump(mode="json")
+            ),
+        )
+        self._replace_artifact(
+            artifacts,
+            self.artifact_store.write_json_artifact(
+                run_id, "budget_report.json", budget_report.model_dump(mode="json")
+            ),
+        )
+        quality_warnings = list(quality.warnings)
+        if budget_report.estimate_actual_reconciliation.get("diverged"):
+            quality_warnings.extend(
+                warning for warning in budget_report.warnings if warning not in quality_warnings
+            )
+        quality_violations = list(quality.violations)
+        if cost_ledger_report.budget_stop:
+            quality_violations.append(
+                f"Budget stop prevented provider call for {cost_ledger_report.budget_stop.task_id}: "
+                f"{cost_ledger_report.budget_stop.reason}"
+            )
+        quality = quality.model_copy(
+            update={
+                "passed": quality.passed and not bool(cost_ledger_report.budget_stop),
+                "warnings": quality_warnings,
+                "violations": quality_violations,
+            }
+        )
         validation_findings = self.quality.validators.evaluate(
             manifest, contract, dag, all_decisions, all_results, [artifact.as_path for artifact in artifacts]
         )
@@ -784,6 +820,7 @@ class Orchestrator:
         dag: TaskDAG,
         plan_review: PlanReview,
         budget_report: BudgetReport,
+        cost_ledger: CostLedger,
         delta_plan: DeltaExecutionPlan,
         decisions: list[RoutingDecision],
         routing_telemetry: RoutingTelemetryReport,
@@ -811,6 +848,7 @@ class Orchestrator:
             ("task_dag.json", dag.model_dump(mode="json")),
             ("plan_review.json", plan_review.model_dump(mode="json")),
             ("budget_report.json", budget_report.model_dump(mode="json")),
+            ("cost_ledger.json", cost_ledger.snapshot().model_dump(mode="json")),
             ("delta_execution_plan.json", delta_plan.model_dump(mode="json")),
             (
                 "routing_decisions.json",
@@ -885,6 +923,7 @@ class Orchestrator:
             "task_dag.json",
             "plan_review.json",
             "budget_report.json",
+            "cost_ledger.json",
             "delta_execution_plan.json",
             "routing_decisions.json",
             "routing_telemetry.json",

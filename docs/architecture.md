@@ -94,6 +94,8 @@ Part B adds `BudgetController` and `DeltaPlanner`:
 - `budget_report.json` records per-task token estimates, effective cost caps, estimated spend, and a per-run estimated usage ledger reconciled to task totals.
 - `delta_execution_plan.json` compares the run against the previous successful run and marks tasks reusable only when inputs are unchanged and the scheduler cache entry exists.
 
+Live spend has a separate accounting plane. `CostLedger` reserves the configured estimate under a lock before transport; a call that does not fit the remaining ceiling is never sent and records `budget_stop`. Successful calls commit provider-reported input/output tokens at rates loaded from `provider_rates.json`. `cost_ledger.json` is the per-call authority; `budget_report.json` reconciles estimate and actual, and large estimator drift is warning-level calibration evidence. The default ceiling is $0.50 even when the token budget profile is `unlimited`.
+
 ## Routing Plane
 
 `CapabilityRegistry` describes providers by capability, cost tier, health, context limits, and kind. `AdaptiveRouter` selects the best available provider or marks a task as degraded, reshaped, or paused.

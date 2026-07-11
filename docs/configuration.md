@@ -51,7 +51,13 @@ uv run python -m universal_orchestrator smoke --provider anthropic.configured
 uv run python -m universal_orchestrator smoke --provider ollama.local
 ```
 
-Do not paste keys into commands. Add them only to the gitignored `.env.local` file or the process environment. Actual USD pricing is added by the cost-ledger phase; until then the smoke result leaves `estimated_cost_usd` unset rather than inventing a price.
+Do not paste keys into commands. Add them only to the gitignored `.env.local` file or the process environment. Smoke reports both its pre-call estimate and provider-usage-priced actual cost from the configured rate table.
+
+## Cost Ceiling And Rates
+
+Every live run and smoke call defaults to a $0.50 ceiling. Operators may lower or explicitly raise it per invocation with `--cost-ceiling`; no profile, including `unlimited`, changes this default automatically. Authorization reserves estimated cost before transport, so an unaffordable call produces a recorded budget stop without opening the socket.
+
+Provider/model rates live in `src/universal_orchestrator/provider_rates.json`, not Python code. To update pricing, edit that file, advance its `version`, add an exact model entry when available, and run the full fixture suite plus package build. Provider defaults are configured pricing priors and must be reviewed against the provider's published pricing before operator live use. Every ledger row records the table version and whether an exact model or provider default rate priced it.
 
 ## Commands
 
@@ -63,6 +69,7 @@ PYTHONPATH=src python -m universal_orchestrator providers
 PYTHONPATH=src python -m universal_orchestrator smoke --provider openai.configured
 PYTHONPATH=src python -m universal_orchestrator mcp-server
 PYTHONPATH=src python -m universal_orchestrator run "Build a product package" ./path-or-url
+PYTHONPATH=src python -m universal_orchestrator run "Build a bounded package" --cost-ceiling 0.25 ./path-or-url
 PYTHONPATH=src python -m universal_orchestrator run "Fetch approved host" --allow-internet --allow-url-host approved.example ./url
 PYTHONPATH=src python -m universal_orchestrator repo "Analyze this repo" .
 PYTHONPATH=src python -m universal_orchestrator artifacts

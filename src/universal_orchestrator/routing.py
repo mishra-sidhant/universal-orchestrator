@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 
 from universal_orchestrator.config import load_env_file
+from universal_orchestrator.cost_ledger import CostLedger
 from universal_orchestrator.execution_policy import PolicyCompiler
 from universal_orchestrator.models import (
     CostTier,
@@ -41,14 +42,17 @@ class CapabilityRegistry:
         self,
         providers: list[ProviderDescriptor],
         transports: dict[str, HTTPTransport] | None = None,
+        cost_ledger: CostLedger | None = None,
     ) -> None:
         self.providers = providers
         self.transports = transports or {}
+        self.cost_ledger = cost_ledger
 
     @classmethod
     def from_environment(
         cls,
         transports: dict[str, HTTPTransport] | None = None,
+        cost_ledger: CostLedger | None = None,
     ) -> "CapabilityRegistry":
         load_env_file()
         providers = [
@@ -144,7 +148,7 @@ class CapabilityRegistry:
                 ),
             ),
         ]
-        return cls(providers, transports=transports)
+        return cls(providers, transports=transports, cost_ledger=cost_ledger)
 
     def available(self) -> list[ProviderDescriptor]:
         return [
@@ -159,11 +163,29 @@ class CapabilityRegistry:
             if provider.id == "deterministic.tools":
                 adapters.append(DeterministicToolsAdapter(provider))
             elif provider.id == "openai.configured":
-                adapters.append(OpenAIResponsesAdapter(provider, transport=self.transports.get(provider.id)))
+                adapters.append(
+                    OpenAIResponsesAdapter(
+                        provider,
+                        transport=self.transports.get(provider.id),
+                        cost_ledger=self.cost_ledger,
+                    )
+                )
             elif provider.id == "anthropic.configured":
-                adapters.append(AnthropicAdapter(provider, transport=self.transports.get(provider.id)))
+                adapters.append(
+                    AnthropicAdapter(
+                        provider,
+                        transport=self.transports.get(provider.id),
+                        cost_ledger=self.cost_ledger,
+                    )
+                )
             elif provider.id == "ollama.local":
-                adapters.append(OllamaAdapter(provider, transport=self.transports.get(provider.id)))
+                adapters.append(
+                    OllamaAdapter(
+                        provider,
+                        transport=self.transports.get(provider.id),
+                        cost_ledger=self.cost_ledger,
+                    )
+                )
         return ProviderAdapterRegistry(adapters)
 
 

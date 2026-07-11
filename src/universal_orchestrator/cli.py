@@ -14,6 +14,7 @@ from universal_orchestrator.config import (
     provider_config_status,
     write_env_example,
 )
+from universal_orchestrator.cost_ledger import CostLedger
 from universal_orchestrator.models import (
     Host,
     HostInvocation,
@@ -73,6 +74,7 @@ def build_parser() -> argparse.ArgumentParser:
     smoke_parser = sub.add_parser("smoke", help="Run one explicit live provider round-trip")
     smoke_parser.add_argument("--provider", required=True)
     smoke_parser.add_argument("--timeout", type=int, default=30)
+    smoke_parser.add_argument("--cost-ceiling", type=float, default=0.50)
     smoke_parser.set_defaults(handler=handle_smoke)
 
     mcp_parser = sub.add_parser("mcp-server", help="Run the stdio MCP-style host adapter")
@@ -113,6 +115,7 @@ def _add_run_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--host", default=Host.TERMINAL.value, choices=[host.value for host in Host])
     parser.add_argument("--quality", default="serious", choices=["fast", "standard", "serious", "max"])
     parser.add_argument("--budget", default="balanced", choices=["cheap", "balanced", "premium", "unlimited"])
+    parser.add_argument("--cost-ceiling", type=float, default=0.50)
     parser.add_argument("--artifact", action="append", default=[], help="Requested artifact type")
     parser.add_argument("--allow-internet", action="store_true")
     parser.add_argument("--allow-url-host", action="append", default=[])
@@ -187,6 +190,8 @@ def handle_smoke(args: argparse.Namespace) -> None:
         raise ValueError(f"Unknown provider: {args.provider}")
     if not descriptor.enabled:
         raise RuntimeError(f"{args.provider} is not configured; run `ai-team configure` for required values.")
+    cost_ledger = CostLedger("R-SMOKE", ceiling_usd=args.cost_ceiling)
+    registry.cost_ledger = cost_ledger
     adapter = registry.adapter_registry().require(args.provider)
     task = ProviderTask(
         task=TaskNode(
@@ -203,7 +208,8 @@ def handle_smoke(args: argparse.Namespace) -> None:
     started = monotonic()
     result = adapter.execute(task)
     latency_ms = round((monotonic() - started) * 1_000)
-    estimate = adapter.estimate_cost(task)
+    estimate = result.cost_estimate or adapter.estimate_cost(task)
+    ledger = cost_ledger.snapshot()
     print(
         json.dumps(
             {
@@ -212,6 +218,9 @@ def handle_smoke(args: argparse.Namespace) -> None:
                 "latency_ms": latency_ms,
                 "usage": result.output.get("usage", {}),
                 "estimated_cost_usd": estimate.estimated_usd,
+                "actual_cost_usd": ledger.total_actual_usd,
+                "cost_ceiling_usd": ledger.cost_ceiling_usd,
+                "rate_table_version": ledger.rate_table_version,
                 "response_received": bool(result.output.get("summary")),
             },
             indent=2,
@@ -269,6 +278,7 @@ def _invocation_from_args(args: argparse.Namespace, command: str) -> HostInvocat
         allow_cloud=args.allow_cloud,
         allow_repo_writes=args.allow_repo_writes,
         allow_shell=args.allow_shell,
+        cost_ceiling_usd=args.cost_ceiling,
     )
     return HostInvocation(
         host=args.host,

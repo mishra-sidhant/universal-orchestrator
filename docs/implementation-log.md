@@ -578,3 +578,35 @@ key sweep: run artifacts 0 matches; delivery ZIP members 0 matches
 local_only with live configuration: 0 transport invocations
 git diff --check: passed
 ```
+
+## Tranche F.3 Truthful Live Cost Accounting
+
+Failing-first transcript against `f053b00`:
+
+```text
+test_tranche_f3 import failed: universal_orchestrator.cost_ledger did not exist
+RateTable, BudgetStopError, and actual provider-call ledger contracts did not exist
+```
+
+Implemented:
+
+- Added a packaged, versioned JSON rate table with provider defaults and exact-model override slots.
+- Added a thread-safe per-run cost ledger that reserves estimates before transport and records a structured budget stop when the remaining ceiling is insufficient.
+- Normalized actual token usage into per-call rows with task, provider, model, estimated/actual cost, and rate-table provenance.
+- Added estimate/actual reconciliation to `budget_report.json`; threshold drift is a quality warning, not a gate failure.
+- Added `cost_ledger.json` to every run and its delivery integrity inventory, including zero-spend local runs.
+- Kept the default ceiling at $0.50 for runs and smoke calls; the separate `unlimited` token profile does not raise it.
+
+Validation gate (2026-07-11, no real keys and no live calls):
+
+```text
+unittest: 142 tests passed
+ruff src tests: All checks passed
+evals --run: 3/3 passed
+doctor: passed with all provider credentials absent
+package: wheel and source distribution built successfully
+wheel inventory: provider_rates.json, pricing.py, and cost_ledger.py present
+pre-call budget stop fixture: 0 transport invocations
+actual usage fixture: 11 input + 7 output tokens, $0.000160 actual
+git diff --check: passed
+```

@@ -16,6 +16,8 @@ from universal_orchestrator.models import (
     ProviderTask,
     TaskStatus,
 )
+from universal_orchestrator.cost_ledger import CostAuthorization, CostLedger
+from universal_orchestrator.pricing import RateTable
 from universal_orchestrator.security import redact_text, scan_text
 from universal_orchestrator.utils import estimate_tokens
 from universal_orchestrator.providers.transport import (
@@ -60,11 +62,15 @@ class ProviderAdapter(ABC):
         transport: HTTPTransport | None = None,
         sleeper: Callable[[float], None] | None = None,
         jitter: Callable[[], float] | None = None,
+        cost_ledger: CostLedger | None = None,
+        rate_table: RateTable | None = None,
     ) -> None:
         self.descriptor = descriptor
         self.transport = transport or UrllibHTTPTransport()
         self.sleeper = sleeper or sleep
         self.jitter = jitter or random.random
+        self.cost_ledger = cost_ledger
+        self.rate_table = rate_table or (cost_ledger.rate_table if cost_ledger else RateTable.load())
 
     @property
     def id(self) -> str:
@@ -74,14 +80,57 @@ class ProviderAdapter(ABC):
         return self.descriptor.health
 
     def estimate_cost(self, task: ProviderTask) -> CostEstimate:
+        return self.estimate_model_cost(task, "default")
+
+    def estimate_model_cost(self, task: ProviderTask, model: str) -> CostEstimate:
         input_tokens = estimate_tokens(render_provider_prompt(task))
         output_tokens = self.estimated_output_tokens(task)
+        try:
+            estimated_usd = self.rate_table.quote(
+                self.id, model, input_tokens, output_tokens
+            ).cost_usd
+        except KeyError:
+            estimated_usd = None
         return CostEstimate(
             tier=self.descriptor.cost_tier,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             estimated_tokens=input_tokens + output_tokens,
+            estimated_usd=estimated_usd,
         )
+
+    def authorize_cost(
+        self,
+        task: ProviderTask,
+        model: str,
+    ) -> tuple[CostEstimate, CostAuthorization | None]:
+        estimate = self.estimate_model_cost(task, model)
+        if self.cost_ledger is None:
+            return estimate, None
+        return estimate, self.cost_ledger.authorize(
+            task.task.id,
+            self.id,
+            model,
+            estimate.input_tokens,
+            estimate.output_tokens,
+        )
+
+    def commit_cost(
+        self,
+        authorization: CostAuthorization | None,
+        usage: dict[str, int],
+    ) -> None:
+        if authorization is None or self.cost_ledger is None:
+            return
+        self.cost_ledger.commit(
+            authorization,
+            usage.get("input_tokens", 0),
+            usage.get("output_tokens", 0),
+        )
+
+    def release_cost(self, authorization: CostAuthorization | None) -> None:
+        if authorization is not None and self.cost_ledger is not None:
+            self.cost_ledger.release(authorization)
 
     def estimated_output_tokens(self, task: ProviderTask) -> int:
         del task

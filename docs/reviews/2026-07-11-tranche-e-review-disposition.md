@@ -14,14 +14,14 @@ Review baseline: `82b2b59`. This ledger is the Tranche F resume point. `pending`
 | F.1 provider error taxonomy | fixed F.1 | 80a742c | Typed auth/rate-limit/transient/fatal/timeout/malformed-output failures; retries are bounded and limited to eligible kinds. |
 | F.1 socket-level call timeout | fixed F.1 | 80a742c | Adapter task timeout is carried on each `HTTPRequest` and passed to `urlopen`, independently of the scheduler lease. |
 | F.1 opt-in smoke command | fixed F.1 | 80a742c | `ai-team smoke --provider`; fixed tiny prompt, explicit key gate, latency and usage output. USD remains unset until F.3 rates. |
-| F.2 outbound redaction | fixed F.2 | `Tranche F.2: enforce provider egress safety` | Planted source and metadata key are absent from the captured request body; redaction marker is present. |
-| F.2 injection quarantine and delimiters | fixed F.2 | `Tranche F.2: enforce provider egress safety` | Compiler and renderer both exclude the hostile chunk; retained context has authority preamble and begin/end delimiters. |
-| F.2 local-only with keys | fixed F.2 | `Tranche F.2: enforce provider egress safety` | Valid key/model, network authority, live adapter, and forged route still produce zero fake-transport requests. |
-| F.2 full key sweep | fixed F.2 | `Tranche F.2: enforce provider egress safety` | Live-configured full run scans every run artifact and every delivery ZIP member for planted key material; zero matches. |
-| F.3 pre-call cost gate | pending | pending | Default ceiling remains $0.50; stop before unaffordable invocation. |
-| F.3 actual usage ledger | pending | pending | Fixture token counts and actual costs persisted per call. |
-| F.3 estimate/actual reconciliation | pending | pending | Divergence becomes a warning, not a false quality gate. |
-| F.3 configurable rate table | pending | pending | Versioned provider/model pricing config and documented update path. |
+| F.2 outbound redaction | fixed F.2 | f053b00 | Planted source and metadata key are absent from the captured request body; redaction marker is present. |
+| F.2 injection quarantine and delimiters | fixed F.2 | f053b00 | Compiler and renderer both exclude the hostile chunk; retained context has authority preamble and begin/end delimiters. |
+| F.2 local-only with keys | fixed F.2 | f053b00 | Valid key/model, network authority, live adapter, and forged route still produce zero fake-transport requests. |
+| F.2 full key sweep | fixed F.2 | f053b00 | Live-configured full run scans every run artifact and every delivery ZIP member for planted key material; zero matches. |
+| F.3 pre-call cost gate | fixed F.3 | `Tranche F.3: add truthful live cost accounting` | Thread-safe reservation stops before transport and records task, provider, model, estimate, remaining budget, and reason. Default pinned at $0.50. |
+| F.3 actual usage ledger | fixed F.3 | `Tranche F.3: add truthful live cost accounting` | Fixture-reported 11 input/7 output tokens price to $0.000160 and persist with model and rate provenance. |
+| F.3 estimate/actual reconciliation | fixed F.3 | `Tranche F.3: add truthful live cost accounting` | `budget_report.json` carries estimate/actual fields; threshold divergence adds recalibration warning without failing quality. |
+| F.3 configurable rate table | fixed F.3 | `Tranche F.3: add truthful live cost accounting` | Packaged `provider_rates.json` has version, provider defaults, exact-model slots, and documented update procedure. |
 | F.4 model-backed synthesis | pending | pending | Bounded pack with inline chunk IDs; structured result. |
 | F.4 schema validation, one repair, extractive fallback | pending | pending | Malformed fixture degrades honestly after one reformat attempt. |
 | F.4 model-claim evidence discipline | pending | pending | Fabricated ref fails; lexical overlap is warning-only and labeled weak. |
@@ -41,3 +41,5 @@ F.0 adds new regressions and does not weaken or delete an existing assertion.
 F.1 replaces `test_http_provider_retries_429_and_5xx`, which patched `urllib` internals, with the same guarantee at the new injectable transport boundary. The replacement additionally asserts request count and exact `Retry-After` delay without permitting a socket. No failure expectation was removed.
 
 F.2 adds four new security regressions and does not weaken or delete an existing assertion.
+
+F.3 adds five accounting regressions and does not weaken or delete an existing assertion.

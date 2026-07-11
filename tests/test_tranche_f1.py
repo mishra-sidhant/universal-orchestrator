@@ -188,14 +188,21 @@ class TrancheF1TransportTests(unittest.TestCase):
         self.assertEqual(args.provider, "openai.configured")
         provider = descriptor("openai.configured")
         transport = FakeTransport([response("openai_success")])
-        adapter = OpenAIResponsesAdapter(provider, transport=transport)
 
         class FixtureRegistry:
             providers = [provider]
+            cost_ledger = None
 
-            @staticmethod
-            def adapter_registry() -> ProviderAdapterRegistry:
-                return ProviderAdapterRegistry([adapter])
+            def adapter_registry(self) -> ProviderAdapterRegistry:
+                return ProviderAdapterRegistry(
+                    [
+                        OpenAIResponsesAdapter(
+                            provider,
+                            transport=transport,
+                            cost_ledger=self.cost_ledger,
+                        )
+                    ]
+                )
 
         output = io.StringIO()
         with patch(
@@ -211,6 +218,7 @@ class TrancheF1TransportTests(unittest.TestCase):
         payload = json.loads(output.getvalue())
         self.assertEqual(payload["provider"], "openai.configured")
         self.assertEqual(payload["usage"]["total_tokens"], 18)
+        self.assertAlmostEqual(payload["actual_cost_usd"], 0.00016)
         self.assertTrue(payload["response_received"])
         self.assertEqual(len(transport.requests), 1)
 

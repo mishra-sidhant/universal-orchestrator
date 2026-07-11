@@ -5,6 +5,7 @@ from universal_orchestrator.models import (
     BudgetReport,
     ContextPack,
     CostTier,
+    CostLedgerReport,
     HostInvocation,
     RoutingDecision,
     TaskBudget,
@@ -112,6 +113,7 @@ class BudgetController:
                 6,
             ),
             enforced=True,
+            cost_ceiling_usd=invocation.user_options.cost_ceiling_usd,
             task_budgets=task_budgets,
             warnings=warnings,
         )
@@ -163,6 +165,41 @@ class BudgetController:
         reconciled = sum(item.total_tokens for item in ledger) == report.total_estimated_tokens
         return report.model_copy(
             update={"usage_ledger": ledger, "usage_reconciled": reconciled}
+        )
+
+    def reconcile_actual_usage(
+        self,
+        report: BudgetReport,
+        ledger: CostLedgerReport,
+        divergence_threshold: float = 0.25,
+    ) -> BudgetReport:
+        estimated = ledger.total_estimated_usd
+        actual = ledger.total_actual_usd
+        absolute = abs(actual - estimated)
+        relative = absolute / estimated if estimated > 0 else 0.0
+        diverged = bool(ledger.calls) and relative > divergence_threshold
+        warnings = list(report.warnings)
+        if diverged:
+            warnings.append(
+                "Provider estimate-to-actual cost divergence exceeded the configured threshold; "
+                "estimator recalibration is recommended."
+            )
+        return report.model_copy(
+            update={
+                "cost_ceiling_usd": ledger.cost_ceiling_usd,
+                "provider_calls": ledger.calls,
+                "total_actual_usd": actual,
+                "budget_stop": ledger.budget_stop,
+                "estimate_actual_reconciliation": {
+                    "estimated_usd": estimated,
+                    "actual_usd": actual,
+                    "absolute_usd": absolute,
+                    "relative_ratio": relative,
+                    "threshold_ratio": divergence_threshold,
+                    "diverged": diverged,
+                },
+                "warnings": warnings,
+            }
         )
 
     def estimate_usd(self, tokens: int, cost_tier: CostTier) -> float:

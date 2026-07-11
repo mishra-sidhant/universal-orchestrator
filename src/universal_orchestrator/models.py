@@ -201,6 +201,7 @@ class UserOptions(StrictModel):
     allow_repo_writes: bool = False
     allow_shell: bool = False
     privacy_mode: PrivacyMode = PrivacyMode.BALANCED
+    cost_ceiling_usd: float = Field(default=0.50, gt=0)
 
 
 class InputAttachment(StrictModel):
@@ -576,6 +577,41 @@ class UsageLedgerEntry(StrictModel):
     estimated: bool = True
 
 
+class ProviderCallLedgerEntry(StrictModel):
+    call_id: str
+    task_id: str
+    provider_id: str
+    model: str
+    input_tokens: int = 0
+    output_tokens: int = 0
+    total_tokens: int = 0
+    estimated_usd: float = 0.0
+    actual_usd: float = 0.0
+    rate_table_version: str
+    rate_key: str
+
+
+class BudgetStopRecord(StrictModel):
+    task_id: str
+    provider_id: str
+    model: str
+    estimated_usd: float
+    remaining_usd: float
+    reason: str
+
+
+class CostLedgerReport(StrictModel):
+    run_id: str
+    cost_ceiling_usd: float = 0.50
+    rate_table_version: str
+    rate_table_source: str
+    calls: list[ProviderCallLedgerEntry] = Field(default_factory=list)
+    total_estimated_usd: float = 0.0
+    total_actual_usd: float = 0.0
+    reserved_usd: float = 0.0
+    budget_stop: BudgetStopRecord | None = None
+
+
 class BudgetReport(StrictModel):
     run_id: str
     requested_profile: BudgetProfile
@@ -587,6 +623,11 @@ class BudgetReport(StrictModel):
     task_budgets: list[TaskBudget] = Field(default_factory=list)
     usage_ledger: list[UsageLedgerEntry] = Field(default_factory=list)
     usage_reconciled: bool = False
+    cost_ceiling_usd: float = 0.50
+    provider_calls: list[ProviderCallLedgerEntry] = Field(default_factory=list)
+    total_actual_usd: float = 0.0
+    estimate_actual_reconciliation: dict[str, Any] = Field(default_factory=dict)
+    budget_stop: BudgetStopRecord | None = None
     warnings: list[str] = Field(default_factory=list)
 
 

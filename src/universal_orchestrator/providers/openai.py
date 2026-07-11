@@ -39,12 +39,19 @@ class OpenAIResponsesAdapter(JSONHTTPMixin, ProviderAdapter):
         if not model:
             return unavailable_result(self.id, "OPENAI_MODEL is not configured.")
 
-        response = self._post_json(
-            f"{base_url}/responses",
-            payload,
-            {"Authorization": f"Bearer {api_key}"},
-            task.timeout_seconds,
-        )
+        cost_estimate, authorization = self.authorize_cost(task, model)
+        try:
+            response = self._post_json(
+                f"{base_url}/responses",
+                payload,
+                {"Authorization": f"Bearer {api_key}"},
+                task.timeout_seconds,
+            )
+        except Exception:
+            self.release_cost(authorization)
+            raise
+        usage = self._usage(response)
+        self.commit_cost(authorization, usage)
         return ProviderResult(
             provider_id=self.id,
             status=TaskStatus.COMPLETED,
@@ -52,8 +59,9 @@ class OpenAIResponsesAdapter(JSONHTTPMixin, ProviderAdapter):
                 "summary": self._extract_output_text(response),
                 "raw_response_id": response.get("id"),
                 "model": response.get("model", model),
-                "usage": self._usage(response),
+                "usage": usage,
             },
+            cost_estimate=cost_estimate,
         )
 
     def _payload(self, task: ProviderTask, model: str) -> dict[str, Any]:
@@ -70,6 +78,7 @@ class OpenAIResponsesAdapter(JSONHTTPMixin, ProviderAdapter):
                 },
             ],
             "store": False,
+            "max_output_tokens": self.estimated_output_tokens(task),
         }
 
     def _prompt(self, task: ProviderTask) -> str:

@@ -1,0 +1,20 @@
+{
+  "schema_version": "1.0",
+  "version": "2026-07-11",
+  "currency": "USD",
+  "unit_tokens": 1000000,
+  "providers": {
+    "openai.configured": {
+      "default": {"input_usd": 5.0, "output_usd": 15.0},
+      "models": {}
+    },
+    "anthropic.configured": {
+      "default": {"input_usd": 3.0, "output_usd": 15.0},
+      "models": {}
+    },
+    "ollama.local": {
+      "default": {"input_usd": 0.0, "output_usd": 0.0},
+      "models": {}
+    }
+  }
+}
