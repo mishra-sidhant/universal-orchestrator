@@ -46,6 +46,7 @@ class AnthropicAdapter(JSONHTTPMixin, ProviderAdapter):
                 "summary": self._extract_output_text(response),
                 "raw_response_id": response.get("id"),
                 "model": response.get("model", model),
+                "usage": self._usage(response),
             },
         )
 
@@ -79,6 +80,16 @@ class AnthropicAdapter(JSONHTTPMixin, ProviderAdapter):
             if item.get("type") == "text"
         ]
         return "\n".join(text for text in texts if text).strip() or "Anthropic response completed without text content."
+
+    def _usage(self, response: dict[str, Any]) -> dict[str, int]:
+        usage = response.get("usage") if isinstance(response.get("usage"), dict) else {}
+        input_tokens = int(usage.get("input_tokens", 0) or 0)
+        output_tokens = int(usage.get("output_tokens", 0) or 0)
+        return {
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "total_tokens": input_tokens + output_tokens,
+        }
 
 
 def build_adapter(descriptor: ProviderDescriptor) -> AnthropicAdapter:

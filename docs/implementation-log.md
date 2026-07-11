@@ -516,3 +516,31 @@ doctor: passed with provider credentials absent
 package: wheel and source distribution built successfully
 git diff --check: passed
 ```
+
+## Tranche F.1 Bounded Live Transport Substrate
+
+Failing-first transcript against `9260735`:
+
+```text
+test_tranche_f1 import failed: handle_smoke did not exist
+ProviderError, ProviderErrorKind, FakeTransport, HTTPResponse, and TransportTimeout did not exist
+```
+
+Implemented:
+
+- Added an injectable one-request HTTP transport contract, a real `urllib` transport, and a scripted in-memory fake backed by recorded response fixtures.
+- Classified provider failures as auth, rate-limit, transient, fatal, timeout, or malformed output. Only rate-limit, transient, and timeout failures retry; attempts are bounded, backoff is exponential with jitter, and numeric `Retry-After` takes precedence.
+- Carried every task timeout to the socket call and normalized provider-reported token usage across OpenAI, Anthropic, and Ollama.
+- Added the explicit, key-gated `smoke` command. Its fixed tiny prompt reports latency and usage; it does not invent USD cost before F.3 pricing exists.
+- Labeled capability scores as configured priors rather than measured quality facts.
+
+Validation gate (2026-07-11, no keys and no live calls):
+
+```text
+unittest: 133 tests passed
+ruff src tests: All checks passed
+evals --run: 3/3 passed
+doctor: passed with all provider credentials absent
+package: wheel and source distribution built successfully
+git diff --check: passed
+```

@@ -96,6 +96,8 @@ Part B adds `BudgetController` and `DeltaPlanner`:
 
 `CapabilityRegistry` describes providers by capability, cost tier, health, context limits, and kind. `AdaptiveRouter` selects the best available provider or marks a task as degraded, reshaped, or paused.
 
+Capability values are configured priors for routing. They are not measured provider-quality claims; a prior becomes measured evidence only through a versioned benchmark record.
+
 Current providers:
 
 - `deterministic.tools`: always available local tools.
@@ -103,13 +105,13 @@ Current providers:
 - `anthropic.configured`: enabled only when `ANTHROPIC_API_KEY` exists.
 - `ollama.local`: enabled only when `OLLAMA_BASE_URL` exists.
 
-No hosted provider calls are made in this milestone.
+Ordinary orchestration remains local/extractive at this phase. A separate, explicit `smoke` command is the only enabled live round trip; it is key-gated, bounded, and excluded from CI.
 
 Part B adds `routing_telemetry.json`, which records every provider considered for every task, including health status, capability score, cost score, total score, eligibility, and rejection reasons.
 
 ## Execution Plane
 
-`StageWorkerRegistry` dispatches local DAG nodes to real functions and records structured outputs. Missing handlers return `SKIPPED`. `DeterministicExecutor` remains the dry-run provider-adapter boundary for future provider-backed tasks, but its generic local adapter never reports completion. OpenAI, Anthropic, and Ollama previews receive the bounded task `ContextPack`; previews redact secrets and expose estimated input/output/total usage. Anthropic's output limit is configurable. Live HTTP code has bounded exponential retry scaffolding for 429 and 5xx responses, but hosted execution remains outside this validation tranche.
+`StageWorkerRegistry` dispatches local DAG nodes to real functions and records structured outputs. Missing handlers return `SKIPPED`. `DeterministicExecutor` remains the dry-run provider-adapter boundary for ordinary tasks until model-backed synthesis is connected; its generic local adapter never reports completion. OpenAI, Anthropic, and Ollama share an injectable HTTP transport. The real transport owns socket deadlines, while fixture transports make success, 429, 5xx, timeout, authentication, fatal, and malformed-response behavior testable without sockets. Provider-level retry is bounded, exponential with jitter, honors `Retry-After`, and applies only to rate-limit, transient, and timeout failures. Live responses normalize provider-reported token usage.
 
 `DAGScheduler` executes real stage tasks by dependency-ready batches, records every attempt, enforces retry and timeout policies, skips dependents after failure, honors durable cancellation, uses versioned cache entries, and writes `schedule_report.json`. It reports cached and executed results through the same observer path. Side-effecting artifact/quality nodes are non-cacheable; artifact build has two attempts for transient local I/O failure. Timed work receives a cooperative completion guard, and scheduler-owned cache, record, and observer commits are fenced after timeout.
 

@@ -1,0 +1,57 @@
+{
+  "openai_success": {
+    "status_code": 200,
+    "headers": {"content-type": "application/json"},
+    "body": {
+      "id": "resp_fixture_openai",
+      "model": "openai-fixture-model",
+      "output_text": "OpenAI fixture result",
+      "usage": {"input_tokens": 11, "output_tokens": 7, "total_tokens": 18}
+    }
+  },
+  "anthropic_success": {
+    "status_code": 200,
+    "headers": {"content-type": "application/json"},
+    "body": {
+      "id": "msg_fixture_anthropic",
+      "model": "anthropic-fixture-model",
+      "content": [{"type": "text", "text": "Anthropic fixture result"}],
+      "usage": {"input_tokens": 13, "output_tokens": 5}
+    }
+  },
+  "ollama_success": {
+    "status_code": 200,
+    "headers": {"content-type": "application/json"},
+    "body": {
+      "model": "ollama-fixture-model",
+      "response": "Ollama fixture result",
+      "prompt_eval_count": 17,
+      "eval_count": 6
+    }
+  },
+  "rate_limit": {
+    "status_code": 429,
+    "headers": {"retry-after": "2"},
+    "body": {"error": {"message": "slow down"}}
+  },
+  "server_error": {
+    "status_code": 503,
+    "headers": {},
+    "body": {"error": {"message": "temporarily unavailable"}}
+  },
+  "auth_error": {
+    "status_code": 401,
+    "headers": {},
+    "body": {"error": {"message": "invalid credential"}}
+  },
+  "fatal_error": {
+    "status_code": 400,
+    "headers": {},
+    "body": {"error": {"message": "invalid request"}}
+  },
+  "malformed_success": {
+    "status_code": 200,
+    "headers": {"content-type": "application/json"},
+    "raw_body": "not-json"
+  }
+}

@@ -41,6 +41,7 @@ class OllamaAdapter(JSONHTTPMixin, ProviderAdapter):
             output={
                 "summary": response.get("response", "Ollama response completed without text response."),
                 "model": response.get("model", model),
+                "usage": self._usage(response),
             },
         )
 
@@ -49,6 +50,15 @@ class OllamaAdapter(JSONHTTPMixin, ProviderAdapter):
             "model": model,
             "stream": False,
             "prompt": render_provider_prompt(task),
+        }
+
+    def _usage(self, response: dict[str, Any]) -> dict[str, int]:
+        input_tokens = int(response.get("prompt_eval_count", 0) or 0)
+        output_tokens = int(response.get("eval_count", 0) or 0)
+        return {
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "total_tokens": input_tokens + output_tokens,
         }
 
 

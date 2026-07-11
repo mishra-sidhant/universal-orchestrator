@@ -4,6 +4,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from time import monotonic
 
 from universal_orchestrator import __version__
 from universal_orchestrator.config import (
@@ -13,7 +14,15 @@ from universal_orchestrator.config import (
     provider_config_status,
     write_env_example,
 )
-from universal_orchestrator.models import Host, HostInvocation, InputAttachment, UserOptions
+from universal_orchestrator.models import (
+    Host,
+    HostInvocation,
+    InputAttachment,
+    ProviderTask,
+    TaskNode,
+    TaskType,
+    UserOptions,
+)
 from universal_orchestrator.pipeline import Orchestrator
 from universal_orchestrator.routing import CapabilityRegistry
 from universal_orchestrator.runtime import RuntimeStore
@@ -60,6 +69,11 @@ def build_parser() -> argparse.ArgumentParser:
     configure_parser.add_argument("--write-example", action="store_true")
     configure_parser.add_argument("--json", action="store_true")
     configure_parser.set_defaults(handler=handle_configure)
+
+    smoke_parser = sub.add_parser("smoke", help="Run one explicit live provider round-trip")
+    smoke_parser.add_argument("--provider", required=True)
+    smoke_parser.add_argument("--timeout", type=int, default=30)
+    smoke_parser.set_defaults(handler=handle_smoke)
 
     mcp_parser = sub.add_parser("mcp-server", help="Run the stdio MCP-style host adapter")
     mcp_parser.set_defaults(handler=handle_mcp_server)
@@ -160,6 +174,50 @@ def handle_configure(args: argparse.Namespace) -> None:
     for provider_id, provider_status in status.items():
         ready = "ready" if provider_status["ready"] else "missing " + ", ".join(provider_status["missing"])
         print(f"- {provider_id}: {ready}")
+
+
+def handle_smoke(args: argparse.Namespace) -> None:
+    load_env_file()
+    registry = CapabilityRegistry.from_environment()
+    descriptor = next(
+        (provider for provider in registry.providers if provider.id == args.provider),
+        None,
+    )
+    if descriptor is None:
+        raise ValueError(f"Unknown provider: {args.provider}")
+    if not descriptor.enabled:
+        raise RuntimeError(f"{args.provider} is not configured; run `ai-team configure` for required values.")
+    adapter = registry.adapter_registry().require(args.provider)
+    task = ProviderTask(
+        task=TaskNode(
+            id="T-SMOKE",
+            run_id="R-SMOKE",
+            title="Provider smoke check",
+            task_type=TaskType.FINAL_SYNTHESIS,
+        ),
+        prompt="Reply with exactly: smoke-ok",
+        dry_run=False,
+        allow_network=True,
+        timeout_seconds=max(1, args.timeout),
+    )
+    started = monotonic()
+    result = adapter.execute(task)
+    latency_ms = round((monotonic() - started) * 1_000)
+    estimate = adapter.estimate_cost(task)
+    print(
+        json.dumps(
+            {
+                "provider": args.provider,
+                "status": result.status,
+                "latency_ms": latency_ms,
+                "usage": result.output.get("usage", {}),
+                "estimated_cost_usd": estimate.estimated_usd,
+                "response_received": bool(result.output.get("summary")),
+            },
+            indent=2,
+            sort_keys=True,
+        )
+    )
 
 
 def handle_mcp_server(args: argparse.Namespace) -> None:

@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import json
-import urllib.error
-import urllib.request
+import random
 from abc import ABC, abstractmethod
+from enum import Enum
 from time import sleep
-from typing import Any
+from typing import Any, Callable
 
 from universal_orchestrator.models import (
     CostEstimate,
@@ -18,11 +18,53 @@ from universal_orchestrator.models import (
 )
 from universal_orchestrator.security import redact_text
 from universal_orchestrator.utils import estimate_tokens
+from universal_orchestrator.providers.transport import (
+    HTTPRequest,
+    HTTPTransport,
+    TransportConnectionError,
+    TransportTimeout,
+    UrllibHTTPTransport,
+)
+
+
+class ProviderErrorKind(str, Enum):
+    AUTH = "auth"
+    RATE_LIMIT = "rate_limit"
+    TRANSIENT = "transient"
+    FATAL = "fatal"
+    TIMEOUT = "timeout"
+    MALFORMED_OUTPUT = "malformed_output"
+
+
+class ProviderError(RuntimeError):
+    def __init__(
+        self,
+        kind: ProviderErrorKind,
+        provider_id: str,
+        message: str,
+        *,
+        status_code: int | None = None,
+        retry_after_seconds: float | None = None,
+    ) -> None:
+        self.kind = kind
+        self.provider_id = provider_id
+        self.status_code = status_code
+        self.retry_after_seconds = retry_after_seconds
+        super().__init__(f"{provider_id} {kind.value}: {message}")
 
 
 class ProviderAdapter(ABC):
-    def __init__(self, descriptor: ProviderDescriptor) -> None:
+    def __init__(
+        self,
+        descriptor: ProviderDescriptor,
+        transport: HTTPTransport | None = None,
+        sleeper: Callable[[float], None] | None = None,
+        jitter: Callable[[], float] | None = None,
+    ) -> None:
         self.descriptor = descriptor
+        self.transport = transport or UrllibHTTPTransport()
+        self.sleeper = sleeper or sleep
+        self.jitter = jitter or random.random
 
     @property
     def id(self) -> str:
@@ -80,26 +122,93 @@ class JSONHTTPMixin:
         backoff_seconds: float = 0.25,
     ) -> dict[str, Any]:
         body = json.dumps(payload).encode("utf-8")
-        request = urllib.request.Request(
-            url,
-            data=body,
-            headers={"Content-Type": "application/json", **headers},
+        request = HTTPRequest(
             method="POST",
+            url=url,
+            headers={"Content-Type": "application/json", **headers},
+            body=body,
+            timeout_seconds=timeout_seconds,
         )
+        transport = getattr(self, "transport", None) or UrllibHTTPTransport()
+        provider_id = getattr(self, "id", "provider")
+        sleeper = getattr(self, "sleeper", sleep)
+        jitter = getattr(self, "jitter", random.random)
         attempts = max(1, max_attempts)
         for attempt in range(1, attempts + 1):
             try:
-                with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
-                    response_body = response.read().decode("utf-8")
-                return json.loads(response_body)
-            except urllib.error.HTTPError as exc:
-                error_body = exc.read().decode("utf-8", errors="replace")
-                retryable = exc.code == 429 or 500 <= exc.code < 600
-                if retryable and attempt < attempts:
-                    sleep(backoff_seconds * (2 ** (attempt - 1)))
-                    continue
-                raise RuntimeError(f"Provider HTTP {exc.code}: {error_body}") from exc
-        raise RuntimeError("Provider request exhausted retry attempts.")
+                response = transport.send(request)
+                if 200 <= response.status_code < 300:
+                    try:
+                        decoded = json.loads(response.body.decode("utf-8"))
+                    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                        raise ProviderError(
+                            ProviderErrorKind.MALFORMED_OUTPUT,
+                            provider_id,
+                            "successful HTTP response was not valid JSON",
+                            status_code=response.status_code,
+                        ) from exc
+                    if not isinstance(decoded, dict):
+                        raise ProviderError(
+                            ProviderErrorKind.MALFORMED_OUTPUT,
+                            provider_id,
+                            "successful HTTP response was not a JSON object",
+                            status_code=response.status_code,
+                        )
+                    return decoded
+                error = _http_error(provider_id, response.status_code, response.headers, response.body)
+            except TransportTimeout as exc:
+                error = ProviderError(ProviderErrorKind.TIMEOUT, provider_id, str(exc))
+            except TransportConnectionError as exc:
+                error = ProviderError(ProviderErrorKind.TRANSIENT, provider_id, str(exc))
+
+            if error.kind not in {
+                ProviderErrorKind.RATE_LIMIT,
+                ProviderErrorKind.TRANSIENT,
+                ProviderErrorKind.TIMEOUT,
+            } or attempt >= attempts:
+                raise error
+            delay = error.retry_after_seconds
+            if delay is None:
+                delay = backoff_seconds * (2 ** (attempt - 1)) + max(0.0, jitter()) * backoff_seconds
+            sleeper(delay)
+        raise ProviderError(ProviderErrorKind.FATAL, provider_id, "request exhausted retry attempts")
+
+
+def _http_error(
+    provider_id: str,
+    status_code: int,
+    headers: dict[str, str],
+    body: bytes,
+) -> ProviderError:
+    if status_code in {401, 403}:
+        kind = ProviderErrorKind.AUTH
+    elif status_code == 429:
+        kind = ProviderErrorKind.RATE_LIMIT
+    elif status_code in {408, 504}:
+        kind = ProviderErrorKind.TIMEOUT
+    elif 500 <= status_code < 600:
+        kind = ProviderErrorKind.TRANSIENT
+    else:
+        kind = ProviderErrorKind.FATAL
+    message = body.decode("utf-8", errors="replace")[:500] or f"HTTP {status_code}"
+    retry_after = _retry_after_seconds(headers) if kind == ProviderErrorKind.RATE_LIMIT else None
+    return ProviderError(
+        kind,
+        provider_id,
+        f"HTTP {status_code}: {message}",
+        status_code=status_code,
+        retry_after_seconds=retry_after,
+    )
+
+
+def _retry_after_seconds(headers: dict[str, str]) -> float | None:
+    value = next((value for key, value in headers.items() if key.lower() == "retry-after"), None)
+    if value is None:
+        return None
+    try:
+        return max(0.0, float(value))
+    except ValueError:
+        return None
 
 
 def unavailable_result(provider_id: str, message: str) -> ProviderResult:

@@ -2,11 +2,11 @@
 
 Universal Orchestrator is the first implementation pass for the "Universal AI Executive Kernel" product described in the attached architecture report. It is a host-agnostic, model-agnostic orchestration runtime that turns messy user input into typed context, a product contract, an execution DAG, provider routing decisions, quality gates, and final artifacts.
 
-The current milestone is a deterministic local runtime with optional provider adapters. Hosted execution remains deferred for validation, but routing and execution now enforce explicit cloud and privacy policy before an adapter can be called.
+The current milestone is a deterministic local runtime with fixture-validated live provider transports. The explicit `smoke` command can make one key-gated provider call; ordinary pipeline runs remain on the local/extractive path until model-backed synthesis is completed. Routing and execution enforce cloud and privacy policy before any adapter can be called.
 
 ## What Works Now
 
-- Local CLI with `run`, `repo`, `doctor`, `providers`, `artifacts`, `status`, `cancel`, and executable `evals` commands.
+- Local CLI with `run`, `repo`, `doctor`, `providers`, `artifacts`, `status`, `cancel`, `smoke`, and executable `evals` commands.
 - Typed Pydantic data models for invocations, manifests, product contracts, DAGs, routing, execution, quality, artifacts, and run manifests.
 - Universal input ingestion MVP for prompts, text/markdown, PDFs, folders, repositories, URLs, images, Office files, spreadsheets, archives, and unknown files.
 - Secret and prompt-injection risk scanning before context cards are built.
@@ -15,7 +15,7 @@ The current milestone is a deterministic local runtime with optional provider ad
 - Product contract compiler that turns natural prompts into enforceable definitions of done.
 - Property-derived planner review and a five-node typed DAG backed by real local stage workers.
 - Capability-based routing with truthful local capabilities; unsupported work reshapes, pauses, or skips instead of echo-completing.
-- Reconciled dry-run usage estimates, budget control, relevant-prior-run delta planning, versioned exact-match cache reuse, retries, timeouts, durable cancellation, failure diagnostics, and same-run resume.
+- Reconciled dry-run usage estimates, budget control, relevant-prior-run delta planning, versioned exact-match cache reuse, typed provider failures, bounded retries, socket timeouts, durable cancellation, failure diagnostics, and same-run resume.
 - Approval gates, safe repo validation planning/execution, and daemon/MCP status parity.
 - Quality gate engine with contract, manifest, DAG, routing, security, evidence audit, repo validation, and artifact integrity checks.
 - Quality telemetry is provenance-limited: parse coverage, consumed-reference coverage, task continuity, routing efficiency, artifact presence, and executed code validation. It does not claim factuality or style scoring.
@@ -72,3 +72,5 @@ The kernel follows this pipeline:
 See [Product Requirements](docs/product-requirements.md) and [Implementation Plan](docs/implementation-plan.md) for the detailed roadmap.
 
 Current limitation: local synthesis is extractive, not model reasoning, and does not prove factual entailment. Evidence refs are restricted to chunks actually delivered to each task, but `citation_support` means consumed-reference coverage, not factual verification. See [Quality Metric Provenance](docs/quality-metrics.md) and [ADR-001](docs/adr/ADR-001-kernel-unification.md).
+
+Provider capability numbers are configured priors used for routing, not measured quality facts. They remain priors until a versioned benchmark records a measurement.

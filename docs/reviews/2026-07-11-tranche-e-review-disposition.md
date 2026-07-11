@@ -10,10 +10,10 @@ Review baseline: `82b2b59`. This ledger is the Tranche F resume point. `pending`
 | R4 timeout containment for live I/O | pending F.6 | pending | ADR-002 and hung-transport proof required before tranche closure. |
 | R5 mypy backlog | deferred, visible | e8c28e6 | Non-blocking CI baseline remains visible; live-path code must not increase the undisclosed backlog. |
 | Minor `_summary` name collision | clarified F.0 | `Tranche F.0: close citation honesty residuals` | Removed `DeterministicExecutor._summary` was dead; `workers.py` `_summary` is the live structured-output formatter. |
-| F.1 injectable transport and fixtures | pending | pending | Real HTTP plus in-memory fake; no test sockets. |
-| F.1 provider error taxonomy | pending | pending | Auth/rate-limit/transient/fatal/timeout/malformed-output classes and bounded retry rules. |
-| F.1 socket-level call timeout | pending | pending | Distinct from scheduler task lease. |
-| F.1 opt-in smoke command | pending | pending | Tiny key-gated call with measured latency and cost; never CI-run. |
+| F.1 injectable transport and fixtures | fixed F.1 | `Tranche F.1: add bounded live transport substrate` | `HTTPTransport`, `UrllibHTTPTransport`, and scripted `FakeTransport`; all adapters fixture-tested without sockets. |
+| F.1 provider error taxonomy | fixed F.1 | `Tranche F.1: add bounded live transport substrate` | Typed auth/rate-limit/transient/fatal/timeout/malformed-output failures; retries are bounded and limited to eligible kinds. |
+| F.1 socket-level call timeout | fixed F.1 | `Tranche F.1: add bounded live transport substrate` | Adapter task timeout is carried on each `HTTPRequest` and passed to `urlopen`, independently of the scheduler lease. |
+| F.1 opt-in smoke command | fixed F.1 | `Tranche F.1: add bounded live transport substrate` | `ai-team smoke --provider`; fixed tiny prompt, explicit key gate, latency and usage output. USD remains unset until F.3 rates. |
 | F.2 outbound redaction | pending | pending | Fake transport must capture no planted secret. |
 | F.2 injection quarantine and delimiters | pending | pending | Hostile chunks excluded; untrusted data visibly delimited. |
 | F.2 local-only with keys | pending | pending | Hosted fake transport invocation count must remain zero. |
@@ -37,3 +37,5 @@ Review baseline: `82b2b59`. This ledger is the Tranche F resume point. `pending`
 ## Test Rewrites
 
 F.0 adds new regressions and does not weaken or delete an existing assertion.
+
+F.1 replaces `test_http_provider_retries_429_and_5xx`, which patched `urllib` internals, with the same guarantee at the new injectable transport boundary. The replacement additionally asserts request count and exact `Retry-After` delay without permitting a socket. No failure expectation was removed.

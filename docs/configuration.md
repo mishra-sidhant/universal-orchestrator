@@ -39,6 +39,20 @@ OLLAMA_MODEL=
 
 Run `python -m universal_orchestrator configure` to see missing values without printing configured secrets.
 
+Provider capability numbers shown by `providers` are configured routing priors, not measured facts. Update them only as configuration-backed hypotheses until benchmark evidence exists.
+
+## Explicit Live Smoke
+
+`smoke` is the only sanctioned standalone live check. It sends one fixed tiny prompt, requires the selected provider to be configured, applies a socket-level timeout, and prints round-trip latency plus provider-reported token usage. It is opt-in and is never run by CI.
+
+```bash
+uv run python -m universal_orchestrator smoke --provider openai.configured
+uv run python -m universal_orchestrator smoke --provider anthropic.configured
+uv run python -m universal_orchestrator smoke --provider ollama.local
+```
+
+Do not paste keys into commands. Add them only to the gitignored `.env.local` file or the process environment. Actual USD pricing is added by the cost-ledger phase; until then the smoke result leaves `estimated_cost_usd` unset rather than inventing a price.
+
 ## Commands
 
 ```bash
@@ -46,6 +60,7 @@ PYTHONPATH=src python -m universal_orchestrator doctor
 PYTHONPATH=src python -m universal_orchestrator configure
 PYTHONPATH=src python -m universal_orchestrator configure --write-example
 PYTHONPATH=src python -m universal_orchestrator providers
+PYTHONPATH=src python -m universal_orchestrator smoke --provider openai.configured
 PYTHONPATH=src python -m universal_orchestrator mcp-server
 PYTHONPATH=src python -m universal_orchestrator run "Build a product package" ./path-or-url
 PYTHONPATH=src python -m universal_orchestrator run "Fetch approved host" --allow-internet --allow-url-host approved.example ./url

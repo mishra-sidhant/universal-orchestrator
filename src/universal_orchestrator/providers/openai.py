@@ -52,6 +52,7 @@ class OpenAIResponsesAdapter(JSONHTTPMixin, ProviderAdapter):
                 "summary": self._extract_output_text(response),
                 "raw_response_id": response.get("id"),
                 "model": response.get("model", model),
+                "usage": self._usage(response),
             },
         )
 
@@ -95,6 +96,16 @@ class OpenAIResponsesAdapter(JSONHTTPMixin, ProviderAdapter):
                 if content.get("type") == "output_text" and isinstance(content.get("text"), str):
                     texts.append(content["text"])
         return "\n".join(texts).strip() or "OpenAI response completed without extractable output_text."
+
+    def _usage(self, response: dict[str, Any]) -> dict[str, int]:
+        usage = response.get("usage") if isinstance(response.get("usage"), dict) else {}
+        input_tokens = int(usage.get("input_tokens", 0) or 0)
+        output_tokens = int(usage.get("output_tokens", 0) or 0)
+        return {
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "total_tokens": int(usage.get("total_tokens", input_tokens + output_tokens) or 0),
+        }
 
 
 def build_adapter(descriptor: ProviderDescriptor) -> OpenAIResponsesAdapter:

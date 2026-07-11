@@ -29,6 +29,8 @@ python -m build
 
 The CI workflow validates Python 3.11, 3.12, and 3.13 with compilation, Ruff, the full `unittest` suite, and source/wheel package builds.
 
+Provider tests use recorded JSON fixtures through `FakeTransport`. The default suite requires no credential, never opens a provider socket, and never invokes the opt-in `smoke` command. Real smoke results are operator evidence and must be recorded separately in the implementation log.
+
 ## Tranche D Regression Coverage
 
 - Privacy and egress policy is rechecked at routing and adapter execution boundaries.

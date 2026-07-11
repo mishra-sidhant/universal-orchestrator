@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-import io
 import json
 import tempfile
 import unittest
-import urllib.error
 from datetime import datetime, timezone
 from pathlib import Path
 from time import sleep
@@ -40,6 +38,7 @@ from universal_orchestrator.models import (
 from universal_orchestrator.pipeline import Orchestrator
 from universal_orchestrator.providers.base import JSONHTTPMixin, ProviderAdapterRegistry
 from universal_orchestrator.providers.openai import OpenAIResponsesAdapter
+from universal_orchestrator.providers.transport import FakeTransport, HTTPResponse
 from universal_orchestrator.routing import CapabilityRegistry
 from universal_orchestrator.utils import write_json
 
@@ -202,30 +201,24 @@ class TrancheE5InputRealityTests(unittest.TestCase):
         self.assertEqual(result.cost_estimate.output_tokens, 8192)
 
     def test_http_provider_retries_429_and_5xx(self) -> None:
-        mixin = JSONHTTPMixin()
-        retryable = urllib.error.HTTPError(
-            "https://provider.test",
-            429,
-            "limited",
-            {},
-            io.BytesIO(b"limited"),
+        transport = FakeTransport(
+            [
+                HTTPResponse(429, {"Retry-After": "0.01"}, b"limited"),
+                HTTPResponse(200, {}, b'{"ok": true}'),
+            ]
         )
-        response = unittest.mock.MagicMock()
-        response.__enter__.return_value.read.return_value = b'{"ok": true}'
-        with patch(
-            "universal_orchestrator.providers.base.urllib.request.urlopen",
-            side_effect=[retryable, response],
-        ) as urlopen, patch(
-            "universal_orchestrator.providers.base.sleep", create=True
-        ) as backoff:
-            payload = mixin._post_json(
-                "https://provider.test", {}, {}, 5, max_attempts=3, backoff_seconds=0.01
-            )
+        mixin = JSONHTTPMixin()
+        mixin.transport = transport
+        backoffs: list[float] = []
+        mixin.sleeper = backoffs.append
+        mixin.jitter = lambda: 0.0
+        payload = mixin._post_json(
+            "https://provider.test", {}, {}, 5, max_attempts=3, backoff_seconds=0.01
+        )
 
         self.assertEqual(payload, {"ok": True})
-        self.assertEqual(urlopen.call_count, 2)
-        backoff.assert_called_once_with(0.01)
-        retryable.close()
+        self.assertEqual(len(transport.requests), 2)
+        self.assertEqual(backoffs, [0.01])
 
     def test_ids_remain_unique_when_time_is_frozen(self) -> None:
         frozen = datetime(2026, 7, 11, tzinfo=timezone.utc)
