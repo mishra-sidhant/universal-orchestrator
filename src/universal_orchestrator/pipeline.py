@@ -207,6 +207,15 @@ class Orchestrator:
         cost_ledger = CostLedger(run_id, invocation.user_options.cost_ceiling_usd)
         registry = self.capability_registry or CapabilityRegistry.from_environment()
         registry.cost_ledger = cost_ledger
+        registry.refresh_health(
+            execution_policy,
+            allow_network=invocation.user_options.allow_internet,
+        )
+        provider_health_notices = [
+            f"{provider.id} is {provider.health.status}: {provider.health.message}"
+            for provider in registry.providers
+            if provider.enabled and provider.health.status != "healthy"
+        ]
         model_synthesis = self._model_synthesis_available(
             registry,
             execution_policy,
@@ -344,6 +353,12 @@ class Orchestrator:
                 decisions=decisions,
                 routing_telemetry=routing_telemetry,
                 repo_validation_report=repo_validation_report,
+                provider_health_report={
+                    "run_id": run_id,
+                    "providers": [
+                        provider.model_dump(mode="json") for provider in registry.providers
+                    ],
+                },
             )
 
         def evaluate_stage_quality(stage_results: list[ExecutionResult]) -> QualityGateResult:
@@ -370,6 +385,7 @@ class Orchestrator:
             provider_adapters=registry.adapter_registry(),
             operator_prompt=redact_text(invocation.prompt),
             execution_policy=execution_policy,
+            provider_health_notices=provider_health_notices,
         )
         executor = StageWorkerRegistry(stage_context)
         self.runtime.transition(run_id, RunState.EXECUTING)
@@ -844,6 +860,7 @@ class Orchestrator:
         decisions: list[RoutingDecision],
         routing_telemetry: RoutingTelemetryReport,
         repo_validation_report: RepoValidationReport,
+        provider_health_report: dict,
     ) -> list[Artifact]:
         payloads = [
             ("context_manifest.json", manifest.model_dump(mode="json")),
@@ -878,6 +895,7 @@ class Orchestrator:
                 "repo_validation_report.json",
                 repo_validation_report.model_dump(mode="json"),
             ),
+            ("provider_health_report.json", provider_health_report),
         ]
         return [
             request_artifact,
@@ -968,6 +986,7 @@ class Orchestrator:
             "execution_results.json",
             "schedule_report.json",
             "repo_validation_report.json",
+            "provider_health_report.json",
             "validation_findings.json",
             "evidence_audit.json",
             "quality_report.json",

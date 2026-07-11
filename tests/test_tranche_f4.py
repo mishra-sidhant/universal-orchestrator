@@ -73,7 +73,7 @@ def structured_output(ref: str, claim: str = "The kernel uses bounded execution 
 
 class TrancheF4ModelSynthesisTests(unittest.TestCase):
     def _run(self, root: Path, invocation: HostInvocation, outcomes: list[HTTPResponse]):
-        transport = FakeTransport(outcomes)
+        transport = FakeTransport([HTTPResponse(200, {}, b'{"data": []}'), *outcomes])
         registry = CapabilityRegistry.from_environment(
             transports={"openai.configured": transport}
         )
@@ -106,7 +106,7 @@ class TrancheF4ModelSynthesisTests(unittest.TestCase):
         self.assertEqual(worker["claims"][0]["evidence_refs"], [ref])
         self.assertTrue(audit["passed"])
         self.assertEqual(len(ledger["calls"]), 1)
-        self.assertEqual(len(transport.requests), 1)
+        self.assertEqual(len(transport.requests), 2)
         self.assertIn("Synthesis path: `model`", report)
 
     def test_malformed_output_gets_one_repair_then_extractive_fallback(self) -> None:
@@ -131,7 +131,7 @@ class TrancheF4ModelSynthesisTests(unittest.TestCase):
 
         worker = synthesis["output"]["worker_output"]
         self.assertEqual(worker["synthesis_path"], "extractive_fallback")
-        self.assertEqual(len(transport.requests), 2)
+        self.assertEqual(len(transport.requests), 3)
         self.assertTrue(any("validation" in warning.lower() for warning in synthesis["warnings"]))
 
     def test_one_reformat_repair_can_recover_without_fallback(self) -> None:
@@ -156,7 +156,7 @@ class TrancheF4ModelSynthesisTests(unittest.TestCase):
             synthesis = next(item for item in execution if item["task_id"] == "T-SYNTHESIS")
 
         self.assertEqual(synthesis["output"]["worker_output"]["synthesis_path"], "model_repaired")
-        self.assertEqual(len(transport.requests), 2)
+        self.assertEqual(len(transport.requests), 3)
 
     def test_lexical_overlap_is_labeled_warning_not_entailment_gate(self) -> None:
         with tempfile.TemporaryDirectory() as tmp, patch.dict(
@@ -225,7 +225,10 @@ class TrancheF4ModelSynthesisTests(unittest.TestCase):
             ledger = json.loads((run_dir / "cost_ledger.json").read_text())
             budget = json.loads((run_dir / "budget_report.json").read_text())
 
-        self.assertEqual(transport.requests, [])
+        self.assertEqual(
+            [request for request in transport.requests if request.url.endswith("/responses")],
+            [],
+        )
         self.assertEqual(result.state, RunState.NEEDS_ATTENTION)
         self.assertIsNotNone(ledger["budget_stop"])
         self.assertEqual(ledger["budget_stop"]["task_id"], "T-SYNTHESIS")

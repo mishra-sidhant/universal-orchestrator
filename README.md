@@ -16,6 +16,7 @@ The current milestone is a deterministic local runtime with fixture-validated li
 - Product contract compiler that turns natural prompts into enforceable definitions of done.
 - Property-derived planner review and a five-node typed DAG backed by real local stage workers.
 - Capability-based routing with truthful local capabilities; unsupported work reshapes, pauses, or skips instead of echo-completing.
+- TTL-cached provider liveness probes, health-weighted cross-family routing, explicit degraded-mode reports, and local fallback when hosted families are down.
 - A default $0.50 live-spend ceiling, pre-call reservations, versioned configured rates, provider-reported actual token accounting, estimate/actual reconciliation, and explicit budget stops.
 - Reconciled dry-run usage estimates, token-budget control, relevant-prior-run delta planning, versioned exact-match cache reuse, typed provider failures, bounded retries, socket timeouts, durable cancellation, failure diagnostics, and same-run resume.
 - Approval gates, safe repo validation planning/execution, and daemon/MCP status parity.

@@ -120,6 +120,9 @@ class FinalProductOwner:
                 if result.task_id == "T-SYNTHESIS":
                     synthesis_path = worker_output.get("synthesis_path", "unknown")
                     lines.append(f"- Synthesis path: `{synthesis_path}`")
+                    notices = worker_output.get("degraded_mode_notices", [])
+                    for notice in notices if isinstance(notices, list) else []:
+                        lines.append(f"- Degraded mode: {notice}")
         cited_chunk_ids = sorted(
             {
                 ref

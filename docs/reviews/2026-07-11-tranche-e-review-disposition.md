@@ -22,13 +22,13 @@ Review baseline: `82b2b59`. This ledger is the Tranche F resume point. `pending`
 | F.3 actual usage ledger | fixed F.3 | b54c2a0 | Fixture-reported 11 input/7 output tokens price to $0.000160 and persist with model and rate provenance. |
 | F.3 estimate/actual reconciliation | fixed F.3 | b54c2a0 | `budget_report.json` carries estimate/actual fields; threshold divergence adds recalibration warning without failing quality. |
 | F.3 configurable rate table | fixed F.3 | b54c2a0 | Packaged `provider_rates.json` has version, provider defaults, exact-model slots, and documented update procedure. |
-| F.4 model-backed synthesis | fixed F.4 | `Tranche F.4: execute validated model synthesis` | Premium, policy-permitted synthesis routes to fixture OpenAI with bounded pack; strict claims enter the worker schema and final report labels the path. |
-| F.4 schema validation, one repair, extractive fallback | fixed F.4 | `Tranche F.4: execute validated model synthesis` | Tests pin direct success, one-repair success, and two-malformed-response extractive fallback with exactly two calls. |
-| F.4 model-claim evidence discipline | fixed F.4 | `Tranche F.4: execute validated model synthesis` | Fabricated ref makes claim unsupported and run `needs_attention`; low lexical overlap is explicitly warning-only and not entailment. |
-| F.4 real provider routing with keyless default | fixed F.4 | `Tranche F.4: execute validated model synthesis` | Complete configuration selects model capability; keyless run remains extractive with zero provider calls. |
-| F.5 cached provider health | pending | pending | Healthy/degraded/down fixture states feed routing. |
-| F.5 provider-family fallback and actionable pause | pending | pending | Final report names degraded mode; pause says what to configure. |
-| F.5 Ollama parity | pending | pending | Same transport, taxonomy, ledger; zero-cost rows. |
+| F.4 model-backed synthesis | fixed F.4 | d10f3bd | Premium, policy-permitted synthesis routes to fixture OpenAI with bounded pack; strict claims enter the worker schema and final report labels the path. |
+| F.4 schema validation, one repair, extractive fallback | fixed F.4 | d10f3bd | Tests pin direct success, one-repair success, and two-malformed-response extractive fallback with exactly two model calls. |
+| F.4 model-claim evidence discipline | fixed F.4 | d10f3bd | Fabricated ref makes claim unsupported and run `needs_attention`; low lexical overlap is explicitly warning-only and not entailment. |
+| F.4 real provider routing with keyless default | fixed F.4 | d10f3bd | Complete configuration selects model capability; keyless run remains extractive with zero provider calls. |
+| F.5 cached provider health | fixed F.5 | `Tranche F.5: add measured health and fallback modes` | Fixture probes classify healthy/degraded/down, carry socket timeout, cache for TTL, and persist measured health for routing. |
+| F.5 provider-family fallback and actionable pause | fixed F.5 | `Tranche F.5: add measured health and fallback modes` | OpenAI-down routes Anthropic; all-hosted-down stays extractive with report notice; pause names capability and configuration action. |
+| F.5 Ollama parity | fixed F.5 | `Tranche F.5: add measured health and fallback modes` | Ollama uses `/api/tags`, shared transport/error/cost machinery, structured synthesis, and a fixture-verified $0 actual row. |
 | F.6 containment decision | pending | pending | ADR-002 plus hung-transport late-commit test. |
 | F.7 fixture-backed bench | pending | pending | Native and orchestrated outputs/cost/latency emitted side by side. |
 | F.7 no automated superiority claim | pending | pending | README and artifact wording remain measurement-only. |
@@ -45,3 +45,5 @@ F.2 adds four new security regressions and does not weaken or delete an existing
 F.3 adds five accounting regressions and does not weaken or delete an existing assertion.
 
 F.4 adds seven model-path regressions and does not weaken or delete an existing assertion.
+
+F.5 adds five operating-mode regressions. F.2/F.4 transport-count assertions were refined to distinguish bounded liveness probes from model calls; `local_only` still asserts zero total calls, and pre-call budget enforcement still asserts zero model invocations.

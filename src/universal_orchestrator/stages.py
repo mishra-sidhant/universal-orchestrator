@@ -39,6 +39,7 @@ class KernelStageContext:
     provider_adapters: ProviderAdapterRegistry | None = None
     operator_prompt: str = ""
     execution_policy: ExecutionPolicy | None = None
+    provider_health_notices: list[str] = field(default_factory=list)
     artifacts: list[Artifact] = field(default_factory=list)
 
 
@@ -226,6 +227,7 @@ class StageWorkerRegistry:
                     "claims": [
                         {"text": summary, "evidence_refs": refs}
                     ] if refs else [],
+                    "degraded_mode_notices": self.context.provider_health_notices,
                     "_warnings": [
                         f"Model output failed validation; used extractive synthesis fallback: {exc}"
                     ],
@@ -239,9 +241,14 @@ class StageWorkerRegistry:
                 "claims": [claim.model_dump(mode="json") for claim in output.claims],
                 "evidence_refs": evidence_refs,
                 "_warnings": model_result.warnings,
+                "degraded_mode_notices": self.context.provider_health_notices,
             }
         summary, findings, extra = self._extractive_synthesis(refs)
-        return summary, findings, {**extra, "synthesis_path": "extractive"}
+        return summary, findings, {
+            **extra,
+            "synthesis_path": "extractive",
+            "degraded_mode_notices": self.context.provider_health_notices,
+        }
 
     def _extractive_synthesis(
         self,

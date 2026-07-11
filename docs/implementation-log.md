@@ -648,3 +648,37 @@ fabricated ref: audit failed, claim unsupported, needs_attention
 budget stop: 0 transport calls, needs_attention, stop in both cost and budget reports
 git diff --check: passed
 ```
+
+## Tranche F.5 Measured Health And Fallback Modes
+
+Failing-first transcript against `d10f3bd`:
+
+```text
+test_tranche_f5 import failed: universal_orchestrator.health did not exist
+No measured liveness, TTL cache, health artifact, cross-family fallback proof,
+degraded-mode notice, actionable capability pause, or Ollama full-path parity existed
+```
+
+Implemented:
+
+- Added bounded GET liveness probes for OpenAI, Anthropic, and Ollama with healthy/degraded/unavailable classification and a 60-second cache.
+- Refreshed only configured, policy-eligible providers; `local_only` suppresses hosted probes and calls.
+- Persisted measured status and routing priors in `provider_health_report.json` and fed measured reliability into routing.
+- Proved OpenAI-down routes to Anthropic; all hosted models down retains local extractive synthesis and names the degraded provider in the final report.
+- Made `PAUSE` guidance name the unavailable capability and the provider configuration/restoration action.
+- Exercised Ollama through the same health, transport, taxonomy, synthesis, and cost-ledger path with a zero-cost row.
+
+Validation gate (2026-07-11, fixtures only, no live calls):
+
+```text
+unittest: 154 tests passed
+ruff src tests: All checks passed
+evals --run: 3/3 passed
+doctor: passed with all provider credentials absent
+package: wheel and source distribution built successfully
+health cache: repeated check produced 1 fixture request
+OpenAI down: 1 probe; Anthropic: 1 probe + 1 synthesis call
+all hosted down: extractive path with unavailable notice
+Ollama: 1 probe + 1 synthesis call, actual_usd=0
+git diff --check: passed
+```

@@ -113,6 +113,8 @@ Ordinary orchestration remains local/extractive at this phase. A separate, expli
 
 Part B adds `routing_telemetry.json`, which records every provider considered for every task, including health status, capability score, cost score, total score, eligibility, and rejection reasons.
 
+Configured, policy-eligible providers receive a bounded models-list or equivalent liveness probe before model-capability planning. Results are cached by TTL and persisted in `provider_health_report.json`; measured healthy/degraded/unavailable status replaces configured health priors for routing. `local_only` suppresses hosted probes as well as model calls. A failed family is excluded so another healthy family can route; when all model families are down, the plan remains local/extractive and the final report carries the degraded-mode notice. A true `PAUSE` names the missing capability and tells the operator to configure or restore a matching provider.
+
 ## Execution Plane
 
 `StageWorkerRegistry` dispatches DAG nodes to typed stage implementations. Missing handlers return `SKIPPED`; the generic local adapter never manufactures completion. When a complete model configuration and execution policy permit it, `T-SYNTHESIS` routes by capability, cost tier, and health to OpenAI, Anthropic, or Ollama. The bounded context pack enters a strict JSON request contract. Output is schema-validated before use, receives at most one separately metered reformat request, and then either becomes a labeled model result or degrades to the existing extractive worker with a warning. Keyless execution stays extractive.

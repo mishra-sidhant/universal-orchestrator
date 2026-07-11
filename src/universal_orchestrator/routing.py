@@ -5,6 +5,7 @@ import os
 from universal_orchestrator.config import load_env_file
 from universal_orchestrator.cost_ledger import CostLedger
 from universal_orchestrator.execution_policy import PolicyCompiler
+from universal_orchestrator.health import ProviderHealthChecker
 from universal_orchestrator.models import (
     CostTier,
     ExecutionPolicy,
@@ -27,6 +28,7 @@ from universal_orchestrator.providers import (
     ProviderAdapterRegistry,
 )
 from universal_orchestrator.providers.transport import HTTPTransport
+from universal_orchestrator.providers.transport import UrllibHTTPTransport
 
 
 COST_ORDER = {
@@ -43,16 +45,19 @@ class CapabilityRegistry:
         providers: list[ProviderDescriptor],
         transports: dict[str, HTTPTransport] | None = None,
         cost_ledger: CostLedger | None = None,
+        health_checker: ProviderHealthChecker | None = None,
     ) -> None:
         self.providers = providers
         self.transports = transports or {}
         self.cost_ledger = cost_ledger
+        self.health_checker = health_checker or ProviderHealthChecker()
 
     @classmethod
     def from_environment(
         cls,
         transports: dict[str, HTTPTransport] | None = None,
         cost_ledger: CostLedger | None = None,
+        health_checker: ProviderHealthChecker | None = None,
     ) -> "CapabilityRegistry":
         load_env_file()
         providers = [
@@ -158,7 +163,39 @@ class CapabilityRegistry:
                 ),
             ),
         ]
-        return cls(providers, transports=transports, cost_ledger=cost_ledger)
+        return cls(
+            providers,
+            transports=transports,
+            cost_ledger=cost_ledger,
+            health_checker=health_checker,
+        )
+
+    def refresh_health(
+        self,
+        policy: ExecutionPolicy,
+        allow_network: bool,
+    ) -> list[ProviderDescriptor]:
+        refreshed: list[ProviderDescriptor] = []
+        for provider in self.providers:
+            if provider.kind == ProviderKind.DETERMINISTIC_TOOL or not provider.enabled:
+                refreshed.append(provider)
+                continue
+            allowed, _ = PolicyCompiler().provider_allowed(policy, provider)
+            if not allowed or (provider.kind == ProviderKind.HOSTED_MODEL and not allow_network):
+                refreshed.append(provider)
+                continue
+            transport = self.transports.get(provider.id) or UrllibHTTPTransport()
+            health = self.health_checker.check(provider, transport)
+            refreshed.append(
+                provider.model_copy(
+                    update={
+                        "health": health,
+                        "metadata": {**provider.metadata, "health_source": "measured_probe"},
+                    }
+                )
+            )
+        self.providers = refreshed
+        return refreshed
 
     def available(self) -> list[ProviderDescriptor]:
         return [
@@ -244,7 +281,11 @@ class AdaptiveRouter:
         return RoutingDecision(
             task_id=task.id,
             action=RoutingAction.PAUSE,
-            reason="No available provider can execute this task safely.",
+            reason=(
+                "No available provider can execute required capabilities "
+                f"{sorted(task.required_capabilities)} safely. Configure or restore a provider "
+                "that advertises those capabilities."
+            ),
         )
 
     def route_all(self, tasks: list[TaskNode]) -> list[RoutingDecision]:

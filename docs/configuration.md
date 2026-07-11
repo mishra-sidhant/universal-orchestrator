@@ -35,6 +35,8 @@ uv run python -m universal_orchestrator run \
 
 Without a complete key/model pair, or without the required permissions and budget tier, synthesis remains local and extractive. Provider readiness requires the full pair; a key alone is not advertised as executable.
 
+Before model routing, the runtime performs a cheap bounded liveness request (`/models`, `/v1/models`, or Ollama `/api/tags`) and caches the result for 60 seconds. These probes do not consume model tokens and are recorded separately from `cost_ledger.json`. A provider-down notice in the final report identifies the family and measured status. `local_only` makes no hosted liveness request, even when keys are present.
+
 Add keys later in the repository-root `.env.local` file:
 
 ```text

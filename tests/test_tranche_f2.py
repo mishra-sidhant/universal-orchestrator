@@ -181,7 +181,7 @@ class TrancheF2EgressTests(unittest.TestCase):
             root = Path(tmp)
             source = root / "source.md"
             source.write_text(f"A source containing token={PLANTED_KEY} must stay private.")
-            transport = FakeTransport([])
+            transport = FakeTransport([HTTPResponse(200, {}, b'{"data": []}')])
             with patch.dict(
                 "os.environ",
                 {"OPENAI_API_KEY": PLANTED_KEY, "OPENAI_MODEL": "fixture-model"},
@@ -218,7 +218,8 @@ class TrancheF2EgressTests(unittest.TestCase):
 
         self.assertEqual(leaked_files, [])
         self.assertEqual(leaked_members, [])
-        self.assertEqual(transport.requests, [])
+        self.assertEqual(len(transport.requests), 1)
+        self.assertTrue(transport.requests[0].url.endswith("/models"))
 
 
 if __name__ == "__main__":
