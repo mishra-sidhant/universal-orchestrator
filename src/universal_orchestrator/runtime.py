@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -21,8 +23,17 @@ class RuntimeStore:
         conn.execute("PRAGMA journal_mode=WAL")
         return conn
 
+    @contextmanager
+    def _connection(self) -> Iterator[sqlite3.Connection]:
+        conn = self._connect()
+        try:
+            with conn:
+                yield conn
+        finally:
+            conn.close()
+
     def _init(self) -> None:
-        with self._connect() as conn:
+        with self._connection() as conn:
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS events (
@@ -105,7 +116,7 @@ class RuntimeStore:
             )
 
     def record_event(self, event: RuntimeEvent) -> None:
-        with self._connect() as conn:
+        with self._connection() as conn:
             conn.execute(
                 "INSERT INTO events(run_id, event_type, payload, created_at) VALUES (?, ?, ?, ?)",
                 (
@@ -119,7 +130,7 @@ class RuntimeStore:
     def save_run_summary(self, run_id: str, state: str, artifact_dir: str, quality_passed: bool) -> None:
         from universal_orchestrator.models import utc_now
 
-        with self._connect() as conn:
+        with self._connection() as conn:
             conn.execute(
                 """
                 INSERT INTO run_summaries(run_id, state, artifact_dir, quality_passed, updated_at)
@@ -136,7 +147,7 @@ class RuntimeStore:
     def transition(self, run_id: str, state: str) -> None:
         from universal_orchestrator.models import utc_now
 
-        with self._connect() as conn:
+        with self._connection() as conn:
             conn.execute(
                 "INSERT INTO state_transitions(run_id, state, created_at) VALUES (?, ?, ?)",
                 (run_id, state, utc_now().isoformat()),
@@ -152,7 +163,7 @@ class RuntimeStore:
     ) -> None:
         from universal_orchestrator.models import utc_now
 
-        with self._connect() as conn:
+        with self._connection() as conn:
             conn.execute(
                 """
                 INSERT INTO task_records(run_id, task_id, status, attempt, cache_key, updated_at)
@@ -177,7 +188,7 @@ class RuntimeStore:
     ) -> None:
         from universal_orchestrator.models import utc_now
 
-        with self._connect() as conn:
+        with self._connection() as conn:
             conn.execute(
                 """
                 INSERT INTO task_attempts(run_id, task_id, attempt, status, cache_key, warnings, created_at)
@@ -197,7 +208,7 @@ class RuntimeStore:
     def save_failure(self, run_id: str, stage: str, error: Exception) -> None:
         from universal_orchestrator.models import utc_now
 
-        with self._connect() as conn:
+        with self._connection() as conn:
             conn.execute(
                 """
                 INSERT INTO failure_records(run_id, stage, error_type, message, created_at)
@@ -207,7 +218,7 @@ class RuntimeStore:
             )
 
     def latest_state(self, run_id: str) -> str | None:
-        with self._connect() as conn:
+        with self._connection() as conn:
             row = conn.execute(
                 "SELECT state FROM state_transitions WHERE run_id=? ORDER BY id DESC LIMIT 1",
                 (run_id,),
@@ -215,7 +226,7 @@ class RuntimeStore:
         return row[0] if row else None
 
     def resumable_snapshot(self, run_id: str) -> dict[str, Any]:
-        with self._connect() as conn:
+        with self._connection() as conn:
             rows = conn.execute(
                 "SELECT task_id, status, attempt, cache_key FROM task_records WHERE run_id=? ORDER BY task_id",
                 (run_id,),
@@ -249,7 +260,7 @@ class RuntimeStore:
                 "reason": f"Run is already terminal: {latest}.",
             }
         requested_at = utc_now().isoformat()
-        with self._connect() as conn:
+        with self._connection() as conn:
             conn.execute(
                 """
                 INSERT INTO cancellations(run_id, reason, requested_at)
@@ -278,7 +289,7 @@ class RuntimeStore:
         }
 
     def cancel_status(self, run_id: str) -> dict[str, Any]:
-        with self._connect() as conn:
+        with self._connection() as conn:
             row = conn.execute(
                 "SELECT reason, requested_at FROM cancellations WHERE run_id=?",
                 (run_id,),
@@ -291,7 +302,7 @@ class RuntimeStore:
         return self.cancel_status(run_id).get("requested", False)
 
     def clear_cancel(self, run_id: str) -> None:
-        with self._connect() as conn:
+        with self._connection() as conn:
             conn.execute("DELETE FROM cancellations WHERE run_id=?", (run_id,))
 
     def latest_successful_summary(self, exclude_run_id: str | None = None) -> dict[str, Any] | None:
@@ -314,7 +325,7 @@ class RuntimeStore:
             params.append(exclude_run_id)
         query += " ORDER BY updated_at DESC LIMIT ?"
         params.append(limit)
-        with self._connect() as conn:
+        with self._connection() as conn:
             rows = conn.execute(query, params).fetchall()
         return [
             {
@@ -328,7 +339,7 @@ class RuntimeStore:
         ]
 
     def list_events(self, run_id: str) -> list[dict[str, Any]]:
-        with self._connect() as conn:
+        with self._connection() as conn:
             rows = conn.execute(
                 "SELECT run_id, event_type, payload, created_at FROM events WHERE run_id=? ORDER BY id",
                 (run_id,),

@@ -25,26 +25,25 @@ The current milestone is a deterministic local runtime with optional provider ad
 
 ## Quick Start
 
-Use the bundled Codex runtime Python, or any Python 3.11+ environment with Pydantic v2 installed.
+On a bare macOS host, install [`uv`](https://docs.astral.sh/uv/getting-started/installation/). It can install the required Python version as well as project dependencies, so no system Python 3.11+ is required.
 
 ```bash
-python -m universal_orchestrator doctor
-python -m universal_orchestrator run "Build an implementation plan from this repo" .
-python -m universal_orchestrator repo "Analyze and improve the current project" .
-python -m universal_orchestrator evals --run --case unsafe_archive
+curl -LsSf https://astral.sh/uv/install.sh | sh
+uv sync --all-extras --dev
+uv run python -m universal_orchestrator doctor
+uv run python -m universal_orchestrator run "Build an implementation plan from this repo" .
+uv run python -m universal_orchestrator repo "Analyze and improve the current project" .
+uv run python -m universal_orchestrator evals --run --case unsafe_archive
+uv run python -m unittest discover -s tests
 ```
 
-From a checkout without installation:
+`uv sync` creates the project environment and installs the package in editable mode. Later commands should continue to use `uv run`; shell activation is optional.
+
+From a checkout with an existing Python 3.11+ environment:
 
 ```bash
 PYTHONPATH=src python -m universal_orchestrator doctor
 PYTHONPATH=src python -m universal_orchestrator run "Summarize this report" /path/to/report.pdf
-```
-
-Run tests:
-
-```bash
-PYTHONPATH=src python -m unittest discover -s tests
 ```
 
 ## Optional Install

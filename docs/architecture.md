@@ -60,7 +60,7 @@ Context chunk IDs are stable across equivalent runs, carry source/line/page/slid
 - `context_provenance.json`
 - `context_packs.json`
 
-Chunks from non-prompt inputs carrying `prompt_injection_risk` are persisted for audit but excluded from task-consumed evidence refs.
+Chunks containing `prompt_injection_risk` text are persisted for audit but excluded from task-consumed evidence refs. The exclusion is chunk-local, so a safe passage in the same PDF or repository remains eligible. Risk cards carry finding provenance but never claim ownership of the source document's chunks.
 
 ## Product Plane
 
@@ -133,7 +133,7 @@ Run/card/contract identifiers combine UTC time with random entropy. JSON artifac
 
 When quality fails, `RepairPlanner` creates a targeted repair DAG from the specific violations, routes it through the same provider layer, executes repair tasks, writes repair artifacts, and re-runs quality. The validator registry now emits structured `ValidationFinding` records for manifest, contract, DAG, routing, execution, and artifact checks.
 
-`EvidenceAuditor` writes `evidence_audit.json`. A claim resolves only when every cited chunk exists and appears in the exact context pack delivered to that task. Empty packs remain unsupported, valid-but-unconsumed refs fail audit, and final Sources include only refs from resolved claims. `citation_support` measures this consumed-reference coverage; it does not claim semantic entailment or factuality. All score formulas are documented in `docs/quality-metrics.md`.
+`EvidenceAuditor` writes `evidence_audit.json`. Source-derived workers explicitly declare `evidence_required=true`; runtime measurements declare false and carry no refs. A source claim resolves only when every cited chunk exists and was consumed by that task. Empty source packs remain unsupported, valid-but-unconsumed refs fail audit, and final Sources include only refs from resolved source claims. `citation_support` measures this required-claim coverage; it does not claim semantic entailment or factuality. All score formulas are documented in `docs/quality-metrics.md`.
 
 Part C feeds `RepoValidationRunner` into quality scoring: failed executed repo validation becomes a violation, while unapproved shell execution is surfaced as a warning.
 

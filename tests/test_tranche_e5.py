@@ -225,6 +225,7 @@ class TrancheE5InputRealityTests(unittest.TestCase):
         self.assertEqual(payload, {"ok": True})
         self.assertEqual(urlopen.call_count, 2)
         backoff.assert_called_once_with(0.01)
+        retryable.close()
 
     def test_ids_remain_unique_when_time_is_frozen(self) -> None:
         frozen = datetime(2026, 7, 11, tzinfo=timezone.utc)

@@ -430,3 +430,61 @@ package: universal_orchestrator-0.1.0.tar.gz and universal_orchestrator-0.1.0-py
 JSON artifact types added: none
 git diff --check: passed
 ```
+
+## Tranche E.6 Bare-Host And End-To-End Proof
+
+Failing-first and proof-driven transcript against `a1ab9f6`:
+
+```text
+bootstrap structure: 2 tests failed (README had no uv flow; CI had no typing job)
+Python 3.14 connection regression: 4 ResourceWarnings in the focused RuntimeStore test
+source-evidence regression: KeyError evidence_required
+mixed-source regression: initial sentinel assertion had a prompt-citation loophole; strengthened non-prompt assertion failed
+risk provenance regression: risk records incorrectly owned source chunk IDs
+first flagship run: quality_passed=false because runtime-derived claims were treated as uncited source claims
+second flagship inspection: quality passed, but the only Source was User prompt
+pre-release full gate: secret-in-prompt test caught raw prompt text in context-pack task queries
+```
+
+Implemented corrections:
+
+- Added official standalone `uv` bootstrap, `uv.lock`, `uv run` doctor/run/test examples, and a separate visible non-blocking mypy CI job while preserving the blocking 3.11-3.13 matrix.
+- Closed every RuntimeStore SQLite connection deterministically; the Python 3.14 suite is warning-free.
+- Added `evidence_required`, restricted evidence refs to extractive synthesis, computed citation support only over source-derived claims, and included the redacted prompt in retrieval queries.
+- Made injection exclusion chunk-local and prevented risk-card provenance from owning source chunks.
+- Kept the secret boundary intact by using the redacted prompt for every persisted task query.
+
+Accepted flagship proof:
+
+```text
+run_id: run_20260711021842873947_ec53fef0
+run_type: research_report
+quality_passed: true
+evidence_audit: passed; invalid refs=0; unconsumed refs=0
+Sources: real repository and Universal_AI_Executive_Kernel_Report.pdf chunks
+echo line count: 0
+artifact_integrity_report: passed
+delivery receipt state: delivered
+delivery ZIP: 31 entries, testzip clean, receipt hash matched
+QualityScore fields: artifact_presence, citation_support, code_validation,
+  completeness, continuity, parse_confidence, routing_efficiency
+```
+
+Typing visibility: `mypy src` reports 79 errors in 19 files and remains explicitly non-blocking. This is a recorded adapter/optional-library typing backlog, not a suppressed gate.
+
+Final verification gate (2026-07-11, uv-provisioned CPython 3.14.6):
+
+```text
+uv install: uv 0.11.28 official standalone installer succeeded without system Python
+uv sync --all-extras --dev: succeeded; uv.lock generated
+unittest: 125 tests passed, ResourceWarning checks enabled, zero warnings
+ruff src tests: All checks passed
+evals --run: 3/3 passed (report PDF, repo trace, unsafe archive)
+doctor: passed; provider credentials correctly reported absent
+uv build: universal_orchestrator-0.1.0.tar.gz and universal_orchestrator-0.1.0-py3-none-any.whl
+wheel clean-environment smoke: version, doctor, local run, quality pass
+sdist clean-environment smoke: build/install, version, doctor, local run, quality pass
+mypy src: non-blocking baseline, 79 errors in 19 files
+flagship proof: run_20260711021842873947_ec53fef0, accepted
+git diff --check: passed
+```

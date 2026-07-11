@@ -647,6 +647,7 @@ class EvidenceClaim(StrictModel):
     task_id: str
     claim: str
     evidence_refs: list[str] = Field(default_factory=list)
+    evidence_required: bool = True
     resolved: bool = False
 
 

@@ -54,7 +54,7 @@ from universal_orchestrator.repo_validation import RepoValidationRunner
 from universal_orchestrator.runtime import RuntimeStore
 from universal_orchestrator.routing import AdaptiveRouter, CapabilityRegistry
 from universal_orchestrator.scheduler import DAGScheduler
-from universal_orchestrator.security import redact_text
+from universal_orchestrator.security import redact_text, scan_text
 from universal_orchestrator.stages import KernelStageContext, StageWorkerRegistry
 from universal_orchestrator.utils import read_json, sha256_file
 
@@ -203,7 +203,10 @@ class Orchestrator:
             [node.id for node in dag.nodes],
             cards,
             chunks=chunks,
-            task_queries={node.id: f"{node.title} {node.task_type}" for node in dag.nodes},
+            task_queries={
+                node.id: f"{redact_text(invocation.prompt)} {node.title} {node.task_type}"
+                for node in dag.nodes
+            },
         )
         dag, budget_report = self.budget.apply(invocation, dag, context_packs)
         plan_review = self.planner.review_plan(run_id, contract, dag)
@@ -269,27 +272,25 @@ class Orchestrator:
         source_input_ids = {
             item.id for item in manifest.inputs if item.type != InputType.PROMPT
         }
-        injection_risk_input_ids = {
-            item.id
-            for item in manifest.inputs
-            if item.type != InputType.PROMPT
-            and any(
-                finding.kind == "prompt_injection_risk"
-                for finding in item.security_findings
-            )
-        }
         chunk_refs_by_task: dict[str, list[str]] = {}
         for task_id, pack in context_packs.items():
             source_refs = [
                 chunk.id
                 for chunk in pack.chunks
                 if chunk.input_id in source_input_ids
-                and chunk.input_id not in injection_risk_input_ids
+                and not any(
+                    finding.kind == "prompt_injection_risk"
+                    for finding in scan_text(chunk.text)
+                )
             ]
             prompt_refs = [
                 chunk.id for chunk in pack.chunks if chunk.input_id not in source_input_ids
             ]
-            chunk_refs_by_task[task_id] = (source_refs or prompt_refs)[:3]
+            chunk_refs_by_task[task_id] = (
+                (source_refs or prompt_refs)[:3]
+                if task_id == "T-SYNTHESIS"
+                else []
+            )
         repo_validation_report = self.repo_validation.run(invocation, manifest)
         trace.checkpoint(
             "repo_validation",

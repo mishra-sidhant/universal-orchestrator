@@ -7,6 +7,7 @@ import tempfile
 import threading
 import unittest
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
 from pathlib import Path
 from time import monotonic, sleep
 from unittest.mock import patch
@@ -129,15 +130,14 @@ class TrancheE4RuntimeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             orchestrator = Orchestrator(Path(tmp) / "runs")
             result = orchestrator.run(HostInvocation(prompt="Produce a final report"))
-            states = [
-                row[0]
-                for row in sqlite3.connect(orchestrator.runtime.path)
-                .execute(
-                    "SELECT state FROM state_transitions WHERE run_id=? ORDER BY id",
-                    (result.run_id,),
-                )
-                .fetchall()
-            ]
+            with closing(sqlite3.connect(orchestrator.runtime.path)) as conn:
+                states = [
+                    row[0]
+                    for row in conn.execute(
+                        "SELECT state FROM state_transitions WHERE run_id=? ORDER BY id",
+                        (result.run_id,),
+                    )
+                ]
 
             for state in (
                 RunState.FINAL_ASSEMBLY,
@@ -192,7 +192,7 @@ class TrancheE4RuntimeTests(unittest.TestCase):
             with patch.object(orchestrator.quality, "evaluate", side_effect=fail_quality):
                 result = orchestrator.run(HostInvocation(prompt="Produce a final report"))
 
-            with sqlite3.connect(orchestrator.runtime.path) as conn:
+            with closing(sqlite3.connect(orchestrator.runtime.path)) as conn:
                 states = [
                     row[0]
                     for row in conn.execute(
@@ -218,7 +218,7 @@ class TrancheE4RuntimeTests(unittest.TestCase):
             with patch.object(orchestrator, "_build_static_artifacts", side_effect=flaky_build):
                 result = orchestrator.run(HostInvocation(prompt="Produce a final report"))
 
-            with sqlite3.connect(orchestrator.runtime.path) as conn:
+            with closing(sqlite3.connect(orchestrator.runtime.path)) as conn:
                 build_attempts = conn.execute(
                     "SELECT attempt, status FROM task_attempts "
                     "WHERE run_id=? AND task_id='T-ARTIFACT-BUILD' ORDER BY id",

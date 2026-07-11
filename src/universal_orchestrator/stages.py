@@ -68,7 +68,12 @@ class StageWorkerRegistry:
 
     def _execute_one(self, task: TaskNode, decision: RoutingDecision) -> ExecutionResult:
         started_at = utc_now()
-        refs = list(self.context.chunk_refs_by_task.get(task.id, []))
+        evidence_required = task.id == "T-SYNTHESIS"
+        refs = (
+            list(self.context.chunk_refs_by_task.get(task.id, []))
+            if evidence_required
+            else []
+        )
         if decision.action not in {RoutingAction.ROUTE, RoutingAction.ROUTE_DEGRADED}:
             status = (
                 TaskStatus.WAITING_FOR_USER
@@ -258,6 +263,7 @@ class StageWorkerRegistry:
             "summary": summary,
             "findings": findings,
             "evidence_refs": evidence_refs,
+            "evidence_required": task.id == "T-SYNTHESIS",
             "files": [],
             "metrics": {
                 "finding_count": len(findings),

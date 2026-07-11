@@ -116,23 +116,38 @@ class ContextIntelligence:
         for chunk in chunks:
             chunks_by_input[chunk.input_id].append(chunk.id)
             hashes_by_input.setdefault(chunk.input_id, chunk.content_hash)
-        return [
-            ProvenanceRecord(
-                source_id=card.input_id,
-                card_id=card.id,
-                chunk_ids=chunks_by_input.get(card.input_id, []),
-                source_name=card.title,
-                source_uri=str(card.metadata.get("uri", "")),
-                chunk_locators={
-                    chunk.id: str(chunk.metadata.get("locator", ""))
-                    for chunk in chunks
-                    if chunk.input_id == card.input_id
-                },
-                trust_level=card.trust_level,
-                content_hash=hashes_by_input.get(card.input_id),
+        records: list[ProvenanceRecord] = []
+        for card in cards:
+            owns_source_chunks = card.card_type != CardType.RISK
+            records.append(
+                ProvenanceRecord(
+                    source_id=card.input_id,
+                    card_id=card.id,
+                    chunk_ids=(
+                        chunks_by_input.get(card.input_id, [])
+                        if owns_source_chunks
+                        else []
+                    ),
+                    source_name=card.title,
+                    source_uri=str(card.metadata.get("uri", "")),
+                    chunk_locators=(
+                        {
+                            chunk.id: str(chunk.metadata.get("locator", ""))
+                            for chunk in chunks
+                            if chunk.input_id == card.input_id
+                        }
+                        if owns_source_chunks
+                        else {}
+                    ),
+                    trust_level=card.trust_level,
+                    content_hash=(
+                        hashes_by_input.get(card.input_id)
+                        if owns_source_chunks
+                        else None
+                    ),
+                )
             )
-            for card in cards
-        ]
+        return records
 
     def deduplicate_cards(self, cards: list[ContextCard]) -> list[ContextCard]:
         seen: set[str] = set()
