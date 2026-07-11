@@ -60,7 +60,11 @@ from universal_orchestrator.utils import read_json, sha256_file
 
 
 class Orchestrator:
-    def __init__(self, artifact_root: Path | str = ".uo/runs") -> None:
+    def __init__(
+        self,
+        artifact_root: Path | str = ".uo/runs",
+        capability_registry: CapabilityRegistry | None = None,
+    ) -> None:
         self.artifact_store = ArtifactStore(Path(artifact_root))
         self.ingestor = InputIngestor()
         self.context = ContextIntelligence()
@@ -81,6 +85,7 @@ class Orchestrator:
         self.cache = ExactMatchCache(Path(artifact_root) / "_cache")
         self.runtime = RuntimeStore(Path(artifact_root) / "runtime.sqlite3")
         self.scheduler = DAGScheduler(self.cache)
+        self.capability_registry = capability_registry
 
     def run(self, invocation: HostInvocation) -> RunResult:
         run_id = new_id("run")
@@ -220,7 +225,7 @@ class Orchestrator:
             },
         )
 
-        registry = CapabilityRegistry.from_environment()
+        registry = self.capability_registry or CapabilityRegistry.from_environment()
         router = AdaptiveRouter(registry, execution_policy)
         self.runtime.transition(run_id, RunState.ROUTING)
         decisions, routing_telemetry = router.route_all_with_telemetry(run_id, dag.topological_order())

@@ -77,6 +77,8 @@ The first compiler infers:
 
 `ApprovalGateEngine` writes `approval_report.json` for internet access, repo writes, shell execution, and cloud provider execution. `PolicyCompiler` then creates `policy_report.json`; both the router and executor enforce it. Network fetch and hosted-model authority are separate decisions, and `local_only` always blocks hosted models.
 
+Egress safety is enforced in layers. Context compilation omits chunks with `prompt_injection_risk`; prompt rendering repeats quarantine for manually constructed or stale packs, wraps retained context in untrusted-data delimiters, and supplies an authority preamble. Finally, the HTTP boundary recursively redacts every JSON payload immediately before serialization. Hosted execution policy is rechecked after routing, so keys and even a forged hosted decision cannot bypass `local_only`.
+
 ## Orchestrator Kernel
 
 The kernel uses `PlannerEnsemble` to create a five-node typed `TaskDAG`: context aggregation, gap analysis, extractive synthesis, static artifact construction, and quality evaluation. Every node maps to a concrete function in `StageWorkerRegistry`.

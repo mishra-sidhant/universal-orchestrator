@@ -14,6 +14,7 @@ from universal_orchestrator.models import (
     ProvenanceRecord,
     new_id,
 )
+from universal_orchestrator.security import scan_text
 from universal_orchestrator.utils import estimate_tokens, sha256_bytes
 
 
@@ -194,6 +195,8 @@ class ContextIntelligence:
             reverse=True,
         )
         for chunk in ranked_chunks:
+            if any(finding.kind == "prompt_injection_risk" for finding in scan_text(chunk.text)):
+                continue
             if used_tokens + chunk.token_estimate > token_budget:
                 continue
             selected_chunks.append(chunk)

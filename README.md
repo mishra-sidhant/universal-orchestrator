@@ -11,6 +11,7 @@ The current milestone is a deterministic local runtime with fixture-validated li
 - Universal input ingestion MVP for prompts, text/markdown, PDFs, folders, repositories, URLs, images, Office files, spreadsheets, archives, and unknown files.
 - Secret and prompt-injection risk scanning before context cards are built.
 - Common provider/PAT/JWT/private-key/credential-URL redaction, complete archive-member inspection, SSRF/private-network blocking, and child-process environment scrubbing.
+- Recursive redaction at the provider transport boundary, prompt-injection chunk quarantine, and explicit untrusted-data delimiters around model context.
 - Redacted full-text extraction, bounded repository hot/prompt-matched file reads, stable source chunks with path/line locators, provenance, and task-specific context packs.
 - Product contract compiler that turns natural prompts into enforceable definitions of done.
 - Property-derived planner review and a five-node typed DAG backed by real local stage workers.

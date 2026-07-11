@@ -25,6 +25,7 @@ from universal_orchestrator.providers import (
     OpenAIResponsesAdapter,
     ProviderAdapterRegistry,
 )
+from universal_orchestrator.providers.transport import HTTPTransport
 
 
 COST_ORDER = {
@@ -36,11 +37,19 @@ COST_ORDER = {
 
 
 class CapabilityRegistry:
-    def __init__(self, providers: list[ProviderDescriptor]) -> None:
+    def __init__(
+        self,
+        providers: list[ProviderDescriptor],
+        transports: dict[str, HTTPTransport] | None = None,
+    ) -> None:
         self.providers = providers
+        self.transports = transports or {}
 
     @classmethod
-    def from_environment(cls) -> "CapabilityRegistry":
+    def from_environment(
+        cls,
+        transports: dict[str, HTTPTransport] | None = None,
+    ) -> "CapabilityRegistry":
         load_env_file()
         providers = [
             ProviderDescriptor(
@@ -135,7 +144,7 @@ class CapabilityRegistry:
                 ),
             ),
         ]
-        return cls(providers)
+        return cls(providers, transports=transports)
 
     def available(self) -> list[ProviderDescriptor]:
         return [
@@ -150,11 +159,11 @@ class CapabilityRegistry:
             if provider.id == "deterministic.tools":
                 adapters.append(DeterministicToolsAdapter(provider))
             elif provider.id == "openai.configured":
-                adapters.append(OpenAIResponsesAdapter(provider))
+                adapters.append(OpenAIResponsesAdapter(provider, transport=self.transports.get(provider.id)))
             elif provider.id == "anthropic.configured":
-                adapters.append(AnthropicAdapter(provider))
+                adapters.append(AnthropicAdapter(provider, transport=self.transports.get(provider.id)))
             elif provider.id == "ollama.local":
-                adapters.append(OllamaAdapter(provider))
+                adapters.append(OllamaAdapter(provider, transport=self.transports.get(provider.id)))
         return ProviderAdapterRegistry(adapters)
 
 

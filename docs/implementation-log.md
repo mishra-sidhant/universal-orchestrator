@@ -544,3 +544,37 @@ doctor: passed with all provider credentials absent
 package: wheel and source distribution built successfully
 git diff --check: passed
 ```
+
+## Tranche F.2 Provider Egress Safety
+
+Failing-first transcript against `80a742c`:
+
+```text
+4 focused tests: 1 assertion failure, 3 boundary errors
+- hostile chunk remained in the compiled ContextPack
+- CapabilityRegistry did not accept injected transports
+- Orchestrator did not accept a live-configured fixture registry
+- outbound recursive redaction/quarantine could not be exercised through the registry
+```
+
+Implemented:
+
+- Quarantined prompt-injection-risk chunks during context compilation and repeated that enforcement while rendering provider context.
+- Wrapped retained context in explicit untrusted-data delimiters with an authority preamble.
+- Recursively redacted provider payloads at the last process boundary before JSON serialization, including prompt, context, and nested metadata.
+- Injected transports through `CapabilityRegistry` and allowed a registry to be injected into `Orchestrator`, enabling full offline live-configuration proofs.
+- Proved a forged hosted route cannot bypass `local_only`, even with key, model, network permission, and dry-run disabled.
+- Swept every file in a live-configured run and every member of its delivery ZIP for planted key material; zero matches.
+
+Validation gate (2026-07-11, no real keys and no live calls):
+
+```text
+unittest: 137 tests passed
+ruff src tests: All checks passed
+evals --run: 3/3 passed
+doctor: passed with all provider credentials absent
+package: wheel and source distribution built successfully
+key sweep: run artifacts 0 matches; delivery ZIP members 0 matches
+local_only with live configuration: 0 transport invocations
+git diff --check: passed
+```

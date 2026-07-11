@@ -114,4 +114,7 @@ Endpoints:
 - Untrusted prompt-injection-like content is recorded as a risk card.
 - Hosted provider descriptors are disabled unless their environment variables are present.
 - Hosted models additionally require explicit cloud permission; provider availability is never treated as execution authority.
+- `local_only` blocks hosted transport invocation even when keys, models, internet permission, cloud permission, and a hosted route are all present.
+- Source chunks flagged for prompt-injection risk are quarantined from provider context. Remaining source context is labeled and delimited as untrusted data.
+- Provider JSON payloads are recursively redacted immediately before transport serialization; persisted artifacts and delivery ZIP members are independently key-swept in regression tests.
 - Repository validation never auto-runs `npm test` or `cargo test`; Python unittest subprocesses receive only `PATH`, `HOME`, `LANG`, and explicitly declared command variables.
