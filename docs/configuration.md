@@ -71,7 +71,7 @@ Run `python -m universal_orchestrator configure` to see missing values without p
 
 Provider capability numbers shown by `providers` are configured routing priors, not measured facts. Update them only as configuration-backed hypotheses until benchmark evidence exists.
 
-Capacity is reported with a source and confidence. A provider with no observation is `unknown`, not unlimited. Subscription-backed CLI calls record capacity usage separately from metered API dollars.
+Capacity is reported with a source and confidence. A provider with no observation is `unknown`, not unlimited. Subscription-backed CLI calls record capacity usage separately from metered API dollars, and their ledger rows are `allocated_cost_unknown` rather than priced at zero.
 
 ## Explicit Live Smoke
 

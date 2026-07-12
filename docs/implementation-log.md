@@ -43,6 +43,16 @@ ValueError: No liveness endpoint configured for openai-compatible.local
 
 Added redaction-safe models-list probes for Gemini, xAI, and OpenAI-compatible gateways. Subscription CLIs remain execution-status driven because they expose no standard HTTP liveness surface; their quota observations stay explicitly unknown or observed. Hosted health failures now feed the same degraded routing path across the provider matrix.
 
+## Tranche G.9: Honest Subscription Cost Classification
+
+Failing-first landmark:
+
+```text
+AttributeError: 'ProviderCallLedgerEntry' object has no attribute 'billing_mode'
+```
+
+Provider ledger rows now carry billing mode and cost status. Subscription CLI usage is counted separately as `allocated_cost_unknown`, while local zero-cost execution is labeled explicitly; metered API totals remain the only values treated as priced USD.
+
 Failing-first landmarks:
 
 ```text
