@@ -38,7 +38,13 @@ class CapacityBroker:
 
     def snapshot(self, connector_id: str) -> CapacitySnapshot | None:
         with self._lock:
-            return self._snapshots.get(connector_id)
+            direct = self._snapshots.get(connector_id)
+            if direct is not None:
+                return direct
+            return next(
+                (snapshot for snapshot in self._snapshots.values() if snapshot.provider_id == connector_id),
+                None,
+            )
 
     def snapshots(self) -> list[CapacitySnapshot]:
         with self._lock:

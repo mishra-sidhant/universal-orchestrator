@@ -18,6 +18,7 @@ from universal_orchestrator.errors import RunCancelledError
 from universal_orchestrator.execution_policy import PolicyCompiler
 from universal_orchestrator.ingestion import InputIngestor
 from universal_orchestrator.integrity import ArtifactIntegrityAuditor
+from universal_orchestrator.handoff import HandoffController
 from universal_orchestrator.models import (
     ApprovalReport,
     Artifact,
@@ -88,7 +89,7 @@ class Orchestrator:
         self.integrity = ArtifactIntegrityAuditor()
         self.cache = ExactMatchCache(Path(artifact_root) / "_cache")
         self.runtime = RuntimeStore(Path(artifact_root) / "runtime.sqlite3")
-        self.scheduler = DAGScheduler(self.cache)
+        self.scheduler = DAGScheduler(self.cache, runtime_store=self.runtime)
         self.capability_registry = capability_registry
 
     def run(self, invocation: HostInvocation) -> RunResult:
@@ -210,6 +211,7 @@ class Orchestrator:
         registry = self.capability_registry or CapabilityRegistry.from_environment()
         registry.cost_ledger = cost_ledger
         registry.runtime_store = self.runtime
+        handoff_controller = HandoffController(registry.capacity_broker, self.runtime)
         registry.refresh_health(
             execution_policy,
             allow_network=invocation.user_options.allow_internet,
@@ -343,6 +345,11 @@ class Orchestrator:
                 provenance=provenance,
                 context_packs=context_packs,
                 context_index=context_index,
+                retrieval_hits=self.context.retrieval_hits_by_task,
+                capacity_snapshots=[
+                    snapshot.model_dump(mode="json")
+                    for snapshot in registry.capacity_broker.snapshots()
+                ],
                 conflicts=conflicts,
                 cache_key=cache_key,
                 contract=contract,
@@ -389,6 +396,7 @@ class Orchestrator:
             operator_prompt=redact_text(invocation.prompt),
             execution_policy=execution_policy,
             provider_health_notices=provider_health_notices,
+            handoff_controller=handoff_controller,
         )
         executor = StageWorkerRegistry(stage_context)
         self.runtime.transition(run_id, RunState.EXECUTING)
@@ -850,6 +858,8 @@ class Orchestrator:
         provenance: list[ProvenanceRecord],
         context_packs: dict[str, ContextPack],
         context_index: dict[str, list[str]],
+        retrieval_hits: dict[str, list[dict[str, object]]],
+        capacity_snapshots: list[dict[str, Any]],
         conflicts: list[str],
         cache_key: str,
         contract: ProductContract,
@@ -880,6 +890,21 @@ class Orchestrator:
             (
                 "context_index.json",
                 {"terms": context_index, "conflicts": conflicts, "cache_key": cache_key},
+            ),
+            (
+                "retrieval_report.json",
+                {
+                    "embedding_model": self.context.retriever.provider.model_id,
+                    "by_task": retrieval_hits,
+                    "disclosure": "Hybrid retrieval is a ranking aid, not semantic entailment.",
+                },
+            ),
+            (
+                "capacity_report.json",
+                {
+                    "snapshots": capacity_snapshots,
+                    "disclosure": "Unknown capacity is not treated as unlimited.",
+                },
             ),
             ("product_contract.json", contract.model_dump(mode="json")),
             ("approval_report.json", approval_report.model_dump(mode="json")),
@@ -948,14 +973,18 @@ class Orchestrator:
         invocation: HostInvocation,
     ) -> bool:
         for provider in registry.available():
-            if provider.kind not in {ProviderKind.HOSTED_MODEL, ProviderKind.LOCAL_MODEL}:
+            if provider.kind not in {
+                ProviderKind.HOSTED_MODEL,
+                ProviderKind.SUBSCRIPTION_CLI,
+                ProviderKind.LOCAL_MODEL,
+            }:
                 continue
             if provider.capabilities.get("final_synthesis", 0.0) < 0.6:
                 continue
             allowed, _ = self.policy_compiler.provider_allowed(execution_policy, provider)
             if not allowed:
                 continue
-            if provider.kind == ProviderKind.HOSTED_MODEL and not invocation.user_options.allow_internet:
+            if provider.kind in {ProviderKind.HOSTED_MODEL, ProviderKind.SUBSCRIPTION_CLI} and not invocation.user_options.allow_internet:
                 continue
             return True
         return False
@@ -976,6 +1005,8 @@ class Orchestrator:
             "context_provenance.json",
             "context_packs.json",
             "context_index.json",
+            "retrieval_report.json",
+            "capacity_report.json",
             "product_contract.json",
             "approval_report.json",
             "policy_report.json",

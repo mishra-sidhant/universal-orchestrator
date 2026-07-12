@@ -9,14 +9,18 @@ from universal_orchestrator.cache import ExactMatchCache
 from universal_orchestrator.execution import DeterministicExecutor
 from universal_orchestrator.models import (
     ExecutionResult,
+    TaskCheckpoint,
+    TaskLease,
     RoutingDecision,
     ScheduleReport,
     ScheduledTaskRecord,
     TaskDAG,
     TaskNode,
     TaskStatus,
+    new_id,
     utc_now,
 )
+from universal_orchestrator.runtime import RuntimeStore
 
 
 class CompletionGuard:
@@ -58,8 +62,16 @@ class CompletionGuard:
 
 
 class DAGScheduler:
-    def __init__(self, cache: ExactMatchCache | None = None) -> None:
+    def __init__(
+        self,
+        cache: ExactMatchCache | None = None,
+        max_parallel_tasks: int = 4,
+        runtime_store: RuntimeStore | None = None,
+    ) -> None:
         self.cache = cache
+        self.max_parallel_tasks = max(1, max_parallel_tasks)
+        self.runtime_store = runtime_store
+        self.owner_id = new_id("scheduler")
 
     def parallel_batches(self, dag: TaskDAG) -> list[list[TaskNode]]:
         remaining = {node.id: node for node in dag.nodes}
@@ -95,7 +107,11 @@ class DAGScheduler:
         cache_hits: list[str] = []
         execution_order: list[str] = []
         result_by_task: dict[str, ExecutionResult] = {}
-        for batch in self.parallel_batches(dag):
+        batches = self.parallel_batches(dag)
+        for batch in batches:
+            batch_results: dict[str, ExecutionResult] = {}
+            batch_records: dict[str, list[ScheduledTaskRecord]] = {}
+            runnable: list[tuple[TaskNode, str]] = []
             for task in batch:
                 cache_key = self.cache_key_for_task(task, cache_context)
                 if cancellation_check and cancellation_check():
@@ -104,14 +120,16 @@ class DAGScheduler:
                         TaskStatus.CANCELLED,
                         "Run cancellation requested before task execution.",
                     )
-                    records.append(self._record(task, result, 0, cache_key))
+                    batch_results[task.id] = result
+                    batch_records[task.id] = [self._record(task, result, 0, cache_key)]
                 elif self._blocked_by_dependency(task, result_by_task):
                     result = self._terminal_result(
                         task,
                         TaskStatus.SKIPPED,
                         "Task skipped because a dependency did not complete successfully.",
                     )
-                    records.append(self._record(task, result, 0, cache_key))
+                    batch_results[task.id] = result
+                    batch_records[task.id] = [self._record(task, result, 0, cache_key)]
                 else:
                     cached = self.cached_payload(cache_key, task.cacheable)
                     if cached and cached.get("schema_version") == "2.0" and cached.get("status") == "completed":
@@ -125,26 +143,108 @@ class DAGScheduler:
                             started_at=utc_now(),
                             completed_at=utc_now(),
                         )
-                        records.append(self._record(task, result, 0, cache_key))
+                        batch_results[task.id] = result
+                        batch_records[task.id] = [self._record(task, result, 0, cache_key)]
                     else:
-                        result = self._execute_with_retries(
+                        if self.runtime_store is not None:
+                            lease = self.runtime_store.acquire_task_lease(
+                                dag.run_id,
+                                task.id,
+                                self.owner_id,
+                                ttl_seconds=max(1, task.timeout_seconds + 5),
+                            )
+                            if lease is None:
+                                result = self._terminal_result(
+                                    task,
+                                    TaskStatus.FAILED,
+                                    "Task lease is already held by another active scheduler owner.",
+                                )
+                                batch_results[task.id] = result
+                                batch_records[task.id] = [self._record(task, result, 0, cache_key)]
+                                continue
+                        runnable.append((task, cache_key))
+            if runnable:
+                with ThreadPoolExecutor(
+                    max_workers=min(self.max_parallel_tasks, len(runnable)),
+                    thread_name_prefix="uo-batch",
+                ) as workers:
+                    futures = {
+                        task.id: workers.submit(
+                            self._execute_with_retries,
                             task,
                             decision_by_task[task.id],
                             executor,
                             cache_key,
-                            records,
+                            [],
                             cancellation_check,
                         )
-                        if self.cache and task.cacheable and result.status == TaskStatus.COMPLETED:
-                            self.cache.set(
-                                cache_key,
-                                {
-                                    "schema_version": "2.0",
-                                    "provider_id": result.provider_id,
-                                    "status": "completed",
-                                    "output": result.output,
-                                },
+                        for task, cache_key in runnable
+                    }
+                    for task, cache_key in runnable:
+                        try:
+                            result, local_records = futures[task.id].result()
+                            batch_records[task.id] = local_records
+                        except Exception as exc:
+                            result = self._terminal_result(
+                                task,
+                                TaskStatus.FAILED,
+                                f"Task execution raised {type(exc).__name__}: {exc}",
                             )
+                            batch_records[task.id] = [self._record(task, result, 1, cache_key)]
+                        batch_results[task.id] = result
+            for task in sorted(batch, key=lambda item: item.id):
+                cache_key = self.cache_key_for_task(task, cache_context)
+                result = batch_results[task.id]
+                records.extend(batch_records[task.id])
+                if self.runtime_store is not None and task.id in {
+                    runnable_task.id for runnable_task, _ in runnable
+                }:
+                    lease = self.runtime_store.current_task_lease(dag.run_id, task.id, self.owner_id)
+                    if lease is None:
+                        result = result.model_copy(
+                            update={
+                                "status": TaskStatus.FAILED,
+                                "warnings": [
+                                    *result.warnings,
+                                    "Task lease disappeared before its result could commit.",
+                                ],
+                            }
+                        )
+                    else:
+                        if result.status == TaskStatus.COMPLETED:
+                            attempt = max((record.attempt for record in batch_records[task.id]), default=1)
+                            checkpoint = TaskCheckpoint(
+                                run_id=dag.run_id,
+                                task_id=task.id,
+                                attempt=max(1, attempt),
+                                sequence=attempt,
+                                lease_epoch=lease.epoch,
+                                validated_output=result.output,
+                            )
+                            if not self.runtime_store.save_checkpoint(checkpoint, lease):
+                                result = result.model_copy(
+                                    update={
+                                        "status": TaskStatus.FAILED,
+                                        "warnings": [
+                                            *result.warnings,
+                                            "Task lease expired before its validated checkpoint could commit.",
+                                        ],
+                                    }
+                                )
+                        self.runtime_store.release_task_lease(
+                            lease,
+                            "completed" if result.status == TaskStatus.COMPLETED else "failed",
+                        )
+                if self.cache and task.cacheable and result.status == TaskStatus.COMPLETED:
+                    self.cache.set(
+                        cache_key,
+                        {
+                            "schema_version": "2.0",
+                            "provider_id": result.provider_id,
+                            "status": "completed",
+                            "output": result.output,
+                        },
+                    )
                 results.append(result)
                 result_by_task[task.id] = result
                 execution_order.append(task.id)
@@ -155,7 +255,7 @@ class DAGScheduler:
             run_id=dag.run_id,
             records=records,
             execution_order=execution_order,
-            parallel_batches=[[task.id for task in batch] for batch in self.parallel_batches(dag)],
+            parallel_batches=[[task.id for task in batch] for batch in batches],
             cache_hits=cache_hits,
             failed_tasks=[result.task_id for result in results if result.status == TaskStatus.FAILED],
         )
@@ -169,7 +269,7 @@ class DAGScheduler:
         cache_key: str,
         records: list[ScheduledTaskRecord],
         cancellation_check: Callable[[], bool] | None,
-    ) -> ExecutionResult:
+    ) -> tuple[ExecutionResult, list[ScheduledTaskRecord]]:
         max_attempts = max(1, task.retry_policy.max_attempts)
         result = self._terminal_result(task, TaskStatus.FAILED, "Task did not execute.")
         for attempt in range(1, max_attempts + 1):
@@ -187,7 +287,7 @@ class DAGScheduler:
                 break
             if attempt < max_attempts and task.retry_policy.backoff_seconds > 0:
                 sleep(task.retry_policy.backoff_seconds)
-        return result
+        return result, records
 
     def _execute_with_timeout(
         self,

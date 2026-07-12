@@ -22,7 +22,7 @@ from universal_orchestrator.models import (
 from universal_orchestrator.cost_ledger import BudgetStopError
 from universal_orchestrator.execution_policy import PolicyCompiler
 from universal_orchestrator.model_synthesis import ModelOutputValidationError, ModelSynthesisRunner
-from universal_orchestrator.providers.base import ProviderAdapterRegistry
+from universal_orchestrator.providers.base import ProviderAdapterRegistry, ProviderError, ProviderErrorKind
 
 
 @dataclass
@@ -40,6 +40,7 @@ class KernelStageContext:
     operator_prompt: str = ""
     execution_policy: ExecutionPolicy | None = None
     provider_health_notices: list[str] = field(default_factory=list)
+    handoff_controller: Any | None = None
     artifacts: list[Artifact] = field(default_factory=list)
 
 
@@ -132,9 +133,11 @@ class StageWorkerRegistry:
             else:
                 summary, findings, extra = handler(task, decision, refs)
             handler_warnings = list(extra.pop("_warnings", []))
+            effective_provider_id = extra.pop("_provider_id", decision.provider_id)
+            effective_decision = decision.model_copy(update={"provider_id": effective_provider_id})
             result = self._result(
                 task,
-                decision,
+                effective_decision,
                 TaskStatus.COMPLETED,
                 summary,
                 findings,
@@ -228,6 +231,8 @@ class StageWorkerRegistry:
             pack = self.context.context_packs.get(task.id)
             if pack is None:
                 raise RuntimeError("Model synthesis requires a bounded context pack.")
+            handoff_warnings: list[str] = []
+            effective_provider_id: str | None = None
             try:
                 model_result = self.model_synthesis.run(
                     adapter,
@@ -238,6 +243,48 @@ class StageWorkerRegistry:
                 )
             except BudgetStopError:
                 raise
+            except ProviderError as exc:
+                handoffable = {
+                    ProviderErrorKind.CAPACITY_EXHAUSTED,
+                    ProviderErrorKind.RATE_LIMIT,
+                    ProviderErrorKind.TRANSIENT,
+                    ProviderErrorKind.TIMEOUT,
+                }
+                if exc.kind not in handoffable or self.context.handoff_controller is None:
+                    raise
+                handoff = self.context.handoff_controller.choose(
+                    task.run_id,
+                    task.id,
+                    attempt=1,
+                    candidates=list(decision.alternatives),
+                    attempted_connectors={decision.provider_id} if decision.provider_id else set(),
+                    reason=f"{decision.provider_id} stopped with {exc.kind.value}; preserved task context.",
+                    current_connector_id=decision.provider_id,
+                )
+                next_adapter = (
+                    self.context.provider_adapters.get(handoff.to_connector_id)
+                    if handoff and self.context.provider_adapters
+                    else None
+                )
+                if handoff is None or next_adapter is None:
+                    raise
+                if self.context.execution_policy:
+                    allowed, reason = PolicyCompiler().provider_allowed(
+                        self.context.execution_policy, next_adapter.descriptor
+                    )
+                    if not allowed:
+                        raise RuntimeError(reason)
+                model_result = self.model_synthesis.run(
+                    next_adapter,
+                    task,
+                    pack,
+                    self.context.operator_prompt,
+                    completion_guard,
+                )
+                effective_provider_id = handoff.to_connector_id
+                handoff_warnings.append(
+                    f"Provider handoff completed from {decision.provider_id} to {handoff.to_connector_id}."
+                )
             except ModelOutputValidationError as exc:
                 summary, findings, extra = self._extractive_synthesis(refs)
                 return summary, findings, {
@@ -255,13 +302,16 @@ class StageWorkerRegistry:
             evidence_refs = list(
                 dict.fromkeys(ref for claim in output.claims for ref in claim.evidence_refs)
             )
-            return output.summary, output.findings, {
+            model_extra: dict[str, Any] = {
                 "synthesis_path": "model_repaired" if model_result.repaired else "model",
                 "claims": [claim.model_dump(mode="json") for claim in output.claims],
                 "evidence_refs": evidence_refs,
-                "_warnings": model_result.warnings,
+                "_warnings": [*model_result.warnings, *handoff_warnings],
                 "degraded_mode_notices": self.context.provider_health_notices,
             }
+            if effective_provider_id is not None:
+                model_extra["_provider_id"] = effective_provider_id
+            return output.summary, output.findings, model_extra
         summary, findings, extra = self._extractive_synthesis(refs)
         return summary, findings, {
             **extra,

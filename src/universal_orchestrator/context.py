@@ -15,10 +15,15 @@ from universal_orchestrator.models import (
     new_id,
 )
 from universal_orchestrator.security import scan_text
+from universal_orchestrator.retrieval import HybridRetriever
 from universal_orchestrator.utils import estimate_tokens, sha256_bytes
 
 
 class ContextIntelligence:
+    def __init__(self, retriever: HybridRetriever | None = None) -> None:
+        self.retriever = retriever or HybridRetriever()
+        self.retrieval_hits_by_task: dict[str, list[dict[str, object]]] = {}
+
     def build_cards(self, manifest: ContextManifest) -> list[ContextCard]:
         cards: list[ContextCard] = []
         for record in manifest.inputs:
@@ -189,10 +194,17 @@ class ContextIntelligence:
         used_tokens = 0
         selected_chunks: list[ContextChunk] = []
         query_terms = self._terms(task)
+        available_chunks = chunks or []
+        semantic_hits = self.retriever.retrieve(task, available_chunks, limit=len(available_chunks))
+        self.retrieval_hits_by_task[task_id] = [hit.model_dump(mode="json") for hit in semantic_hits]
+        rank_by_id = {hit.chunk_id: index for index, hit in enumerate(semantic_hits)}
         ranked_chunks = sorted(
-            chunks or [],
-            key=lambda chunk: len(query_terms.intersection(self._terms(chunk.text))),
-            reverse=True,
+            available_chunks,
+            key=lambda chunk: (
+                rank_by_id.get(chunk.id, len(rank_by_id)),
+                -len(query_terms.intersection(self._terms(chunk.text))),
+                chunk.id,
+            ),
         )
         for chunk in ranked_chunks:
             if any(finding.kind == "prompt_injection_risk" for finding in scan_text(chunk.text)):

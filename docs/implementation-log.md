@@ -18,6 +18,25 @@ Success: no issues found in 57 source files
 world_readiness_core: passed
 ```
 
+## Tranche H.1-I.2: Durable Parallel Handoff And Context Intelligence
+
+Failing-first landmarks:
+
+```text
+TypeError: DAGScheduler.__init__() got an unexpected keyword argument 'max_parallel_tasks'
+AttributeError: 'RuntimeStore' object has no attribute 'acquire_task_lease'
+```
+
+Added bounded dependency-ready parallel execution, SQLite leases and epoch fencing, validated task checkpoints, crash-recovery primitives, provider handoff records, cross-provider synthesis retry, deterministic hybrid retrieval, persisted local embedding vectors, and a structural claim verifier that never calls lexical similarity entailment.
+
+Verification:
+
+```text
+Ran 181 tests in 4.729s - OK
+Success: no issues found in 62 source files
+world_readiness_core: passed
+```
+
 ## Tranche G.2: Official Subscription CLI Adapters
 
 Failing-first landmark:

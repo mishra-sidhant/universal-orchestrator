@@ -357,6 +357,30 @@ class ContextPack(StrictModel):
     token_budget: int = 16_000
 
 
+class RetrievalHit(StrictModel):
+    chunk_id: str
+    lexical_score: float = Field(ge=0.0, le=1.0)
+    semantic_score: float = Field(ge=-1.0, le=1.0)
+    combined_score: float = Field(ge=0.0)
+    explanation: str
+
+
+class ClaimVerificationStatus(StrEnum):
+    SUPPORTED = "supported"
+    CONTRADICTED = "contradicted"
+    INSUFFICIENT = "insufficient"
+    UNKNOWN = "unknown"
+
+
+class ClaimVerification(StrictModel):
+    claim_text: str
+    status: ClaimVerificationStatus
+    evidence_refs: list[str] = Field(default_factory=list)
+    lexical_overlap: float = Field(default=0.0, ge=0.0, le=1.0)
+    method: str
+    warning: str | None = None
+
+
 class DefinitionOfDone(StrictModel):
     gates: list[str]
     artifact_checks: list[str] = Field(default_factory=list)
@@ -614,6 +638,44 @@ class ScheduledTaskRecord(StrictModel):
     started_at: datetime | None = None
     completed_at: datetime | None = None
     warnings: list[str] = Field(default_factory=list)
+
+
+class TaskLease(StrictModel):
+    run_id: str
+    task_id: str
+    owner_id: str
+    lease_id: str
+    epoch: int = Field(ge=1)
+    attempt: int = Field(default=1, ge=1)
+    acquired_at: datetime = Field(default_factory=utc_now)
+    heartbeat_at: datetime = Field(default_factory=utc_now)
+    expires_at: datetime
+
+
+class TaskCheckpoint(StrictModel):
+    run_id: str
+    task_id: str
+    attempt: int = Field(ge=1)
+    sequence: int = Field(ge=1)
+    lease_epoch: int = Field(ge=1)
+    output_schema_version: str = "1.0"
+    validated_output: dict[str, Any] = Field(default_factory=dict)
+    evidence_refs: list[str] = Field(default_factory=list)
+    completed_unit_ids: list[str] = Field(default_factory=list)
+    context_pack_hash: str | None = None
+    artifact_refs: list[str] = Field(default_factory=list)
+    created_at: datetime = Field(default_factory=utc_now)
+
+
+class HandoffRecord(StrictModel):
+    run_id: str
+    task_id: str
+    attempt: int = Field(ge=1)
+    from_connector_id: str | None = None
+    to_connector_id: str | None = None
+    reason: str
+    preserved_checkpoint_sequence: int | None = None
+    created_at: datetime = Field(default_factory=utc_now)
 
 
 class ScheduleReport(StrictModel):

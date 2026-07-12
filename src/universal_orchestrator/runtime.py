@@ -4,11 +4,43 @@ import json
 import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from universal_orchestrator.models import CapacitySnapshot, RuntimeEvent
+from universal_orchestrator.models import (
+    CapacitySnapshot,
+    HandoffRecord,
+    RuntimeEvent,
+    TaskCheckpoint,
+    TaskLease,
+    new_id,
+    utc_now,
+)
 from universal_orchestrator.utils import ensure_dir
+
+
+def _parse_datetime(value: str) -> datetime:
+    return datetime.fromisoformat(value)
+
+
+def _lease_is_current(conn: sqlite3.Connection, lease: TaskLease) -> bool:
+    row = conn.execute(
+        """
+        SELECT owner_id, lease_id, epoch, status, expires_at
+        FROM task_leases WHERE run_id=? AND task_id=?
+        """,
+        (lease.run_id, lease.task_id),
+    ).fetchone()
+    if row is None:
+        return False
+    return (
+        row[0] == lease.owner_id
+        and row[1] == lease.lease_id
+        and int(row[2]) == lease.epoch
+        and row[3] == "active"
+        and _parse_datetime(row[4]) > utc_now()
+    )
 
 
 class RuntimeStore:
@@ -121,6 +153,50 @@ class RuntimeStore:
                     connector_id TEXT NOT NULL,
                     observed_at TEXT NOT NULL,
                     payload TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS task_leases (
+                    run_id TEXT NOT NULL,
+                    task_id TEXT NOT NULL,
+                    owner_id TEXT NOT NULL,
+                    lease_id TEXT NOT NULL,
+                    epoch INTEGER NOT NULL,
+                    attempt INTEGER NOT NULL,
+                    acquired_at TEXT NOT NULL,
+                    heartbeat_at TEXT NOT NULL,
+                    expires_at TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    PRIMARY KEY(run_id, task_id)
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS task_checkpoints (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    run_id TEXT NOT NULL,
+                    task_id TEXT NOT NULL,
+                    attempt INTEGER NOT NULL,
+                    sequence INTEGER NOT NULL,
+                    lease_epoch INTEGER NOT NULL,
+                    payload TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    UNIQUE(run_id, task_id, attempt, sequence)
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS handoff_records (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    run_id TEXT NOT NULL,
+                    task_id TEXT NOT NULL,
+                    attempt INTEGER NOT NULL,
+                    payload TEXT NOT NULL,
+                    created_at TEXT NOT NULL
                 )
                 """
             )
@@ -258,6 +334,185 @@ class RuntimeStore:
         with self._connection() as conn:
             rows = conn.execute(query, params).fetchall()
         return [CapacitySnapshot.model_validate(json.loads(row[0])) for row in rows]
+
+    def acquire_task_lease(
+        self,
+        run_id: str,
+        task_id: str,
+        owner_id: str,
+        ttl_seconds: float,
+        attempt: int = 1,
+    ) -> TaskLease | None:
+        now = utc_now()
+        expires_at = now + timedelta(seconds=max(0.1, ttl_seconds))
+        with self._connection() as conn:
+            row = conn.execute(
+                "SELECT epoch, status, expires_at FROM task_leases WHERE run_id=? AND task_id=?",
+                (run_id, task_id),
+            ).fetchone()
+            if row is not None and row[1] == "active" and _parse_datetime(row[2]) > now:
+                return None
+            epoch = int(row[0]) + 1 if row is not None else 1
+            lease = TaskLease(
+                run_id=run_id,
+                task_id=task_id,
+                owner_id=owner_id,
+                lease_id=new_id("lease"),
+                epoch=epoch,
+                attempt=attempt,
+                acquired_at=now,
+                heartbeat_at=now,
+                expires_at=expires_at,
+            )
+            conn.execute(
+                """
+                INSERT INTO task_leases(
+                    run_id, task_id, owner_id, lease_id, epoch, attempt,
+                    acquired_at, heartbeat_at, expires_at, status
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')
+                ON CONFLICT(run_id, task_id) DO UPDATE SET
+                    owner_id=excluded.owner_id,
+                    lease_id=excluded.lease_id,
+                    epoch=excluded.epoch,
+                    attempt=excluded.attempt,
+                    acquired_at=excluded.acquired_at,
+                    heartbeat_at=excluded.heartbeat_at,
+                    expires_at=excluded.expires_at,
+                    status='active'
+                """,
+                (
+                    lease.run_id,
+                    lease.task_id,
+                    lease.owner_id,
+                    lease.lease_id,
+                    lease.epoch,
+                    lease.attempt,
+                    lease.acquired_at.isoformat(),
+                    lease.heartbeat_at.isoformat(),
+                    lease.expires_at.isoformat(),
+                ),
+            )
+            return lease
+
+    def renew_task_lease(self, lease: TaskLease, ttl_seconds: float) -> bool:
+        now = utc_now()
+        expires_at = now + timedelta(seconds=max(0.1, ttl_seconds))
+        with self._connection() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE task_leases
+                SET heartbeat_at=?, expires_at=?
+                WHERE run_id=? AND task_id=? AND owner_id=? AND lease_id=? AND epoch=? AND status='active'
+                """,
+                (
+                    now.isoformat(),
+                    expires_at.isoformat(),
+                    lease.run_id,
+                    lease.task_id,
+                    lease.owner_id,
+                    lease.lease_id,
+                    lease.epoch,
+                ),
+            )
+        return cursor.rowcount == 1
+
+    def current_task_lease(self, run_id: str, task_id: str, owner_id: str) -> TaskLease | None:
+        with self._connection() as conn:
+            row = conn.execute(
+                """
+                SELECT owner_id, lease_id, epoch, attempt, acquired_at, heartbeat_at, expires_at
+                FROM task_leases
+                WHERE run_id=? AND task_id=? AND owner_id=? AND status='active'
+                """,
+                (run_id, task_id, owner_id),
+            ).fetchone()
+        if row is None:
+            return None
+        return TaskLease(
+            run_id=run_id,
+            task_id=task_id,
+            owner_id=row[0],
+            lease_id=row[1],
+            epoch=int(row[2]),
+            attempt=int(row[3]),
+            acquired_at=_parse_datetime(row[4]),
+            heartbeat_at=_parse_datetime(row[5]),
+            expires_at=_parse_datetime(row[6]),
+        )
+
+    def release_task_lease(self, lease: TaskLease, status: str = "completed") -> bool:
+        with self._connection() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE task_leases SET status=?
+                WHERE run_id=? AND task_id=? AND owner_id=? AND lease_id=? AND epoch=? AND status='active'
+                """,
+                (status, lease.run_id, lease.task_id, lease.owner_id, lease.lease_id, lease.epoch),
+            )
+        return cursor.rowcount == 1
+
+    def recover_expired_leases(self) -> int:
+        now = utc_now().isoformat()
+        with self._connection() as conn:
+            cursor = conn.execute(
+                "UPDATE task_leases SET status='abandoned' WHERE status='active' AND expires_at<=?",
+                (now,),
+            )
+        return cursor.rowcount
+
+    def save_checkpoint(self, checkpoint: TaskCheckpoint, lease: TaskLease) -> bool:
+        with self._connection() as conn:
+            if not _lease_is_current(conn, lease):
+                return False
+            conn.execute(
+                """
+                INSERT INTO task_checkpoints(
+                    run_id, task_id, attempt, sequence, lease_epoch, payload, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    checkpoint.run_id,
+                    checkpoint.task_id,
+                    checkpoint.attempt,
+                    checkpoint.sequence,
+                    checkpoint.lease_epoch,
+                    json.dumps(checkpoint.model_dump(mode="json"), sort_keys=True),
+                    checkpoint.created_at.isoformat(),
+                ),
+            )
+            return True
+
+    def latest_checkpoint(self, run_id: str, task_id: str) -> TaskCheckpoint | None:
+        with self._connection() as conn:
+            row = conn.execute(
+                "SELECT payload FROM task_checkpoints WHERE run_id=? AND task_id=? ORDER BY sequence DESC, id DESC LIMIT 1",
+                (run_id, task_id),
+            ).fetchone()
+        return TaskCheckpoint.model_validate(json.loads(row[0])) if row is not None else None
+
+    def save_handoff(self, handoff: HandoffRecord) -> None:
+        with self._connection() as conn:
+            conn.execute(
+                "INSERT INTO handoff_records(run_id, task_id, attempt, payload, created_at) VALUES (?, ?, ?, ?, ?)",
+                (
+                    handoff.run_id,
+                    handoff.task_id,
+                    handoff.attempt,
+                    json.dumps(handoff.model_dump(mode="json"), sort_keys=True),
+                    handoff.created_at.isoformat(),
+                ),
+            )
+
+    def handoffs(self, run_id: str, task_id: str | None = None) -> list[HandoffRecord]:
+        query = "SELECT payload FROM handoff_records WHERE run_id=?"
+        params: list[str] = [run_id]
+        if task_id is not None:
+            query += " AND task_id=?"
+            params.append(task_id)
+        query += " ORDER BY id"
+        with self._connection() as conn:
+            rows = conn.execute(query, params).fetchall()
+        return [HandoffRecord.model_validate(json.loads(row[0])) for row in rows]
 
     def latest_state(self, run_id: str) -> str | None:
         with self._connection() as conn:
