@@ -991,4 +991,16 @@ doctor: pending final committed-tree gate
 package build: pending final committed-tree gate
 ```
 
+Final committed-tree gate (2026-07-12):
+
+```text
+unittest: 208 tests passed
+evals --run: 3/3 passed
+doctor: passed with all provider credentials absent
+ruff check src tests: passed
+mypy src: no issues in 64 source files
+python -m build: wheel and source distribution built successfully
+git diff --check: passed
+```
+
 Live provider smoke and benchmark execution remain operator-only and pending credentials. Capability numbers remain configured priors until measured by the benchmark command.

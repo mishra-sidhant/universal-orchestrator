@@ -113,17 +113,23 @@ class ArtifactBuilder:
             from pptx.util import Inches
 
             presentation = Presentation(str(path))
+            slide_width = presentation.slide_width or 0
+            slide_height = presentation.slide_height or 0
             if not presentation.slides:
                 errors.append("PPTX has no slides.")
             for index, slide in enumerate(presentation.slides, start=1):
                 if not any(getattr(shape, "text", "").strip() for shape in slide.shapes):
                     errors.append(f"PPTX slide {index} has no visible text.")
                 for shape in slide.shapes:
-                    if shape.left < 0 or shape.top < 0:
+                    left = shape.left or 0
+                    top = shape.top or 0
+                    width = shape.width or 0
+                    height = shape.height or 0
+                    if left < 0 or top < 0:
                         errors.append(f"PPTX slide {index} contains an off-canvas shape.")
-                    if shape.left + shape.width > presentation.slide_width + Inches(0.05):
+                    if left + width > slide_width + Inches(0.05):
                         errors.append(f"PPTX slide {index} contains a horizontally clipped shape.")
-                    if shape.top + shape.height > presentation.slide_height + Inches(0.05):
+                    if top + height > slide_height + Inches(0.05):
                         errors.append(f"PPTX slide {index} contains a vertically clipped shape.")
         except Exception as exc:
             errors.append(f"PPTX validation failed: {exc}")
