@@ -51,7 +51,9 @@ class OpenAICompatibleChatAdapter(JSONHTTPMixin, ProviderAdapter):
             return unavailable_result(self.id, f"{self.model_env} is not configured.")
         self._active_model = model
         cost_estimate, authorization = self.authorize_cost(task, model)
+        capacity_authorization = None
         try:
+            capacity_authorization = self.authorize_capacity(task, model, cost_estimate)
             response = self._post_json(
                 f"{base_url}/chat/completions",
                 payload,
@@ -59,10 +61,12 @@ class OpenAICompatibleChatAdapter(JSONHTTPMixin, ProviderAdapter):
                 task.timeout_seconds,
             )
         except Exception:
+            self.release_capacity(capacity_authorization)
             self.release_cost(authorization)
             raise
         usage = self._usage(response)
         self.commit_cost(authorization, usage)
+        self.commit_capacity(capacity_authorization)
         return ProviderResult(
             provider_id=self.id,
             status=TaskStatus.COMPLETED,

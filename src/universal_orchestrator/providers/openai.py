@@ -41,7 +41,9 @@ class OpenAIResponsesAdapter(JSONHTTPMixin, ProviderAdapter):
 
         self._active_model = model
         cost_estimate, authorization = self.authorize_cost(task, model)
+        capacity_authorization = None
         try:
+            capacity_authorization = self.authorize_capacity(task, model, cost_estimate)
             response = self._post_json(
                 f"{base_url}/responses",
                 payload,
@@ -49,10 +51,12 @@ class OpenAIResponsesAdapter(JSONHTTPMixin, ProviderAdapter):
                 task.timeout_seconds,
             )
         except Exception:
+            self.release_capacity(capacity_authorization)
             self.release_cost(authorization)
             raise
         usage = self._usage(response)
         self.commit_cost(authorization, usage)
+        self.commit_capacity(capacity_authorization)
         return ProviderResult(
             provider_id=self.id,
             status=TaskStatus.COMPLETED,

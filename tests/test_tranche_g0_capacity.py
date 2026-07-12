@@ -208,6 +208,66 @@ class CapacityBrokerTests(unittest.TestCase):
         self.assertFalse(metric.eligible)
         self.assertIn("capacity", " ".join(metric.rejection_reasons))
 
+    def test_adapter_capacity_gate_stops_before_second_transport_call(self) -> None:
+        broker = CapacityBroker()
+        descriptor = ProviderDescriptor(
+            id="openai.configured",
+            kind=ProviderKind.HOSTED_MODEL,
+            connector_id="openai.configured/default",
+            enabled=True,
+            capabilities={"final_synthesis": 1.0},
+            cost_tier=CostTier.PREMIUM,
+            health=ProviderHealth(status=ProviderStatus.HEALTHY, reliability_score=1.0),
+        )
+        first_transport = FakeTransport(
+            [
+                HTTPResponse(
+                    200,
+                    {
+                        "x-ratelimit-limit-tokens": "100",
+                        "x-ratelimit-remaining-tokens": "0",
+                    },
+                    json.dumps({"output_text": "ok", "usage": {"input_tokens": 1, "output_tokens": 1}}).encode(),
+                )
+            ]
+        )
+        adapter = OpenAIResponsesAdapter(
+            descriptor,
+            transport=first_transport,
+            capacity_broker=broker,
+        )
+        with patch.dict(
+            "os.environ",
+            {"OPENAI_API_KEY": "fixture-key", "OPENAI_MODEL": "fixture-model"},
+            clear=True,
+        ):
+            adapter.execute(
+                ProviderTask(
+                    task=TaskNode(id="T1", run_id="R", title="One", task_type=TaskType.FINAL_SYNTHESIS),
+                    prompt="one",
+                    dry_run=False,
+                    allow_network=True,
+                )
+            )
+            second_transport = FakeTransport([])
+            second = OpenAIResponsesAdapter(
+                descriptor,
+                transport=second_transport,
+                capacity_broker=broker,
+            )
+            with self.assertRaises(Exception) as caught:
+                second.execute(
+                    ProviderTask(
+                        task=TaskNode(id="T2", run_id="R", title="Two", task_type=TaskType.FINAL_SYNTHESIS),
+                        prompt="two",
+                        dry_run=False,
+                        allow_network=True,
+                    )
+                )
+
+        self.assertIn("capacity_exhausted", str(caught.exception))
+        self.assertEqual(second_transport.requests, [])
+
 
 if __name__ == "__main__":
     unittest.main()

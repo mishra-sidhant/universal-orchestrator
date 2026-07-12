@@ -62,6 +62,7 @@ class SubscriptionCLIAdapter(ProviderAdapter):
             return unavailable_result(self.id, "The official provider CLI executable is not configured.")
         self._active_model = model
         cost_estimate, authorization = self.authorize_cost(task, model)
+        capacity_authorization = None
         request = CommandRequest(
             argv=self._argv(model),
             stdin=render_provider_prompt(task),
@@ -70,11 +71,13 @@ class SubscriptionCLIAdapter(ProviderAdapter):
             env=sanitized_cli_environment(),
         )
         try:
+            capacity_authorization = self.authorize_capacity(task, model, cost_estimate)
             response = self.command_transport.run(request)
             if response.returncode != 0:
                 raise self._classify_failure(response.stderr or response.stdout)
             output, usage = self._parse_output(response.stdout)
             self.commit_cost(authorization, usage)
+            self.commit_capacity(capacity_authorization)
             self._record_unknown_capacity("CLI completed; subscription quota was not exposed in output.")
             return ProviderResult(
                 provider_id=self.id,
@@ -83,6 +86,7 @@ class SubscriptionCLIAdapter(ProviderAdapter):
                 cost_estimate=cost_estimate,
             )
         except Exception:
+            self.release_capacity(capacity_authorization)
             self.release_cost(authorization)
             raise
 

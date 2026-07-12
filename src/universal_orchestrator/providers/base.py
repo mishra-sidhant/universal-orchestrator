@@ -18,7 +18,7 @@ from universal_orchestrator.models import (
     ProviderTask,
     TaskStatus,
 )
-from universal_orchestrator.capacity import CapacityBroker, snapshot_from_headers
+from universal_orchestrator.capacity import CapacityBroker, CapacityReservationError, snapshot_from_headers
 from universal_orchestrator.cost_ledger import CostAuthorization, CostLedger
 from universal_orchestrator.pricing import RateTable
 from universal_orchestrator.security import redact_text, scan_text
@@ -83,6 +83,7 @@ class ProviderAdapter(ABC):
         self._active_model = descriptor.model_id
         self._authorization_guards: dict[str, Any] = {}
         self._authorization_guard_lock = Lock()
+        self._capacity_reservations: dict[str, Any] = {}
 
     @property
     def id(self) -> str:
@@ -176,6 +177,49 @@ class ProviderAdapter(ABC):
                 ledger.release(authorization)
             return
         commit()
+
+    def authorize_capacity(self, task: ProviderTask, model: str, estimate: CostEstimate) -> Any:
+        if self.capacity_broker is None:
+            return None
+        from universal_orchestrator.models import CapacityDimension
+
+        dimensions = {
+            CapacityDimension.INPUT_TOKENS: float(estimate.input_tokens),
+            CapacityDimension.OUTPUT_TOKENS: float(estimate.output_tokens),
+            CapacityDimension.CONCURRENT_REQUESTS: 1.0,
+        }
+        if self.descriptor.billing_mode == "subscription":
+            dimensions[CapacityDimension.SUBSCRIPTION_CALLS] = 1.0
+        try:
+            reservation = self.capacity_broker.reserve(
+                task.task.run_id,
+                task.task.id,
+                self.connector_id,
+                dimensions,
+            )
+        except CapacityReservationError as exc:
+            raise ProviderError(
+                ProviderErrorKind.CAPACITY_EXHAUSTED,
+                self.id,
+                str(exc),
+            ) from exc
+        guard = task.context.get("completion_guard")
+        if guard is not None and hasattr(guard, "register_cleanup"):
+            self._capacity_reservations[reservation.reservation_id] = reservation
+            guard.register_cleanup(lambda: self.release_capacity(reservation))
+        return reservation
+
+    def commit_capacity(self, reservation: Any) -> None:
+        if reservation is None or self.capacity_broker is None:
+            return
+        self._capacity_reservations.pop(reservation.reservation_id, None)
+        self.capacity_broker.commit(reservation)
+
+    def release_capacity(self, reservation: Any) -> None:
+        if reservation is None or self.capacity_broker is None:
+            return
+        self._capacity_reservations.pop(reservation.reservation_id, None)
+        self.capacity_broker.release(reservation)
 
     def release_cost(self, authorization: CostAuthorization | None) -> None:
         if authorization is not None and self.cost_ledger is not None:

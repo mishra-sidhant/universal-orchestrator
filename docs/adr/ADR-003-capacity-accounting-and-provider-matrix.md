@@ -9,6 +9,8 @@ Provider selection is connector-specific: provider family, model, account scope,
 
 The `CapacityBroker` is the authority for reservations. A known exhausted, cooling, or unavailable connector is never eligible. A connector without an observation is explicitly `unknown`, remains eligible with a routing penalty, and is never treated as unlimited. Reservations are released on failure or timeout and committed only after a valid provider response.
 
+Every adapter performs this reservation immediately before transport. The monetary cost reservation and capacity reservation are both released if admission fails or the call errors. A known exhausted window therefore stops before a socket or CLI process is opened, not after an overrun is reported.
+
 HTTP adapters normalize recognized rate-limit headers. Provider errors and CLI output may create inferred observations, but inferred observations carry lower confidence and are never presented as exact quota. Capability values remain configured priors until a versioned benchmark measures them.
 
 The default API monetary ceiling remains `$0.50`. Subscription CLI calls have no provider-reported marginal USD price and are recorded as `allocated_cost_unknown`; they are bounded by connector concurrency, run token budgets, and subscription-call limits. A benchmark must not compare that path as if subscription usage were free API spend.

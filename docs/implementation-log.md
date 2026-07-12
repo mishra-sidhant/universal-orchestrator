@@ -46,6 +46,8 @@ Success: no issues found in 64 source files
 Successfully built universal_orchestrator-0.1.0.tar.gz and universal_orchestrator-0.1.0-py3-none-any.whl
 ```
 
+Post-release limits regression: observed zero remaining tokens on a fixture response, then verified the next adapter call raised `capacity_exhausted` before the fake transport received any request.
+
 ## Tranche J.1-K.1: Safe Media And Rich Artifact Boundaries
 
 Failing-first landmark:
