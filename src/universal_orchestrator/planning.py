@@ -45,21 +45,7 @@ class PlannerEnsemble:
         """Create a deterministic chapter contract without claiming prose quality."""
 
         title = contract.requested_output[:120] or "Universal Orchestrator Product"
-        chapter_specs = [
-            ("chapter-1", title, contract.requested_output, "T-SYNTHESIS"),
-            (
-                "chapter-2",
-                "Findings And Evidence",
-                "Present the independently synthesized findings and their evidence.",
-                "T-CHAPTER-002",
-            ),
-            (
-                "chapter-3",
-                "Risks And Actions",
-                "Present risks, limitations, and concrete next actions.",
-                "T-CHAPTER-003",
-            ),
-        ]
+        chapter_specs = self._chapter_specs(contract)
         chapters = [
             ChapterPlan(id=chapter_id, title=chapter_title, objective=objective, task_ids=[task_id])
             for chapter_id, chapter_title, objective, task_id in chapter_specs
@@ -228,7 +214,13 @@ class PlannerEnsemble:
         contract: ProductContract,
         model_synthesis: bool = False,
     ) -> TaskDAG:
-        del contract
+        chapter_specs = {
+            task_id: (chapter_id, chapter_title, objective)
+            for chapter_id, chapter_title, objective, task_id in self._chapter_specs(contract)
+        }
+        chapter_one = chapter_specs["T-SYNTHESIS"]
+        chapter_two = chapter_specs["T-CHAPTER-002"]
+        chapter_three = chapter_specs["T-CHAPTER-003"]
         nodes = [
             self._node(
                 run_id,
@@ -263,6 +255,9 @@ class PlannerEnsemble:
                 ["T-GAP-ANALYSIS"],
                 Criticality.HIGH,
                 CostTier.PREMIUM if model_synthesis else CostTier.FREE,
+                chapter_id=chapter_one[0],
+                chapter_title=chapter_one[1],
+                objective=chapter_one[2],
             ),
             self._node(
                 run_id,
@@ -273,6 +268,9 @@ class PlannerEnsemble:
                 ["T-GAP-ANALYSIS"],
                 Criticality.HIGH,
                 CostTier.FREE,
+                chapter_id=chapter_two[0],
+                chapter_title=chapter_two[1],
+                objective=chapter_two[2],
             ),
             self._node(
                 run_id,
@@ -283,6 +281,9 @@ class PlannerEnsemble:
                 ["T-GAP-ANALYSIS"],
                 Criticality.HIGH,
                 CostTier.FREE,
+                chapter_id=chapter_three[0],
+                chapter_title=chapter_three[1],
+                objective=chapter_three[2],
             ),
             self._node(
                 run_id,
@@ -324,11 +325,17 @@ class PlannerEnsemble:
         max_cost_tier: CostTier,
         cacheable: bool = True,
         max_attempts: int = 1,
+        chapter_id: str | None = None,
+        chapter_title: str | None = None,
+        objective: str | None = None,
     ) -> TaskNode:
         return TaskNode(
             id=task_id,
             run_id=run_id,
             title=title,
+            chapter_id=chapter_id,
+            chapter_title=chapter_title,
+            objective=objective,
             task_type=task_type,
             required_capabilities=capabilities,
             dependencies=dependencies,
@@ -337,3 +344,71 @@ class PlannerEnsemble:
             cacheable=cacheable,
             retry_policy=RetryPolicy(max_attempts=max_attempts),
         )
+
+    def _chapter_specs(
+        self, contract: ProductContract
+    ) -> list[tuple[str, str, str, str]]:
+        """Return the stable three-chapter contract for the requested product family."""
+
+        if contract.run_type == "research_report":
+            return [
+                (
+                    "chapter-1",
+                    "Executive Summary",
+                    f"Answer the requested output from the supplied evidence: {contract.requested_output}",
+                    "T-SYNTHESIS",
+                ),
+                (
+                    "chapter-2",
+                    "Findings And Evidence",
+                    "Present the independently synthesized findings and tie each finding to delivered evidence.",
+                    "T-CHAPTER-002",
+                ),
+                (
+                    "chapter-3",
+                    "Risks And Recommendations",
+                    "Present risks, limitations, and concrete recommendations grounded in the observed record.",
+                    "T-CHAPTER-003",
+                ),
+            ]
+        if contract.run_type in {"repo_implementation", "code_review"}:
+            return [
+                (
+                    "chapter-1",
+                    "System Overview",
+                    "Describe the system scope, architecture, and execution path established by the inputs.",
+                    "T-SYNTHESIS",
+                ),
+                (
+                    "chapter-2",
+                    "Engineering Findings",
+                    "Report engineering findings with validation evidence and precise source locations where available.",
+                    "T-CHAPTER-002",
+                ),
+                (
+                    "chapter-3",
+                    "Implementation And Validation",
+                    "Describe implementation status, residual risks, and validation next actions.",
+                    "T-CHAPTER-003",
+                ),
+            ]
+        return [
+            (
+                "chapter-1",
+                "Objective And Context",
+                f"Clarify the objective, scope, and relevant context for: {contract.requested_output}",
+                "T-SYNTHESIS",
+            ),
+            (
+                "chapter-2",
+                "Results And Evidence",
+                "Present observed results and supporting evidence without adding unsupported claims.",
+                "T-CHAPTER-002",
+            ),
+            (
+                "chapter-3",
+                "Risks And Next Actions",
+                "Present risks, assumptions, and concrete next actions for the operator.",
+                "T-CHAPTER-003",
+            ),
+        ]

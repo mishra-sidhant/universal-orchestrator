@@ -500,6 +500,9 @@ class TaskNode(StrictModel):
     id: str
     run_id: str
     title: str
+    chapter_id: str | None = None
+    chapter_title: str | None = None
+    objective: str | None = None
     task_type: TaskType
     input_refs: list[str] = Field(default_factory=list)
     output_schema: str = "structured_json"

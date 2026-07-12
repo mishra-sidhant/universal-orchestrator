@@ -703,9 +703,9 @@ class Orchestrator:
         if "pptx" in contract.primary_artifacts:
             pptx_path = self.artifact_store.run_dir(run_id) / "final_report.pptx"
             chapter_titles = {
-                "T-SYNTHESIS": "Executive Synthesis",
-                "T-CHAPTER-002": "Findings And Evidence",
-                "T-CHAPTER-003": "Risks And Actions",
+                node.id: node.chapter_title
+                for node in dag.nodes
+                if node.chapter_id and node.chapter_title
             }
             slides: list[SlideSpec] = []
             for result in all_results:

@@ -113,16 +113,19 @@ class FinalProductOwner:
             lines.extend(["", "## Rejected Claims", ""])
             lines.extend(f"- {item}" for item in blocked_claims)
         lines.extend(["", "## Key Findings", ""])
-        chapter_titles = {
-            "T-SYNTHESIS": "Executive Synthesis",
-            "T-CHAPTER-002": "Findings And Evidence",
-            "T-CHAPTER-003": "Risks And Actions",
+        chapter_metadata = {
+            node.id: (node.chapter_title, node.objective)
+            for node in dag.nodes
+            if node.chapter_id
         }
         for result in results[:12]:
             worker_output = result.output.get("worker_output", {})
             if isinstance(worker_output, dict):
-                if result.task_id in chapter_titles:
-                    lines.extend([f"### {chapter_titles[result.task_id]}", ""])
+                chapter_title, objective = chapter_metadata.get(result.task_id, (None, None))
+                if chapter_title:
+                    lines.extend([f"### {chapter_title}", ""])
+                    if objective:
+                        lines.extend([f"Objective: {objective}", ""])
                 summary = worker_output.get("summary", "")
                 risks = worker_output.get("risks", [])
                 risk_text = f" Risks: {', '.join(risks)}." if risks else ""

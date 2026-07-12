@@ -46,7 +46,7 @@ class ModelSynthesisRunner:
         operator_prompt: str,
         completion_guard: Any | None = None,
     ) -> ModelSynthesisResult:
-        prompt = self._initial_prompt(operator_prompt)
+        prompt = self._initial_prompt(operator_prompt, task)
         first = adapter.execute(self._provider_task(task, pack, prompt, completion_guard))
         self._ensure_active(completion_guard)
         raw = str(first.output.get("summary", ""))
@@ -104,9 +104,17 @@ class ModelSynthesisRunner:
         except (json.JSONDecodeError, ValidationError, TypeError) as exc:
             raise ModelOutputValidationError(str(exc)) from exc
 
-    def _initial_prompt(self, operator_prompt: str) -> str:
+    def _initial_prompt(self, operator_prompt: str, task: TaskNode | None = None) -> str:
+        chapter_context = ""
+        if task is not None and task.chapter_title and task.objective:
+            chapter_context = (
+                f"Chapter: {task.chapter_title}\n"
+                f"Chapter objective: {task.objective}\n"
+                "Address this chapter objective directly; do not produce generic report prose.\n"
+            )
         return (
             f"Operator objective: {operator_prompt}\n"
+            f"{chapter_context}"
             "Return only one JSON object with keys summary, findings, and claims. "
             "Each claim must have text and evidence_refs. Evidence refs may only be chunk IDs "
             "present in the supplied context. Do not add markdown fences."

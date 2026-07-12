@@ -314,7 +314,7 @@ class StageWorkerRegistry:
                 }
                 if exc.kind not in handoffable or not refs:
                     raise
-                summary, findings, extra = self._extractive_synthesis(refs)
+                summary, findings, extra = self._extractive_synthesis(task, refs)
                 attempted = ", ".join(sorted(item for item in attempted_connectors if item))
                 return summary, findings, {
                     **extra,
@@ -328,7 +328,7 @@ class StageWorkerRegistry:
                     ],
                 }
             except ModelOutputValidationError as exc:
-                summary, findings, extra = self._extractive_synthesis(refs)
+                summary, findings, extra = self._extractive_synthesis(task, refs)
                 return summary, findings, {
                     **extra,
                     "synthesis_path": "extractive_fallback",
@@ -354,7 +354,7 @@ class StageWorkerRegistry:
             if effective_provider_id is not None:
                 model_extra["_provider_id"] = effective_provider_id
             return output.summary, output.findings, model_extra
-        summary, findings, extra = self._extractive_synthesis(refs)
+        summary, findings, extra = self._extractive_synthesis(task, refs)
         return summary, findings, {
             **extra,
             "synthesis_path": "extractive",
@@ -363,15 +363,32 @@ class StageWorkerRegistry:
 
     def _extractive_synthesis(
         self,
+        task: TaskNode,
         refs: list[str],
     ) -> tuple[str, list[dict[str, Any]], dict[str, Any]]:
         chunks_by_id = {chunk.id: chunk for chunk in self.context.chunks}
         consumed = [chunks_by_id[ref] for ref in refs if ref in chunks_by_id]
         excerpt = consumed[0].text[:180] if consumed else "No source passage was delivered."
-        summary = f"Synthesized {len(consumed)} source passage(s): {excerpt}"
+        title = task.chapter_title or task.title
+        if task.chapter_id == "chapter-2":
+            summary = f"{title}: reviewed {len(consumed)} evidence passage(s). {excerpt}"
+            finding_kind = "evidence_finding"
+        elif task.chapter_id == "chapter-3":
+            risk_signals = len(self.context.conflicts) + sum(
+                len(item.security_findings)
+                for item in self.context.manifest.inputs
+            ) + sum(
+                str(item.status) in {"partial", "failed"}
+                for item in self.context.manifest.inputs
+            )
+            summary = f"{title}: identified {risk_signals} risk signal(s) for follow-up. {excerpt}"
+            finding_kind = "risk_signal"
+        else:
+            summary = f"{title}: synthesized {len(consumed)} source passage(s). {excerpt}"
+            finding_kind = "source_excerpt"
         findings = [
             {
-                "kind": "source_excerpt",
+                "kind": finding_kind,
                 "severity": "info",
                 "message": chunk.text[:240],
                 "chunk_id": chunk.id,
@@ -379,7 +396,12 @@ class StageWorkerRegistry:
             }
             for chunk in consumed
         ]
-        return summary, findings, {"source_passage_count": len(consumed)}
+        return summary, findings, {
+            "source_passage_count": len(consumed),
+            "chapter_id": task.chapter_id,
+            "chapter_title": task.chapter_title,
+            "objective": task.objective,
+        }
 
     def _artifact_build(
         self, task: TaskNode, decision: RoutingDecision, refs: list[str]
@@ -444,6 +466,9 @@ class StageWorkerRegistry:
             "task_type": task.task_type,
             "status": status,
             "summary": summary,
+            "chapter_id": task.chapter_id,
+            "chapter_title": task.chapter_title,
+            "objective": task.objective,
             "findings": findings,
             "evidence_refs": evidence_refs,
             "evidence_required": task.task_type == "final_synthesis" or task.id == "T-SYNTHESIS",
