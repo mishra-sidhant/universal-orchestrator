@@ -28,6 +28,7 @@ from universal_orchestrator.models import (
     ContextChunk,
     ContextManifest,
     ContextPack,
+    ClaimVerificationStatus,
     DeltaExecutionPlan,
     ExecutionResult,
     ExecutionPolicy,
@@ -622,8 +623,16 @@ class Orchestrator:
             )
         )
         supported_evidence_refs_by_task: dict[str, list[str]] = {}
+        blocked_claims: list[str] = []
         for claim in evidence_audit.claims:
-            if not claim.resolved:
+            if not claim.citation_eligible:
+                if (
+                    claim.verification is not None
+                    and claim.verification.status == ClaimVerificationStatus.CONTRADICTED
+                ):
+                    blocked_claims.append(
+                        f"{claim.task_id}: {claim.blocked_reason or 'configured verifier contradiction'}"
+                    )
                 continue
             supported_evidence_refs_by_task.setdefault(claim.task_id, [])
             supported_evidence_refs_by_task[claim.task_id] = list(
@@ -643,6 +652,7 @@ class Orchestrator:
             chunks,
             provenance,
             supported_evidence_refs_by_task,
+            blocked_claims,
         )
         artifacts.append(
             self.artifact_store.write_json_artifact(

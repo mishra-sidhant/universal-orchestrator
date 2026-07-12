@@ -58,7 +58,7 @@ class EvidenceAuditor:
             }
         )
         supported_refs = {
-            ref for claim in claims if claim.resolved for ref in claim.evidence_refs
+            ref for claim in claims if claim.citation_eligible for ref in claim.evidence_refs
         }
         source_by_chunk = {
             chunk_id: record.source_id
@@ -165,7 +165,7 @@ class EvidenceAuditor:
     ) -> QualityGateResult:
         evidence_claims = [claim for claim in audit.claims if claim.evidence_required]
         claim_count = len(evidence_claims)
-        supported_claims = len([claim for claim in evidence_claims if claim.resolved])
+        supported_claims = len([claim for claim in evidence_claims if claim.citation_eligible])
         citation_score = round(100 * supported_claims / claim_count) if claim_count else 0
         if audit.passed:
             scores = quality.scores.model_copy(
@@ -260,12 +260,24 @@ class EvidenceAuditor:
             and all(ref in valid_chunk_ids for ref in refs)
             and set(refs).issubset(consumed_chunk_refs_by_task.get(task_id, set()))
         )
-        verification = self.claim_verifier.verify(text, refs, chunks) if chunks else None
+        consumed_ids = consumed_chunk_refs_by_task.get(task_id, set())
+        delivered_chunks = [chunk for chunk in chunks if chunk.id in consumed_ids]
+        verification = self.claim_verifier.verify(text, refs, delivered_chunks) if delivered_chunks else None
+        citation_eligible = bool(text) and evidence_resolved and (
+            verification is None or verification.status != ClaimVerificationStatus.CONTRADICTED
+        )
+        blocked_reason = None
+        if not evidence_resolved and evidence_required:
+            blocked_reason = "Evidence references were not resolved and consumed by this task."
+        elif verification is not None and verification.status == ClaimVerificationStatus.CONTRADICTED:
+            blocked_reason = verification.warning or "Configured claim verifier contradicted the claim."
         return EvidenceClaim(
             task_id=task_id,
             claim=text,
             evidence_refs=refs,
             evidence_required=evidence_required,
             resolved=bool(text) and (evidence_resolved if evidence_required else not refs),
+            citation_eligible=citation_eligible,
+            blocked_reason=blocked_reason,
             verification=verification,
         )

@@ -28,6 +28,7 @@ class FinalProductOwner:
         chunks: list[ContextChunk] | None = None,
         provenance: list[ProvenanceRecord] | None = None,
         supported_evidence_refs_by_task: dict[str, list[str]] | None = None,
+        blocked_claims: list[str] | None = None,
     ) -> ProductPackage:
         rejected = self._reject_fragments(results)
         markdown = self._render_markdown(
@@ -42,6 +43,7 @@ class FinalProductOwner:
             chunks or [],
             provenance or [],
             supported_evidence_refs_by_task or {},
+            blocked_claims or [],
         )
         return ProductPackage(
             run_id=manifest.run_id,
@@ -77,6 +79,7 @@ class FinalProductOwner:
         chunks: list[ContextChunk],
         provenance: list[ProvenanceRecord],
         supported_evidence_refs_by_task: dict[str, list[str]],
+        blocked_claims: list[str],
     ) -> str:
         lines = [
             "# Universal Orchestrator Final Product",
@@ -106,6 +109,9 @@ class FinalProductOwner:
         if rejected:
             lines.extend(["", "## Rejected Fragments", ""])
             lines.extend(f"- {item}" for item in rejected)
+        if blocked_claims:
+            lines.extend(["", "## Rejected Claims", ""])
+            lines.extend(f"- {item}" for item in blocked_claims)
         lines.extend(["", "## Key Findings", ""])
         chapter_titles = {
             "T-SYNTHESIS": "Executive Synthesis",

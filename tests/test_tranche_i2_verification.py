@@ -19,6 +19,76 @@ def chunk(chunk_id: str, text: str) -> ContextChunk:
 
 
 class ClaimVerificationTests(unittest.TestCase):
+    def test_configured_verifier_receives_only_chunks_consumed_by_task(self) -> None:
+        from universal_orchestrator.evidence import EvidenceAuditor
+        from universal_orchestrator.models import (
+            ContextCard,
+            ExecutionResult,
+            ProvenanceRecord,
+            TaskStatus,
+            ClaimVerification,
+            utc_now,
+        )
+
+        class RecordingVerifier:
+            def __init__(self) -> None:
+                self.seen: list[str] = []
+
+            def verify(
+                self,
+                claim_text: str,
+                evidence_refs: list[str],
+                chunks: list[ContextChunk],
+            ) -> ClaimVerification:
+                del claim_text, evidence_refs
+                self.seen.extend(chunk.id for chunk in chunks)
+                return ClaimVerification(
+                    claim_text="claim",
+                    status=ClaimVerificationStatus.UNKNOWN,
+                    method="fixture",
+                )
+
+        verifier = RecordingVerifier()
+        result = ExecutionResult(
+            task_id="T-SYNTHESIS",
+            provider_id="fixture",
+            status=TaskStatus.COMPLETED,
+            output={
+                "worker_output": {
+                    "summary": "Grounded claim",
+                    "evidence_refs": ["real"],
+                    "evidence_required": True,
+                }
+            },
+            started_at=utc_now(),
+            completed_at=utc_now(),
+        )
+        card = ContextCard(
+            id="card-1",
+            input_id="input-1",
+            card_type="source",
+            title="Source",
+            summary="Source",
+        )
+        provenance = [
+            ProvenanceRecord(
+                source_id="source-1",
+                card_id="card-1",
+                chunk_ids=["real", "unconsumed"],
+                trust_level="source",
+            )
+        ]
+        EvidenceAuditor(verifier).audit(
+            None,
+            [card],
+            provenance,
+            [result],
+            chunks=[chunk("real", "grounded"), chunk("unconsumed", "private unrelated text")],
+            consumed_chunk_refs_by_task={"T-SYNTHESIS": ["real"]},
+        )
+
+        self.assertEqual(verifier.seen, ["real"])
+
     def test_configured_contradiction_blocks_evidence_audit(self) -> None:
         from universal_orchestrator.evidence import EvidenceAuditor
         from universal_orchestrator.models import (
@@ -83,6 +153,49 @@ class ClaimVerificationTests(unittest.TestCase):
             audit.claims[0].verification.status,
             ClaimVerificationStatus.CONTRADICTED,
         )
+        self.assertFalse(audit.claims[0].citation_eligible)
+
+    def test_contradicted_claim_is_rejected_from_final_report_citations(self) -> None:
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+
+        from universal_orchestrator.evidence import EvidenceAuditor
+        from universal_orchestrator.models import ClaimVerification, HostInvocation, InputAttachment
+        from universal_orchestrator.pipeline import Orchestrator
+
+        class ContradictingVerifier:
+            def verify(
+                self,
+                claim_text: str,
+                evidence_refs: list[str],
+                chunks: list[ContextChunk],
+            ) -> ClaimVerification:
+                del chunks
+                return ClaimVerification(
+                    claim_text=claim_text,
+                    evidence_refs=evidence_refs,
+                    status=ClaimVerificationStatus.CONTRADICTED,
+                    method="fixture_contradiction",
+                    warning="fixture contradiction",
+                )
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source.md"
+            source.write_text("The source contains a bounded execution claim.")
+            orchestrator = Orchestrator(root / "runs")
+            orchestrator.evidence = EvidenceAuditor(ContradictingVerifier())
+            result = orchestrator.run(
+                HostInvocation(
+                    prompt="Build a grounded report",
+                    attachments=[InputAttachment(uri=str(source))],
+                )
+            )
+            report = (Path(result.artifact_dir) / "final_report.md").read_text()
+
+        self.assertEqual(result.state, "needs_attention")
+        self.assertIn("## Rejected Claims", report)
+        self.assertIn("fixture contradiction", report)
 
     def test_fabricated_reference_is_insufficient(self) -> None:
         result = StructuralClaimVerifier().verify(

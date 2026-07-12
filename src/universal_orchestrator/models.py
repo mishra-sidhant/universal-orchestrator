@@ -854,6 +854,8 @@ class EvidenceClaim(StrictModel):
     evidence_refs: list[str] = Field(default_factory=list)
     evidence_required: bool = True
     resolved: bool = False
+    citation_eligible: bool = False
+    blocked_reason: str | None = None
     verification: ClaimVerification | None = None
 
 
