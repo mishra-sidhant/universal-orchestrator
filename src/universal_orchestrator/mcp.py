@@ -10,11 +10,14 @@ from typing import Any, TextIO
 from universal_orchestrator.cli import _module_available
 from universal_orchestrator.config import configuration_template, load_env_file, provider_config_status
 from universal_orchestrator.evals import EvaluationRunner, built_in_suite
-from universal_orchestrator.models import Host, HostInvocation, InputAttachment, UserOptions
+from universal_orchestrator.models import Host, HostInvocation, InputAttachment, UserOptions, new_id
 from universal_orchestrator.pipeline import Orchestrator
 from universal_orchestrator.routing import CapabilityRegistry
 from universal_orchestrator.runtime import RuntimeStore
 from universal_orchestrator.utils import read_json
+
+
+_ASYNC_RUN_WORKERS = ThreadPoolExecutor(max_workers=4, thread_name_prefix="uo-mcp-job")
 
 
 def tool_definitions() -> list[dict[str, Any]]:
@@ -37,6 +40,23 @@ def tool_definitions() -> list[dict[str, Any]]:
                         "items": {"type": "string"},
                         "default": [],
                     },
+                    "allow_cloud": {"type": "boolean", "default": False},
+                },
+            },
+        },
+        {
+            "name": "ai_team.run_start",
+            "description": "Start a durable run and return immediately with its run id.",
+            "inputSchema": {
+                "type": "object",
+                "required": ["prompt"],
+                "properties": {
+                    "prompt": {"type": "string"},
+                    "paths": {"type": "array", "items": {"type": "string"}},
+                    "root": {"type": "string", "default": ".uo/runs"},
+                    "quality": {"type": "string", "default": "serious"},
+                    "budget": {"type": "string", "default": "balanced"},
+                    "allow_internet": {"type": "boolean", "default": False},
                     "allow_cloud": {"type": "boolean", "default": False},
                 },
             },
@@ -143,6 +163,8 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, A
     args = arguments or {}
     if name == "ai_team.run":
         return _tool_run(args)
+    if name == "ai_team.run_start":
+        return _tool_run_start(args)
     if name == "ai_team.status":
         return _tool_status(args)
     if name == "ai_team.artifacts":
@@ -234,12 +256,41 @@ def _is_run_request(request: dict[str, Any]) -> bool:
     return (
         request.get("method") == "tools/call"
         and isinstance(params, dict)
-        and params.get("name") == "ai_team.run"
+        and params.get("name") in {"ai_team.run", "ai_team.run_start"}
     )
 
 
 def _tool_run(args: dict[str, Any]) -> dict[str, Any]:
-    prompt = args["prompt"]
+    root = str(args.get("root", ".uo/runs"))
+    result = Orchestrator(root).run(_invocation_from_args(args, "mcp.run"))
+    return {
+        "run_id": result.run_id,
+        "state": result.state,
+        "artifact_dir": result.artifact_dir,
+        "quality_passed": result.quality.passed,
+        "manifest_path": str(Path(result.artifact_dir) / "run_manifest.json"),
+    }
+
+
+def _tool_run_start(args: dict[str, Any]) -> dict[str, Any]:
+    root = str(args.get("root", ".uo/runs"))
+    run_id = new_id("run")
+    _ASYNC_RUN_WORKERS.submit(
+        Orchestrator(root).run,
+        _invocation_from_args(args, "mcp.run_start"),
+        run_id,
+    )
+    return {
+        "run_id": run_id,
+        "state": "received",
+        "artifact_dir": str(Path(root) / run_id),
+        "accepted": True,
+        "poll_with": "ai_team.status",
+    }
+
+
+def _invocation_from_args(args: dict[str, Any], command: str) -> HostInvocation:
+    prompt = str(args["prompt"])
     paths = args.get("paths", [])
     options = UserOptions(
         quality=args.get("quality", "serious"),
@@ -248,22 +299,14 @@ def _tool_run(args: dict[str, Any]) -> dict[str, Any]:
         allowed_url_hosts=[str(host) for host in args.get("allowed_url_hosts", [])],
         allow_cloud=bool(args.get("allow_cloud", False)),
     )
-    invocation = HostInvocation(
+    return HostInvocation(
         host=Host.API,
-        command="mcp.run",
+        command=command,
         prompt=prompt,
         cwd=str(Path.cwd()),
-        attachments=[InputAttachment(uri=path) for path in paths],
+        attachments=[InputAttachment(uri=str(path)) for path in paths],
         user_options=options,
     )
-    result = Orchestrator(args.get("root", ".uo/runs")).run(invocation)
-    return {
-        "run_id": result.run_id,
-        "state": result.state,
-        "artifact_dir": result.artifact_dir,
-        "quality_passed": result.quality.passed,
-        "manifest_path": str(Path(result.artifact_dir) / "run_manifest.json"),
-    }
 
 
 def _tool_status(args: dict[str, Any]) -> dict[str, Any]:

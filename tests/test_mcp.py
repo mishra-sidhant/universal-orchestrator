@@ -11,6 +11,7 @@ class MCPAdapterTests(unittest.TestCase):
         names = {tool["name"] for tool in tool_definitions()}
 
         self.assertIn("ai_team.run", names)
+        self.assertIn("ai_team.run_start", names)
         self.assertIn("ai_team.status", names)
         self.assertIn("ai_team.providers", names)
         self.assertIn("ai_team.capacity", names)
@@ -90,6 +91,35 @@ class MCPAdapterTests(unittest.TestCase):
 
         self.assertEqual(capacity["snapshots"], [])
         self.assertEqual(events["events"], [])
+
+    def test_run_start_returns_immediately_and_can_be_polled(self) -> None:
+        import time
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "input.md"
+            source.write_text("# Input\nBuild a tiny package.")
+            started = call_tool(
+                "ai_team.run_start",
+                {
+                    "prompt": "Build a final package",
+                    "paths": [str(source)],
+                    "root": str(root / "runs"),
+                },
+            )
+            state: dict[str, object] = {}
+            for _ in range(40):
+                state = call_tool(
+                    "ai_team.status",
+                    {"run_id": started["run_id"], "root": str(root / "runs")},
+                )
+                snapshot = state.get("runtime_snapshot", {})
+                if isinstance(snapshot, dict) and snapshot.get("latest_state") == "delivered":
+                    break
+                time.sleep(0.025)
+
+        self.assertTrue(started["accepted"])
+        self.assertEqual(started["run_id"], state["run_id"])
 
 
 if __name__ == "__main__":

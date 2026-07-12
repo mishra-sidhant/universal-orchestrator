@@ -18,6 +18,23 @@ Success: no issues found in 57 source files
 world_readiness_core: passed
 ```
 
+## Tranche L.1: Headless Host Gateway
+
+Failing-first landmark:
+
+```text
+AssertionError: 'ai_team.run_start' not found in MCP tool definitions
+```
+
+Added immediate asynchronous MCP run start, durable polling, capacity/events access, and read-only integration configuration for Codex, Claude Code, VS Code/Copilot, and generic MCP hosts. No dashboard or host credential copying was introduced.
+
+Verification:
+
+```text
+Ran 190 tests - OK
+Success: no issues found in 64 source files
+```
+
 ## Tranche J.1-K.1: Safe Media And Rich Artifact Boundaries
 
 Failing-first landmark:

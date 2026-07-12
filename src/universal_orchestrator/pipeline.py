@@ -93,8 +93,8 @@ class Orchestrator:
         self.scheduler = DAGScheduler(self.cache, runtime_store=self.runtime)
         self.capability_registry = capability_registry
 
-    def run(self, invocation: HostInvocation) -> RunResult:
-        run_id = new_id("run")
+    def run(self, invocation: HostInvocation, run_id: str | None = None) -> RunResult:
+        run_id = run_id or new_id("run")
         started_at = utc_now()
         self.runtime.record_event(RuntimeEvent(run_id=run_id, event_type="received", payload={"host": invocation.host}))
         self.runtime.transition(run_id, RunState.RECEIVED)

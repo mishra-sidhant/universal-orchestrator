@@ -90,6 +90,14 @@ def build_parser() -> argparse.ArgumentParser:
     mcp_parser = sub.add_parser("mcp-server", help="Run the stdio MCP-style host adapter")
     mcp_parser.set_defaults(handler=handle_mcp_server)
 
+    integrate_parser = sub.add_parser("integrate", help="Print host MCP configuration")
+    integrate_parser.add_argument(
+        "--host",
+        required=True,
+        choices=["codex", "claude-code", "vscode", "generic"],
+    )
+    integrate_parser.set_defaults(handler=handle_integrate)
+
     artifacts_parser = sub.add_parser("artifacts", help="List local run artifact directories")
     artifacts_parser.add_argument("--root", default=".uo/runs")
     artifacts_parser.set_defaults(handler=handle_artifacts)
@@ -268,6 +276,18 @@ def handle_mcp_server(args: argparse.Namespace) -> None:
     from universal_orchestrator.mcp import serve_stdio
 
     serve_stdio()
+
+
+def handle_integrate(args: argparse.Namespace) -> None:
+    command = {
+        "command": "ai-team",
+        "args": ["mcp-server"],
+    }
+    if args.host == "vscode":
+        payload = {"servers": {"universal-orchestrator": command}}
+    else:
+        payload = {"mcpServers": {"universal-orchestrator": command}}
+    print(json.dumps({"host": args.host, "configuration": payload}, indent=2, sort_keys=True))
 
 
 def handle_artifacts(args: argparse.Namespace) -> None:

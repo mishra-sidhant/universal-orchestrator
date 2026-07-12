@@ -18,4 +18,6 @@
 | OCR/transcription command boundaries | fixed | pending | `tests/test_tranche_j1_ingestion.py` |
 | Typed product/chapter/slide plans | fixed | pending | `tests/test_tranche_k1_artifacts.py` |
 | PPTX build and structural validation | fixed | pending | `tests/test_tranche_k1_artifacts.py` |
+| Async MCP run start and host polling | fixed | pending | `tests/test_mcp.py` |
+| Read-only Codex/Claude/VS Code/generic integration output | fixed | pending | `tests/test_tranche_l1_host.py` |
 | Cross-provider handoff and durable checkpoints | planned | pending | Tranche H |

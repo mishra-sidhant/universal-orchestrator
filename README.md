@@ -87,6 +87,8 @@ Provider capability numbers are configured priors used for routing, not measured
 
 The kernel is headless. Codex, Claude Code, VS Code/Copilot, compatible desktop agents, and the terminal are host surfaces; MCP and CLI expose the same run, status, capacity, and artifact contract. A separate dashboard is not required.
 
+Use `uv run ai-team integrate --host codex|claude-code|vscode|generic` to print a read-only MCP configuration. See [Headless Host Integrations](docs/host-integrations.md).
+
 The kernel is headless. Codex, Claude Code, VS Code/Copilot, compatible desktop agents, and the terminal are host surfaces; MCP and CLI expose the same run/status/capacity/artifact contract. A separate dashboard is not required.
 
 ## Live Setup And Measurement
