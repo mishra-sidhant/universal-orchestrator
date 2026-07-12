@@ -57,6 +57,7 @@ class RichIngestionTests(unittest.TestCase):
         self.assertEqual(record.metadata["ocr_chars"], len("Quarterly plan OPENAI_API_KEY=[REDACTED_SECRET]"))
         self.assertIn("Quarterly plan", record.content_text)
         self.assertNotIn("sk-proj-12345678901234567890", record.content_text)
+        self.assertTrue(record.security_findings)
         self.assertEqual(transport.requests[0].argv[0], "tesseract")
 
     def test_audio_transcription_is_ingested_with_timestamps(self) -> None:

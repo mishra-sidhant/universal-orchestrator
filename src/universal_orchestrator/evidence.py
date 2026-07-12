@@ -10,11 +10,16 @@ from universal_orchestrator.models import (
     ProductPackage,
     ProvenanceRecord,
     QualityGateResult,
+    ClaimVerificationStatus,
     task_succeeded,
 )
+from universal_orchestrator.verification import ClaimVerifier, StructuralClaimVerifier
 
 
 class EvidenceAuditor:
+    def __init__(self, claim_verifier: ClaimVerifier | None = None) -> None:
+        self.claim_verifier = claim_verifier or StructuralClaimVerifier()
+
     def audit(
         self,
         package: ProductPackage | None,
@@ -32,10 +37,17 @@ class EvidenceAuditor:
             task_id: set(refs)
             for task_id, refs in (consumed_chunk_refs_by_task or {}).items()
         }
-        claims = self._claims(results, valid_chunk_ids, consumed)
+        claims = self._claims(results, valid_chunk_ids, consumed, chunks or [])
         evidence_claims = [claim for claim in claims if claim.evidence_required]
-        unsupported_task_ids = sorted(
-            {claim.task_id for claim in claims if not claim.resolved}
+        unsupported_task_ids = sorted({claim.task_id for claim in claims if not claim.resolved})
+        verification_blockers = sorted(
+            {
+                claim.task_id
+                for claim in claims
+                if claim.evidence_required
+                and claim.verification is not None
+                and claim.verification.status == ClaimVerificationStatus.CONTRADICTED
+            }
         )
         unconsumed_evidence_refs = sorted(
             {
@@ -103,6 +115,17 @@ class EvidenceAuditor:
                 },
             ),
             EvidenceAuditFinding(
+                kind="claim_verification",
+                passed=not verification_blockers,
+                severity="high" if verification_blockers else "medium",
+                message=(
+                    "Configured claim verification found no contradiction."
+                    if not verification_blockers
+                    else "Configured claim verification contradicted one or more claims."
+                ),
+                metadata={"verification_blockers": verification_blockers},
+            ),
+            EvidenceAuditFinding(
                 kind="final_citations",
                 passed=final_citations_present,
                 severity="medium" if package else "info",
@@ -114,7 +137,12 @@ class EvidenceAuditor:
             ),
         ]
         passed = all(finding.passed for finding in findings if finding.severity in {"high", "critical"})
-        passed = passed and not unsupported_task_ids and (final_citations_present if package else True)
+        passed = (
+            passed
+            and not unsupported_task_ids
+            and not verification_blockers
+            and (final_citations_present if package else True)
+        )
         return EvidenceAuditReport(
             run_id=package.run_id if package else (run_id or "unknown"),
             passed=passed,
@@ -124,6 +152,7 @@ class EvidenceAuditor:
             unsupported_task_ids=unsupported_task_ids,
             invalid_evidence_refs=invalid_evidence_refs,
             unconsumed_evidence_refs=unconsumed_evidence_refs,
+            verification_blockers=verification_blockers,
             claims=claims,
             findings=findings,
         )
@@ -176,6 +205,7 @@ class EvidenceAuditor:
         results: list[ExecutionResult],
         valid_chunk_ids: set[str],
         consumed_chunk_refs_by_task: dict[str, set[str]],
+        chunks: list[ContextChunk],
     ) -> list[EvidenceClaim]:
         claims: list[EvidenceClaim] = []
         for result in results:
@@ -198,6 +228,7 @@ class EvidenceAuditor:
                             evidence_required,
                             valid_chunk_ids,
                             consumed_chunk_refs_by_task,
+                            chunks,
                         )
                     )
                 continue
@@ -209,6 +240,7 @@ class EvidenceAuditor:
                     evidence_required,
                     valid_chunk_ids,
                     consumed_chunk_refs_by_task,
+                    chunks,
                 )
             )
         return claims
@@ -221,16 +253,19 @@ class EvidenceAuditor:
         evidence_required: bool,
         valid_chunk_ids: set[str],
         consumed_chunk_refs_by_task: dict[str, set[str]],
+        chunks: list[ContextChunk],
     ) -> EvidenceClaim:
         evidence_resolved = (
             bool(refs)
             and all(ref in valid_chunk_ids for ref in refs)
             and set(refs).issubset(consumed_chunk_refs_by_task.get(task_id, set()))
         )
+        verification = self.claim_verifier.verify(text, refs, chunks) if chunks else None
         return EvidenceClaim(
             task_id=task_id,
             claim=text,
             evidence_refs=refs,
             evidence_required=evidence_required,
             resolved=bool(text) and (evidence_resolved if evidence_required else not refs),
+            verification=verification,
         )

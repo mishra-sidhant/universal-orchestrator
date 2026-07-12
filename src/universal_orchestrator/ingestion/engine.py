@@ -385,6 +385,7 @@ class InputIngestor:
         except Exception as exc:
             warnings.append(f"Image metadata parser failed: {exc}")
         ocr_text = ""
+        ocr_findings: list[SecurityFinding] = []
         metadata["ocr_available"] = self.ocr.available
         if self.ocr.available:
             metadata["ocr_attempted"] = True
@@ -392,7 +393,9 @@ class InputIngestor:
                 result = self.ocr.extract(path)
                 if result.warning:
                     warnings.append(result.warning)
-                ocr_text = redact_text(result.text)
+                raw_ocr_text = result.text
+                ocr_findings = scan_text(raw_ocr_text, location=f"{path}#ocr")
+                ocr_text = redact_text(raw_ocr_text)
                 metadata["ocr_chars"] = len(ocr_text)
                 metadata["ocr_confidence"] = result.confidence
                 if not ocr_text:
@@ -413,7 +416,7 @@ class InputIngestor:
         content_text = metadata_text
         if ocr_text:
             content_text = f"{metadata_text}\nOCR text: {ocr_text}"
-        findings = scan_text(ocr_text, location=f"{path}#ocr") if ocr_text else []
+        findings = ocr_findings if ocr_text else []
         return InputRecord(
             id=new_id("input"),
             type=InputType.IMAGE,
@@ -446,13 +449,14 @@ class InputIngestor:
                 warnings.append(f"Transcription failed: {exc}")
         else:
             warnings.append("Whisper is not installed; media was not transcribed.")
-        lines = [
+        raw_lines = [
             f"[{self._format_timestamp(segment.start_seconds)}-"
-            f"{self._format_timestamp(segment.end_seconds)}] {redact_text(segment.text)}"
+            f"{self._format_timestamp(segment.end_seconds)}] {segment.text}"
             for segment in segments
         ]
-        text = "\n".join(lines)
-        findings = scan_text(text, location=f"{path}#transcript")
+        raw_text = "\n".join(raw_lines)
+        findings = scan_text(raw_text, location=f"{path}#transcript")
+        text = redact_text(raw_text)
         redacted = redact_text(text)
         metadata["transcript_segments"] = len(segments)
         status = InputStatus.PARSED if segments else InputStatus.PARTIAL
