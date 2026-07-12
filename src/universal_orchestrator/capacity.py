@@ -52,7 +52,7 @@ class CapacityBroker:
 
     def is_eligible(self, connector_id: str) -> bool:
         snapshot = self.snapshot(connector_id)
-        if snapshot is None:
+        if snapshot is None or self._is_expired(snapshot):
             return True
         return snapshot.status not in {
             CapacityStatus.EXHAUSTED,
@@ -64,6 +64,8 @@ class CapacityBroker:
         snapshot = self.snapshot(connector_id)
         if snapshot is None:
             return 1.0
+        if self._is_expired(snapshot):
+            return 0.6
         return {
             CapacityStatus.AVAILABLE: 1.0,
             CapacityStatus.CONSTRAINED: 0.75,
@@ -88,7 +90,12 @@ class CapacityBroker:
                     f"{connector_id} is {snapshot.status}: {snapshot.reason or 'capacity unavailable'}"
                 )
             reserved = self._reserved_for(connector_id)
-            windows = {window.dimension: window for window in snapshot.windows} if snapshot else {}
+            active_snapshot = snapshot if snapshot and not self._is_expired(snapshot) else None
+            windows = (
+                {window.dimension: window for window in active_snapshot.windows}
+                if active_snapshot
+                else {}
+            )
             for dimension, amount in requested.items():
                 window = windows.get(dimension)
                 if window is None or window.remaining is None:
@@ -107,6 +114,10 @@ class CapacityBroker:
             )
             self._reservations[reservation.reservation_id] = reservation
             return reservation
+
+    @staticmethod
+    def _is_expired(snapshot: CapacitySnapshot) -> bool:
+        return snapshot.expires_at is not None and snapshot.expires_at <= utc_now()
 
     def release(self, reservation: CapacityReservation) -> None:
         with self._lock:

@@ -66,6 +66,19 @@ class CapacityBrokerTests(unittest.TestCase):
         with self.assertRaises(CapacityReservationError):
             broker.reserve("R", "T", "openai.configured/default", {CapacityDimension.INPUT_TOKENS: 1})
 
+    def test_expired_capacity_window_reopens_as_unknown_not_exhausted(self) -> None:
+        broker = CapacityBroker()
+        expired = self.snapshot(CapacityStatus.EXHAUSTED, 0).model_copy(
+            update={"expires_at": utc_now() - timedelta(seconds=1)}
+        )
+        broker.update(expired)
+
+        self.assertTrue(broker.is_eligible(expired.connector_id))
+        reservation = broker.reserve(
+            "R", "T", expired.connector_id, {CapacityDimension.INPUT_TOKENS: 1}
+        )
+        self.assertEqual(reservation.connector_id, expired.connector_id)
+
     def test_exact_remaining_capacity_cannot_be_overbooked(self) -> None:
         broker = CapacityBroker()
         broker.update(self.snapshot(remaining=10))
