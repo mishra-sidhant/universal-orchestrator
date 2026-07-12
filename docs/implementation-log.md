@@ -22,7 +22,7 @@ Success: no issues found in 64 source files
 Final continuation gate:
 
 ```text
-Ran 196 tests in 4.955s - OK
+Ran 198 tests in 4.877s - OK
 world_readiness_core: passed
 Ruff: All checks passed
 Success: no issues found in 64 source files
