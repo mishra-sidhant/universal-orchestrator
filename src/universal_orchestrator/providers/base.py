@@ -39,6 +39,7 @@ class ProviderErrorKind(str, Enum):
     FATAL = "fatal"
     TIMEOUT = "timeout"
     MALFORMED_OUTPUT = "malformed_output"
+    CAPACITY_EXHAUSTED = "capacity_exhausted"
 
 
 class ProviderError(RuntimeError):
@@ -68,6 +69,7 @@ class ProviderAdapter(ABC):
         cost_ledger: CostLedger | None = None,
         rate_table: RateTable | None = None,
         capacity_broker: CapacityBroker | None = None,
+        runtime_store: Any | None = None,
     ) -> None:
         self.descriptor = descriptor
         self.transport = transport or UrllibHTTPTransport()
@@ -76,6 +78,7 @@ class ProviderAdapter(ABC):
         self.cost_ledger = cost_ledger
         self.rate_table = rate_table or (cost_ledger.rate_table if cost_ledger else RateTable.load())
         self.capacity_broker = capacity_broker
+        self.runtime_store = runtime_store
         self.latest_capacity: CapacitySnapshot | None = None
         self._active_model = descriptor.model_id
         self._authorization_guards: dict[str, Any] = {}
@@ -104,6 +107,8 @@ class ProviderAdapter(ABC):
         self.latest_capacity = snapshot
         if self.capacity_broker is not None:
             self.capacity_broker.update(snapshot)
+        if self.runtime_store is not None:
+            self.runtime_store.save_capacity_snapshot(snapshot)
         return snapshot
 
     def estimate_cost(self, task: ProviderTask) -> CostEstimate:

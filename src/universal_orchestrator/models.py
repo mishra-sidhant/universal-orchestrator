@@ -169,6 +169,7 @@ class ProviderKind(StrEnum):
     LOCAL_MODEL = "local_model"
     DETERMINISTIC_TOOL = "deterministic_tool"
     HOST_AGENT = "host_agent"
+    SUBSCRIPTION_CLI = "subscription_cli"
 
 
 class ProviderStatus(StrEnum):

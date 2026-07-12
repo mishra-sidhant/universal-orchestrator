@@ -27,6 +27,14 @@
     "openai-compatible.local": {
       "default": {"input_usd": 0.0, "output_usd": 0.0},
       "models": {}
+    },
+    "claude-code.cli": {
+      "default": {"input_usd": 0.0, "output_usd": 0.0},
+      "models": {}
+    },
+    "codex.cli": {
+      "default": {"input_usd": 0.0, "output_usd": 0.0},
+      "models": {}
     }
   }
 }

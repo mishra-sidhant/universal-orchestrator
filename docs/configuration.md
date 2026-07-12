@@ -81,6 +81,8 @@ Capacity is reported with a source and confidence. A provider with no observatio
 uv run python -m universal_orchestrator smoke --provider openai.configured
 uv run python -m universal_orchestrator smoke --provider anthropic.configured
 uv run python -m universal_orchestrator smoke --provider ollama.local
+uv run python -m universal_orchestrator smoke --provider claude-code.cli
+uv run python -m universal_orchestrator smoke --provider codex.cli
 ```
 
 Do not paste keys into commands. Add them only to the gitignored `.env.local` file or the process environment. Smoke reports both its pre-call estimate and provider-usage-priced actual cost from the configured rate table.

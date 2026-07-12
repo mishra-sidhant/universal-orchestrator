@@ -68,7 +68,7 @@ class PolicyCompiler:
         )
 
     def provider_allowed(self, policy: ExecutionPolicy, provider: ProviderDescriptor) -> tuple[bool, str]:
-        if provider.kind == ProviderKind.HOSTED_MODEL and not policy.allow_hosted_models:
+        if provider.kind in {ProviderKind.HOSTED_MODEL, ProviderKind.SUBSCRIPTION_CLI} and not policy.allow_hosted_models:
             return False, f"Hosted provider blocked by privacy mode {policy.privacy_mode}."
         return True, "Provider kind is allowed by execution policy."
 

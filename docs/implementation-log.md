@@ -18,6 +18,24 @@ Success: no issues found in 57 source files
 world_readiness_core: passed
 ```
 
+## Tranche G.2: Official Subscription CLI Adapters
+
+Failing-first landmark:
+
+```text
+ModuleNotFoundError: No module named 'universal_orchestrator.providers.cli'
+```
+
+Added injectable subprocess transport, Claude Code JSON execution, Codex JSONL execution, bounded command environments, CLI-owned authentication policy, usage capture, and typed `capacity_exhausted` failures. Added `ai-team capacity` and CLI smoke support. No API key is forwarded into CLI subprocess environments.
+
+Verification:
+
+```text
+Ran 170 tests in 3.922s - OK
+Success: no issues found in 59 source files
+world_readiness_core: passed
+```
+
 The standard `uv` and isolated build commands were unavailable in this shell: `uv` is not installed and the isolated build environment cannot download `hatchling` without network access. The bundled Python verification passed; the operator must rerun the canonical `uv` gate before merging.
 
 Date: July 8, 2026

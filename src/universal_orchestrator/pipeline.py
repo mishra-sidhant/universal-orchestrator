@@ -209,6 +209,7 @@ class Orchestrator:
         cost_ledger = CostLedger(run_id, invocation.user_options.cost_ceiling_usd)
         registry = self.capability_registry or CapabilityRegistry.from_environment()
         registry.cost_ledger = cost_ledger
+        registry.runtime_store = self.runtime
         registry.refresh_health(
             execution_policy,
             allow_network=invocation.user_options.allow_internet,

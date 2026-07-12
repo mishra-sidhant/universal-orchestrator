@@ -114,6 +114,8 @@ Current providers:
 - `xai.configured`: xAI OpenAI-compatible adapter, enabled by `XAI_API_KEY` and `XAI_MODEL`.
 - `openai-compatible.local`: local OpenAI-compatible gateway for Llama/OSS runtimes.
 
+Subscription connectors are official CLI subprocesses, not API-key emulations. Claude Code runs bounded `-p` JSON mode; Codex runs bounded `exec --ephemeral --json` mode. Prompts enter through stdin, CLI-owned authentication remains outside the run directory, and sanitized environments omit API keys. A quota failure becomes `capacity_exhausted`, updates the capacity broker, and is eligible for the handoff controller.
+
 Ordinary orchestration remains local/extractive at this phase. A separate, explicit `smoke` command is the only enabled live round trip; it is key-gated, bounded, and excluded from CI.
 
 Part B adds `routing_telemetry.json`, which records every provider considered for every task, including health status, capability score, cost score, total score, eligibility, and rejection reasons.

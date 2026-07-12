@@ -18,6 +18,7 @@ The current milestone is a deterministic local runtime with fixture-validated li
 - Capability-based routing with truthful local capabilities; unsupported work reshapes, pauses, or skips instead of echo-completing.
 - Provider/model/account capacity windows with exact reservation checks, configured-prior disclosure, and capacity-aware routing across API, local, and frontier provider families.
 - Gemini AI Studio, xAI, and generic OpenAI-compatible fixture-tested adapters; consumer subscription execution remains isolated to official CLI adapters.
+- Official Claude Code and Codex CLI subprocess adapters with stdin prompts, read-only bounded execution, CLI-owned authentication, structured output parsing, usage capture, and quota-failure classification.
 - TTL-cached provider liveness probes, health-weighted cross-family routing, explicit degraded-mode reports, and local fallback when hosted families are down.
 - A default $0.50 live-spend ceiling, pre-call reservations, versioned configured rates, provider-reported actual token accounting, estimate/actual reconciliation, and explicit budget stops.
 - Reconciled dry-run usage estimates, token-budget control, relevant-prior-run delta planning, versioned exact-match cache reuse, typed provider failures, bounded retries, socket timeouts, durable cancellation, failure diagnostics, and same-run resume.
@@ -82,6 +83,8 @@ Current limitation: keyless synthesis is extractive, and neither local nor model
 
 Provider capability numbers are configured priors used for routing, not measured quality facts. They remain priors until a versioned benchmark records a measurement.
 
+The kernel is headless. Codex, Claude Code, VS Code/Copilot, compatible desktop agents, and the terminal are host surfaces; MCP and CLI expose the same run, status, capacity, and artifact contract. A separate dashboard is not required.
+
 The kernel is headless. Codex, Claude Code, VS Code/Copilot, compatible desktop agents, and the terminal are host surfaces; MCP and CLI expose the same run/status/capacity/artifact contract. A separate dashboard is not required.
 
 ## Live Setup And Measurement
@@ -92,9 +95,13 @@ Add keys and model IDs later in the repository-root `.env.local` file, which is 
 uv run python -m universal_orchestrator configure
 uv run python -m universal_orchestrator smoke --provider openai.configured
 uv run python -m universal_orchestrator smoke --provider anthropic.configured
+uv run python -m universal_orchestrator smoke --provider claude-code.cli
+uv run python -m universal_orchestrator smoke --provider codex.cli
 uv run python -m universal_orchestrator bench \
   "Compare native and orchestrated output" ./source.pdf \
   --allow-internet --allow-cloud --budget premium --cost-ceiling 0.50
 ```
 
 Run real smoke checks once per configured provider, then one real bench. These are operator actions and are never part of CI. Paste their JSON summaries into `docs/implementation-log.md` under "Operator Live Evidence." `bench` is a measurement instrument: it records outputs, latency, cost, quality, and evidence for review, but never declares a winner.
+
+For subscription execution, authenticate through the official CLI (`claude` login flow or `codex login`). The orchestrator does not read CLI auth files and does not forward API-key environment variables into CLI processes. CLI capacity is exact only when the official surface exposes a structured limit; otherwise it is reported as observed or unknown.

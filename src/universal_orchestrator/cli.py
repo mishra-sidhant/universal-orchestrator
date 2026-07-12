@@ -70,6 +70,11 @@ def build_parser() -> argparse.ArgumentParser:
     providers_parser = sub.add_parser("providers", help="List provider descriptors and health")
     providers_parser.set_defaults(handler=handle_providers)
 
+    capacity_parser = sub.add_parser("capacity", help="Show observed provider/model capacity windows")
+    capacity_parser.add_argument("--root", default=".uo/runs")
+    capacity_parser.add_argument("--json", action="store_true")
+    capacity_parser.set_defaults(handler=handle_capacity)
+
     configure_parser = sub.add_parser("configure", help="Show or write local provider configuration template")
     configure_parser.add_argument("--env-file", default=DEFAULT_ENV_FILE)
     configure_parser.add_argument("--write-example", action="store_true")
@@ -170,6 +175,24 @@ def handle_providers(args: argparse.Namespace) -> None:
     registry = CapabilityRegistry.from_environment()
     payload = [provider.model_dump(mode="json") for provider in registry.providers]
     print(json.dumps(payload, indent=2, sort_keys=True))
+
+
+def handle_capacity(args: argparse.Namespace) -> None:
+    runtime = RuntimeStore(Path(args.root) / "runtime.sqlite3")
+    snapshots = runtime.capacity_snapshots()
+    payload = {
+        "root": args.root,
+        "snapshots": [snapshot.model_dump(mode="json") for snapshot in snapshots],
+        "note": "No observation is reported as unknown, never as unlimited.",
+    }
+    if args.json or not snapshots:
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return
+    for snapshot in snapshots:
+        print(
+            f"{snapshot.connector_id}: {snapshot.status} "
+            f"source={snapshot.source} confidence={snapshot.confidence:.2f}"
+        )
 
 
 def handle_configure(args: argparse.Namespace) -> None:

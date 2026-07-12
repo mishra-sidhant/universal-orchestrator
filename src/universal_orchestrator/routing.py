@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from typing import Any
 
 from universal_orchestrator.config import load_env_file
 from universal_orchestrator.capacity import CapacityBroker
@@ -23,6 +24,8 @@ from universal_orchestrator.models import (
 )
 from universal_orchestrator.providers import (
     AnthropicAdapter,
+    ClaudeCodeCLIAdapter,
+    CodexCLIAdapter,
     DeterministicToolsAdapter,
     GeminiAdapter,
     OllamaAdapter,
@@ -33,6 +36,7 @@ from universal_orchestrator.providers import (
 )
 from universal_orchestrator.providers.transport import HTTPTransport
 from universal_orchestrator.providers.transport import UrllibHTTPTransport
+from universal_orchestrator.providers.cli import discover_executable
 
 
 COST_ORDER = {
@@ -51,12 +55,14 @@ class CapabilityRegistry:
         cost_ledger: CostLedger | None = None,
         health_checker: ProviderHealthChecker | None = None,
         capacity_broker: CapacityBroker | None = None,
+        runtime_store: Any | None = None,
     ) -> None:
         self.providers = providers
         self.transports = transports or {}
         self.cost_ledger = cost_ledger
         self.health_checker = health_checker or ProviderHealthChecker()
         self.capacity_broker = capacity_broker or CapacityBroker()
+        self.runtime_store = runtime_store
 
     @classmethod
     def from_environment(
@@ -65,6 +71,7 @@ class CapabilityRegistry:
         cost_ledger: CostLedger | None = None,
         health_checker: ProviderHealthChecker | None = None,
         capacity_broker: CapacityBroker | None = None,
+        runtime_store: Any | None = None,
     ) -> "CapabilityRegistry":
         load_env_file()
         providers = [
@@ -249,6 +256,56 @@ class CapabilityRegistry:
                         message="OpenAI-compatible local endpoint detected; health is not yet probed.",
                     ),
                 ),
+                ProviderDescriptor(
+                    id="claude-code.cli",
+                    kind=ProviderKind.SUBSCRIPTION_CLI,
+                    connector_id="claude-code.cli/default",
+                    model_id=os.getenv("CLAUDE_CODE_MODEL", "default"),
+                    billing_mode="subscription",
+                    enabled=discover_executable("CLAUDE_CODE_BIN", "claude") is not None,
+                    capabilities={
+                        "final_synthesis": 0.9,
+                        "longform_reasoning": 0.9,
+                        "code_review": 0.9,
+                        "structured_output": 0.8,
+                    },
+                    cost_tier=CostTier.PREMIUM,
+                    context_limit_tokens=200_000,
+                    health=ProviderHealth(
+                        status=ProviderStatus.UNKNOWN
+                        if discover_executable("CLAUDE_CODE_BIN", "claude")
+                        else ProviderStatus.UNAVAILABLE,
+                        reliability_score=0.5
+                        if discover_executable("CLAUDE_CODE_BIN", "claude")
+                        else 0.0,
+                        message="Claude Code CLI discovered; subscription capacity is not yet probed.",
+                    ),
+                ),
+                ProviderDescriptor(
+                    id="codex.cli",
+                    kind=ProviderKind.SUBSCRIPTION_CLI,
+                    connector_id="codex.cli/default",
+                    model_id=os.getenv("CODEX_MODEL", "default"),
+                    billing_mode="subscription",
+                    enabled=discover_executable("CODEX_BIN", "codex") is not None,
+                    capabilities={
+                        "strategic_reasoning": 0.9,
+                        "final_synthesis": 0.9,
+                        "code_reasoning": 0.95,
+                        "structured_output": 0.85,
+                    },
+                    cost_tier=CostTier.PREMIUM,
+                    context_limit_tokens=200_000,
+                    health=ProviderHealth(
+                        status=ProviderStatus.UNKNOWN
+                        if discover_executable("CODEX_BIN", "codex")
+                        else ProviderStatus.UNAVAILABLE,
+                        reliability_score=0.5
+                        if discover_executable("CODEX_BIN", "codex")
+                        else 0.0,
+                        message="Codex CLI discovered; subscription capacity is not yet probed.",
+                    ),
+                ),
             ]
         )
         return cls(
@@ -257,6 +314,7 @@ class CapabilityRegistry:
             cost_ledger=cost_ledger,
             health_checker=health_checker,
             capacity_broker=capacity_broker,
+            runtime_store=runtime_store,
         )
 
     def refresh_health(
@@ -270,7 +328,10 @@ class CapabilityRegistry:
                 refreshed.append(provider)
                 continue
             allowed, _ = PolicyCompiler().provider_allowed(policy, provider)
-            if not allowed or (provider.kind == ProviderKind.HOSTED_MODEL and not allow_network):
+            if not allowed or (
+                provider.kind in {ProviderKind.HOSTED_MODEL, ProviderKind.SUBSCRIPTION_CLI}
+                and not allow_network
+            ):
                 refreshed.append(provider)
                 continue
             transport = self.transports.get(provider.id) or UrllibHTTPTransport()
@@ -305,6 +366,7 @@ class CapabilityRegistry:
                         transport=self.transports.get(provider.id),
                         cost_ledger=self.cost_ledger,
                         capacity_broker=self.capacity_broker,
+                        runtime_store=self.runtime_store,
                     )
                 )
             elif provider.id == "anthropic.configured":
@@ -314,6 +376,7 @@ class CapabilityRegistry:
                         transport=self.transports.get(provider.id),
                         cost_ledger=self.cost_ledger,
                         capacity_broker=self.capacity_broker,
+                        runtime_store=self.runtime_store,
                     )
                 )
             elif provider.id == "ollama.local":
@@ -323,6 +386,7 @@ class CapabilityRegistry:
                         transport=self.transports.get(provider.id),
                         cost_ledger=self.cost_ledger,
                         capacity_broker=self.capacity_broker,
+                        runtime_store=self.runtime_store,
                     )
                 )
             elif provider.id == "gemini.configured":
@@ -332,6 +396,7 @@ class CapabilityRegistry:
                         transport=self.transports.get(provider.id),
                         cost_ledger=self.cost_ledger,
                         capacity_broker=self.capacity_broker,
+                        runtime_store=self.runtime_store,
                     )
                 )
             elif provider.id == "xai.configured":
@@ -345,6 +410,7 @@ class CapabilityRegistry:
                         transport=self.transports.get(provider.id),
                         cost_ledger=self.cost_ledger,
                         capacity_broker=self.capacity_broker,
+                        runtime_store=self.runtime_store,
                     )
                 )
             elif provider.id == "openai-compatible.local":
@@ -358,8 +424,33 @@ class CapabilityRegistry:
                         transport=self.transports.get(provider.id),
                         cost_ledger=self.cost_ledger,
                         capacity_broker=self.capacity_broker,
+                        runtime_store=self.runtime_store,
                     )
                 )
+            elif provider.id == "claude-code.cli":
+                executable = discover_executable("CLAUDE_CODE_BIN", "claude")
+                if executable:
+                    adapters.append(
+                        ClaudeCodeCLIAdapter(
+                            provider,
+                            executable=executable,
+                            capacity_broker=self.capacity_broker,
+                            runtime_store=self.runtime_store,
+                            cost_ledger=self.cost_ledger,
+                        )
+                    )
+            elif provider.id == "codex.cli":
+                executable = discover_executable("CODEX_BIN", "codex")
+                if executable:
+                    adapters.append(
+                        CodexCLIAdapter(
+                            provider,
+                            executable=executable,
+                            capacity_broker=self.capacity_broker,
+                            runtime_store=self.runtime_store,
+                            cost_ledger=self.cost_ledger,
+                        )
+                    )
         return ProviderAdapterRegistry(adapters)
 
 
