@@ -43,4 +43,4 @@ Provider tests use recorded JSON fixtures through `FakeTransport`. The default s
 
 Tranche F validated baseline on July 11, 2026: 157 tests passing without keys or provider sockets, Ruff clean, all three built-in world-readiness eval cases passing, fixture bench green, and both sdist and wheel building successfully. That historical baseline carried a visible typing backlog.
 
-Current canonical verification on July 12, 2026: 194 tests pass without keys or provider sockets, Ruff passes, all built-in world-readiness eval cases pass, `mypy src` passes with strict mode and no disabled error codes, and the sdist/wheel build succeeds with the local Hatchling backend. The opt-in provider smoke and real benchmark remain operator evidence by design.
+Current canonical verification on July 12, 2026: 196 tests pass without keys or provider sockets, Ruff passes, all built-in world-readiness eval cases pass, `mypy src` passes with strict mode and no disabled error codes, and the sdist/wheel build succeeds with the local Hatchling backend. The opt-in provider smoke and real benchmark remain operator evidence by design.

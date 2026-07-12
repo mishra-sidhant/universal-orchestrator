@@ -19,6 +19,16 @@ Ruff: All checks passed
 Success: no issues found in 64 source files
 ```
 
+Final continuation gate:
+
+```text
+Ran 196 tests in 4.955s - OK
+world_readiness_core: passed
+Ruff: All checks passed
+Success: no issues found in 64 source files
+Successfully built universal_orchestrator-0.1.0.tar.gz and universal_orchestrator-0.1.0-py3-none-any.whl
+```
+
 ## Tranche K.2: Persist And Validate Product Plans
 
 Failing-first landmarks:
@@ -35,6 +45,26 @@ Verification:
 ```text
 Ran 194 tests in 4.644s - OK
 world_readiness_core: passed
+```
+
+## Tranche G.5-L.3: Reset-Aware Capacity And Complete Host Controls
+
+Failing-first landmarks:
+
+```text
+AssertionError: expired exhausted capacity remained ineligible
+AssertionError: MCP cost ceiling was normalized back to the $0.50 default
+```
+
+Capacity observations now honor provider reset timestamps: an expired exhausted window becomes unknown and penalized until a fresh response, rather than blocking a connector forever or pretending it is unlimited. The MCP run tools now preserve the full policy, budget, artifact, and URL controls exposed by the core invocation model.
+
+Verification:
+
+```text
+Ran 9 capacity tests - OK
+Ran 8 MCP tests - OK
+Ruff: All checks passed
+Success: no issues found in 64 source files
 ```
 
 ## Tranche G.0-G.1: Capacity Foundation And Provider Matrix

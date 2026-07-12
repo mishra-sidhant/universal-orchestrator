@@ -25,3 +25,5 @@
 | Optional OCR/transcription connected to rich ingestion | fixed | `76fbf55` | `tests/test_rich_ingestion.py` |
 | Strict typing backlog removed without disabled error codes | fixed | `76fbf55` | `mypy src` |
 | Product plan persisted and task references validated in real runs | fixed | `8f8826d` | `tests/test_pipeline.py`, `tests/test_tranche_k1_artifacts.py` |
+| MCP hosts preserve privacy, budget, URL, shell/write, and artifact controls | fixed | `03357c8` | `tests/test_mcp.py` |
+| Expired provider windows reopen as unknown after reset | fixed | `4649b07` | `tests/test_tranche_g0_capacity.py` |
