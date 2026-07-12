@@ -61,8 +61,11 @@ class CapabilityRegistry:
         self.transports = transports or {}
         self.cost_ledger = cost_ledger
         self.health_checker = health_checker or ProviderHealthChecker()
-        self.capacity_broker = capacity_broker or CapacityBroker()
+        self.capacity_broker = capacity_broker or CapacityBroker(runtime_store=runtime_store)
         self.runtime_store = runtime_store
+        if runtime_store is not None:
+            for snapshot in runtime_store.capacity_snapshots():
+                self.capacity_broker.update(snapshot)
 
     @classmethod
     def from_environment(
@@ -592,7 +595,7 @@ class AdaptiveRouter:
                     capability_score=round(capability_score, 4),
                     cost_score=round(cost_score, 4),
                     total_score=round(total, 4),
-                    capacity_status=(capacity_snapshot.status if capacity_snapshot else "unknown"),
+                    capacity_status=self.registry.capacity_broker.effective_status(connector_id),
                     capacity_score=round(capacity_score, 4),
                     capacity_reason=capacity_snapshot.reason if capacity_snapshot else "No capacity observation yet.",
                     eligible=eligible,

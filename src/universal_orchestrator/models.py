@@ -237,6 +237,7 @@ class CapacityReservation(StrictModel):
     task_id: str
     connector_id: str
     dimensions: dict[CapacityDimension, float] = Field(default_factory=dict)
+    snapshot_observed_at: datetime | None = None
     created_at: datetime = Field(default_factory=utc_now)
     expires_at: datetime | None = None
 
@@ -684,6 +685,8 @@ class TaskCheckpoint(StrictModel):
     lease_epoch: int = Field(ge=1)
     output_schema_version: str = "1.0"
     validated_output: dict[str, Any] = Field(default_factory=dict)
+    provider_id: str | None = None
+    execution_fingerprint: str | None = None
     evidence_refs: list[str] = Field(default_factory=list)
     completed_unit_ids: list[str] = Field(default_factory=list)
     context_pack_hash: str | None = None
@@ -708,6 +711,7 @@ class ScheduleReport(StrictModel):
     execution_order: list[str]
     parallel_batches: list[list[str]]
     cache_hits: list[str] = Field(default_factory=list)
+    checkpoint_hits: list[str] = Field(default_factory=list)
     failed_tasks: list[str] = Field(default_factory=list)
 
 
@@ -850,6 +854,7 @@ class EvidenceClaim(StrictModel):
     evidence_refs: list[str] = Field(default_factory=list)
     evidence_required: bool = True
     resolved: bool = False
+    verification: ClaimVerification | None = None
 
 
 class EvidenceAuditReport(StrictModel):
@@ -861,6 +866,7 @@ class EvidenceAuditReport(StrictModel):
     unsupported_task_ids: list[str] = Field(default_factory=list)
     invalid_evidence_refs: list[str] = Field(default_factory=list)
     unconsumed_evidence_refs: list[str] = Field(default_factory=list)
+    verification_blockers: list[str] = Field(default_factory=list)
     claims: list[EvidenceClaim] = Field(default_factory=list)
     findings: list[EvidenceAuditFinding] = Field(default_factory=list)
 

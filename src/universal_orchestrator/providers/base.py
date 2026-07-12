@@ -185,8 +185,12 @@ class ProviderAdapter(ABC):
         from universal_orchestrator.models import CapacityDimension
 
         dimensions = {
+            CapacityDimension.REQUESTS: 1.0,
             CapacityDimension.INPUT_TOKENS: float(estimate.input_tokens),
             CapacityDimension.OUTPUT_TOKENS: float(estimate.output_tokens),
+            CapacityDimension.TOTAL_TOKENS: float(
+                estimate.input_tokens + estimate.output_tokens
+            ),
             CapacityDimension.CONCURRENT_REQUESTS: 1.0,
         }
         if self.descriptor.billing_mode == "subscription":

@@ -200,6 +200,18 @@ class RuntimeStore:
                 )
                 """
             )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS subscription_capacity (
+                    run_id TEXT NOT NULL,
+                    connector_id TEXT NOT NULL,
+                    used INTEGER NOT NULL,
+                    limit_value INTEGER NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY(run_id, connector_id)
+                )
+                """
+            )
 
     def record_event(self, event: RuntimeEvent) -> None:
         with self._connection() as conn:
@@ -313,6 +325,63 @@ class RuntimeStore:
                     json.dumps(snapshot.model_dump(mode="json"), sort_keys=True),
                 ),
             )
+
+    def reserve_subscription_capacity(
+        self, run_id: str, connector_id: str, amount: int, limit: int
+    ) -> bool:
+        if amount <= 0:
+            return True
+        with self._connection() as conn:
+            row = conn.execute(
+                "SELECT used, limit_value FROM subscription_capacity WHERE run_id=? AND connector_id=?",
+                (run_id, connector_id),
+            ).fetchone()
+            used = int(row[0]) if row else 0
+            stored_limit = int(row[1]) if row else limit
+            effective_limit = min(stored_limit, limit)
+            if used + amount > effective_limit:
+                return False
+            conn.execute(
+                """
+                INSERT INTO subscription_capacity(run_id, connector_id, used, limit_value, updated_at)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(run_id, connector_id) DO UPDATE SET
+                    used=excluded.used,
+                    limit_value=excluded.limit_value,
+                    updated_at=excluded.updated_at
+                """,
+                (
+                    run_id,
+                    connector_id,
+                    used + amount,
+                    effective_limit,
+                    utc_now().isoformat(),
+                ),
+            )
+            return True
+
+    def release_subscription_capacity(self, run_id: str, connector_id: str, amount: int) -> None:
+        if amount <= 0:
+            return
+        with self._connection() as conn:
+            conn.execute(
+                """
+                UPDATE subscription_capacity
+                SET used=MAX(0, used-?), updated_at=?
+                WHERE run_id=? AND connector_id=?
+                """,
+                (amount, utc_now().isoformat(), run_id, connector_id),
+            )
+
+    def subscription_capacity(self, run_id: str, connector_id: str) -> dict[str, int] | None:
+        with self._connection() as conn:
+            row = conn.execute(
+                "SELECT used, limit_value FROM subscription_capacity WHERE run_id=? AND connector_id=?",
+                (run_id, connector_id),
+            ).fetchone()
+        if row is None:
+            return None
+        return {"used": int(row[0]), "limit": int(row[1])}
 
     def latest_capacity_snapshot(self, connector_id: str) -> CapacitySnapshot | None:
         with self._connection() as conn:
@@ -489,6 +558,14 @@ class RuntimeStore:
                 (run_id, task_id),
             ).fetchone()
         return TaskCheckpoint.model_validate(json.loads(row[0])) if row is not None else None
+
+    def next_checkpoint_sequence(self, run_id: str, task_id: str) -> int:
+        with self._connection() as conn:
+            row = conn.execute(
+                "SELECT COALESCE(MAX(sequence), 0) FROM task_checkpoints WHERE run_id=? AND task_id=?",
+                (run_id, task_id),
+            ).fetchone()
+        return int(row[0]) + 1 if row is not None else 1
 
     def save_handoff(self, handoff: HandoffRecord) -> None:
         with self._connection() as conn:

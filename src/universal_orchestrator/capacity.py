@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import re
+import os
 from threading import RLock
 from datetime import timedelta
-from typing import Mapping
+from typing import Any, Mapping
 
 from universal_orchestrator.models import (
     CapacityDimension,
@@ -27,14 +28,28 @@ class CapacityBroker:
     remain eligible but never behave like unlimited capacity.
     """
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        runtime_store: Any | None = None,
+        subscription_call_limit: int | None = None,
+    ) -> None:
         self._snapshots: dict[str, CapacitySnapshot] = {}
         self._reservations: dict[str, CapacityReservation] = {}
+        self._runtime_store = runtime_store
+        configured_limit = os.getenv("UO_SUBSCRIPTION_CALL_LIMIT")
+        self.subscription_call_limit = (
+            subscription_call_limit
+            if subscription_call_limit is not None
+            else int(configured_limit) if configured_limit else 12
+        )
+        self._committed_durable_reservations: set[str] = set()
         self._lock = RLock()
 
     def update(self, snapshot: CapacitySnapshot) -> None:
         with self._lock:
-            self._snapshots[snapshot.connector_id] = snapshot
+            previous = self._snapshots.get(snapshot.connector_id)
+            if previous is None or snapshot.observed_at >= previous.observed_at:
+                self._snapshots[snapshot.connector_id] = snapshot
 
     def snapshot(self, connector_id: str) -> CapacitySnapshot | None:
         with self._lock:
@@ -59,6 +74,12 @@ class CapacityBroker:
             CapacityStatus.COOLING_DOWN,
             CapacityStatus.UNAVAILABLE,
         }
+
+    def effective_status(self, connector_id: str) -> CapacityStatus:
+        snapshot = self.snapshot(connector_id)
+        if snapshot is None or self._is_expired(snapshot):
+            return CapacityStatus.UNKNOWN
+        return snapshot.status
 
     def score(self, connector_id: str) -> float:
         snapshot = self.snapshot(connector_id)
@@ -111,7 +132,27 @@ class CapacityBroker:
                 task_id=task_id,
                 connector_id=connector_id,
                 dimensions=requested,
+                snapshot_observed_at=active_snapshot.observed_at if active_snapshot else None,
             )
+            if (
+                requested.get(CapacityDimension.SUBSCRIPTION_CALLS, 0.0) > 0
+                and self._runtime_store is not None
+                and self.subscription_call_limit is not None
+            ):
+                reserve_subscription = getattr(
+                    self._runtime_store, "reserve_subscription_capacity", None
+                )
+                if callable(reserve_subscription) and not reserve_subscription(
+                    run_id,
+                    connector_id,
+                    int(requested[CapacityDimension.SUBSCRIPTION_CALLS]),
+                    self.subscription_call_limit,
+                ):
+                    raise CapacityReservationError(
+                        f"{connector_id} reached the local subscription call limit "
+                        f"of {self.subscription_call_limit} for run {run_id}"
+                    )
+                self._committed_durable_reservations.discard(reservation.reservation_id)
             self._reservations[reservation.reservation_id] = reservation
             return reservation
 
@@ -122,8 +163,24 @@ class CapacityBroker:
     def release(self, reservation: CapacityReservation) -> None:
         with self._lock:
             self._reservations.pop(reservation.reservation_id, None)
+            if reservation.reservation_id not in self._committed_durable_reservations:
+                release_subscription = getattr(
+                    self._runtime_store, "release_subscription_capacity", None
+                )
+                if (
+                    callable(release_subscription)
+                    and reservation.dimensions.get(CapacityDimension.SUBSCRIPTION_CALLS, 0) > 0
+                ):
+                    release_subscription(
+                        reservation.run_id,
+                        reservation.connector_id,
+                        int(reservation.dimensions[CapacityDimension.SUBSCRIPTION_CALLS]),
+                    )
+            self._committed_durable_reservations.discard(reservation.reservation_id)
 
     def commit(self, reservation: CapacityReservation) -> None:
+        with self._lock:
+            self._committed_durable_reservations.add(reservation.reservation_id)
         self.release(reservation)
 
     def active_reservations(self) -> list[CapacityReservation]:
