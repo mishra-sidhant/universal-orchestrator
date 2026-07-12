@@ -29,8 +29,6 @@ Success: no issues found in 64 source files
 Successfully built universal_orchestrator-0.1.0.tar.gz and universal_orchestrator-0.1.0-py3-none-any.whl
 ```
 
-## Tranche K.2: Persist And Validate Product Plans
-
 ## Tranche G.7: Complete Provider Health Matrix
 
 Failing-first landmark:
@@ -42,6 +40,8 @@ ValueError: No liveness endpoint configured for openai-compatible.local
 ```
 
 Added redaction-safe models-list probes for Gemini, xAI, and OpenAI-compatible gateways. Subscription CLIs remain execution-status driven because they expose no standard HTTP liveness surface; their quota observations stay explicitly unknown or observed. Hosted health failures now feed the same degraded routing path across the provider matrix.
+
+## Tranche K.2: Persist And Validate Product Plans
 
 ## Tranche G.9: Honest Subscription Cost Classification
 
