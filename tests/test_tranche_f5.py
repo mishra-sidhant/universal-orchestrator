@@ -102,6 +102,32 @@ class TrancheF5HealthAndFallbackTests(unittest.TestCase):
         self.assertEqual(degraded.status, ProviderStatus.DEGRADED)
         self.assertEqual(down.status, ProviderStatus.UNAVAILABLE)
 
+    def test_health_probe_supports_gemini_xai_and_openai_compatible_matrix(self) -> None:
+        checker = ProviderHealthChecker()
+        with patch.dict(
+            "os.environ",
+            {
+                "GOOGLE_API_KEY": "fixture-google",
+                "XAI_API_KEY": "fixture-xai",
+                "OPENAI_COMPATIBLE_API_KEY": "fixture-local",
+            },
+            clear=True,
+        ):
+            cases = [
+                ("gemini.configured", "https://generativelanguage.googleapis.com/v1beta/models", "x-goog-api-key", "fixture-google"),
+                ("xai.configured", "https://api.x.ai/v1/models", "Authorization", "Bearer fixture-xai"),
+                ("openai-compatible.local", "http://127.0.0.1:8000/v1/models", "Authorization", "Bearer fixture-local"),
+            ]
+            for provider_id, expected_url, header, expected_value in cases:
+                with self.subTest(provider=provider_id):
+                    transport = FakeTransport([response(200, {"data": []})])
+                    health = checker.check(descriptor(provider_id), transport)
+
+                    self.assertEqual(health.status, ProviderStatus.HEALTHY)
+                    self.assertEqual(transport.requests[0].url, expected_url)
+                    self.assertEqual(transport.requests[0].headers[header], expected_value)
+                    self.assertNotIn("fixture-", transport.requests[0].url)
+
     def test_one_hosted_family_down_routes_to_other_and_reports_degradation(self) -> None:
         with tempfile.TemporaryDirectory() as tmp, patch.dict(
             "os.environ",

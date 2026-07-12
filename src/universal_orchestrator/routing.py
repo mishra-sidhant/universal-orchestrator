@@ -327,6 +327,18 @@ class CapabilityRegistry:
             if provider.kind == ProviderKind.DETERMINISTIC_TOOL or not provider.enabled:
                 refreshed.append(provider)
                 continue
+            if provider.kind == ProviderKind.SUBSCRIPTION_CLI:
+                refreshed.append(
+                    provider.model_copy(
+                        update={
+                            "metadata": {
+                                **provider.metadata,
+                                "health_source": "cli_status_only",
+                            }
+                        }
+                    )
+                )
+                continue
             allowed, _ = PolicyCompiler().provider_allowed(policy, provider)
             if not allowed or (
                 provider.kind in {ProviderKind.HOSTED_MODEL, ProviderKind.SUBSCRIPTION_CLI}

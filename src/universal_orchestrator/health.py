@@ -70,6 +70,25 @@ class ProviderHealthChecker:
             base = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434").rstrip("/")
             headers = {}
             url = f"{base}/api/tags"
+        elif provider_id == "gemini.configured":
+            base = os.getenv(
+                "GEMINI_BASE_URL", "https://generativelanguage.googleapis.com"
+            ).rstrip("/")
+            api_key = os.getenv("GOOGLE_API_KEY", "")
+            headers = {"x-goog-api-key": api_key} if api_key else {}
+            url = f"{base}/v1beta/models"
+        elif provider_id == "xai.configured":
+            base = os.getenv("XAI_BASE_URL", "https://api.x.ai/v1").rstrip("/")
+            api_key = os.getenv("XAI_API_KEY", "")
+            headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+            url = f"{base}/models"
+        elif provider_id == "openai-compatible.local":
+            base = os.getenv(
+                "OPENAI_COMPATIBLE_BASE_URL", "http://127.0.0.1:8000/v1"
+            ).rstrip("/")
+            api_key = os.getenv("OPENAI_COMPATIBLE_API_KEY", "")
+            headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+            url = f"{base}/models"
         else:
             raise ValueError(f"No liveness endpoint configured for {provider_id}")
         return HTTPRequest(
