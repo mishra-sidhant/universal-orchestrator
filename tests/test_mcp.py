@@ -3,7 +3,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from universal_orchestrator.mcp import call_tool, handle_json_rpc, tool_definitions
+from universal_orchestrator.mcp import _invocation_from_args, call_tool, handle_json_rpc, tool_definitions
+from universal_orchestrator.models import PrivacyMode
 
 
 class MCPAdapterTests(unittest.TestCase):
@@ -24,6 +25,34 @@ class MCPAdapterTests(unittest.TestCase):
 
         self.assertEqual(response["id"], 1)
         self.assertIn("tools", response["result"])
+
+    def test_mcp_invocation_preserves_policy_budget_and_artifact_controls(self) -> None:
+        invocation = _invocation_from_args(
+            {
+                "prompt": "Create a report",
+                "paths": ["source.md"],
+                "quality": "max",
+                "budget": "premium",
+                "cost_ceiling": 0.25,
+                "artifact_types": ["pdf"],
+                "allow_internet": True,
+                "allowed_url_hosts": ["example.com"],
+                "allow_cloud": True,
+                "allow_repo_writes": True,
+                "allow_shell": True,
+                "privacy_mode": "explicit_approval",
+            },
+            "mcp.test",
+        )
+
+        self.assertEqual(invocation.user_options.quality, "max")
+        self.assertEqual(invocation.user_options.budget_profile, "premium")
+        self.assertEqual(invocation.user_options.cost_ceiling_usd, 0.25)
+        self.assertEqual(invocation.user_options.artifact_types, ["pdf"])
+        self.assertEqual(invocation.user_options.allowed_url_hosts, ["example.com"])
+        self.assertEqual(invocation.user_options.privacy_mode, PrivacyMode.EXPLICIT_APPROVAL)
+        self.assertTrue(invocation.user_options.allow_repo_writes)
+        self.assertTrue(invocation.user_options.allow_shell)
 
     def test_ai_team_run_and_status_tool(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
