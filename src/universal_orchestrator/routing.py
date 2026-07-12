@@ -64,8 +64,11 @@ class CapabilityRegistry:
         self.capacity_broker = capacity_broker or CapacityBroker(runtime_store=runtime_store)
         self.runtime_store = runtime_store
         if runtime_store is not None:
-            for snapshot in runtime_store.capacity_snapshots():
-                self.capacity_broker.update(snapshot)
+            self.bind_runtime(runtime_store)
+
+    def bind_runtime(self, runtime_store: Any) -> None:
+        self.runtime_store = runtime_store
+        self.capacity_broker.bind_runtime(runtime_store)
 
     @classmethod
     def from_environment(

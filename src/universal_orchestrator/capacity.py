@@ -34,22 +34,54 @@ class CapacityBroker:
         subscription_call_limit: int | None = None,
     ) -> None:
         self._snapshots: dict[str, CapacitySnapshot] = {}
+        self._observations: dict[str, CapacitySnapshot] = {}
         self._reservations: dict[str, CapacityReservation] = {}
         self._runtime_store = runtime_store
         configured_limit = os.getenv("UO_SUBSCRIPTION_CALL_LIMIT")
-        self.subscription_call_limit = (
-            subscription_call_limit
-            if subscription_call_limit is not None
-            else int(configured_limit) if configured_limit else 12
-        )
+        if subscription_call_limit is not None:
+            if subscription_call_limit <= 0:
+                raise ValueError("subscription_call_limit must be a positive integer")
+            self.subscription_call_limit = subscription_call_limit
+        elif configured_limit is not None:
+            parsed_limit = int(configured_limit)
+            if parsed_limit <= 0:
+                raise ValueError("UO_SUBSCRIPTION_CALL_LIMIT must be a positive integer")
+            self.subscription_call_limit = parsed_limit
+        else:
+            self.subscription_call_limit = 12
         self._committed_durable_reservations: set[str] = set()
         self._lock = RLock()
 
     def update(self, snapshot: CapacitySnapshot) -> None:
         with self._lock:
+            previous_observation = self._observations.get(snapshot.connector_id)
+            if (
+                previous_observation is not None
+                and snapshot.observed_at < previous_observation.observed_at
+            ):
+                return
+            self._observations[snapshot.connector_id] = snapshot
             previous = self._snapshots.get(snapshot.connector_id)
-            if previous is None or snapshot.observed_at >= previous.observed_at:
+            headerless_unknown = snapshot.status == CapacityStatus.UNKNOWN and not snapshot.windows
+            if (
+                previous is None
+                or self._is_expired(previous)
+                or not headerless_unknown
+            ):
                 self._snapshots[snapshot.connector_id] = snapshot
+
+    @property
+    def runtime_store(self) -> Any | None:
+        return self._runtime_store
+
+    def bind_runtime(self, runtime_store: Any) -> None:
+        with self._lock:
+            self._runtime_store = runtime_store
+            snapshots: list[CapacitySnapshot] = getattr(
+                runtime_store, "capacity_snapshots", lambda: []
+            )()
+            for snapshot in snapshots:
+                self.update(snapshot)
 
     def snapshot(self, connector_id: str) -> CapacitySnapshot | None:
         with self._lock:
@@ -64,6 +96,20 @@ class CapacityBroker:
     def snapshots(self) -> list[CapacitySnapshot]:
         with self._lock:
             return list(self._snapshots.values())
+
+    def latest_observation(self, connector_id: str) -> CapacitySnapshot | None:
+        with self._lock:
+            direct = self._observations.get(connector_id)
+            if direct is not None:
+                return direct
+            return next(
+                (
+                    snapshot
+                    for snapshot in self._observations.values()
+                    if snapshot.provider_id == connector_id
+                ),
+                None,
+            )
 
     def is_eligible(self, connector_id: str) -> bool:
         snapshot = self.snapshot(connector_id)
@@ -181,6 +227,34 @@ class CapacityBroker:
     def commit(self, reservation: CapacityReservation) -> None:
         with self._lock:
             self._committed_durable_reservations.add(reservation.reservation_id)
+            current = self._snapshots.get(reservation.connector_id)
+            if (
+                current is not None
+                and reservation.snapshot_observed_at is not None
+                and current.observed_at == reservation.snapshot_observed_at
+            ):
+                windows = []
+                for window in current.windows:
+                    amount = reservation.dimensions.get(window.dimension, 0.0)
+                    remaining = (
+                        max(0.0, window.remaining - amount)
+                        if window.remaining is not None and amount > 0
+                        else window.remaining
+                    )
+                    windows.append(window.model_copy(update={"remaining": remaining}))
+                if windows:
+                    status = (
+                        CapacityStatus.EXHAUSTED
+                        if any(window.remaining == 0 for window in windows if window.remaining is not None)
+                        else current.status
+                    )
+                    self._snapshots[reservation.connector_id] = current.model_copy(
+                        update={
+                            "status": status,
+                            "windows": windows,
+                            "reason": "Provider observation reconciled with committed local usage.",
+                        }
+                    )
         self.release(reservation)
 
     def active_reservations(self) -> list[CapacityReservation]:

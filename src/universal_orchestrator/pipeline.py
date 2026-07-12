@@ -210,9 +210,11 @@ class Orchestrator:
         approval_report = self.approvals.evaluate(invocation, manifest, contract)
         execution_policy = self.policy_compiler.compile(invocation, manifest)
         cost_ledger = CostLedger(run_id, invocation.user_options.cost_ceiling_usd)
-        registry = self.capability_registry or CapabilityRegistry.from_environment()
+        registry = self.capability_registry or CapabilityRegistry.from_environment(
+            runtime_store=self.runtime
+        )
         registry.cost_ledger = cost_ledger
-        registry.runtime_store = self.runtime
+        registry.bind_runtime(self.runtime)
         handoff_controller = HandoffController(registry.capacity_broker, self.runtime)
         registry.refresh_health(
             execution_policy,
