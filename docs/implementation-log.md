@@ -19,6 +19,24 @@ Ruff: All checks passed
 Success: no issues found in 64 source files
 ```
 
+## Tranche K.2: Persist And Validate Product Plans
+
+Failing-first landmarks:
+
+```text
+AttributeError: 'PlannerEnsemble' object has no attribute 'validate_product_plan'
+AssertionError: product_plan.json does not exist
+```
+
+Persisted the typed product plan beside the executable DAG and added validation that chapter task references match the run's known task IDs. The validator is strict about run identity and duplicate chapter IDs and emits an auditable empty-errors report for a valid plan.
+
+Verification:
+
+```text
+Ran 194 tests in 4.644s - OK
+world_readiness_core: passed
+```
+
 ## Tranche G.0-G.1: Capacity Foundation And Provider Matrix
 
 Failing-first landmark:

@@ -33,6 +33,8 @@ class PipelineTests(unittest.TestCase):
             self.assertTrue((run_dir / "context_provenance.json").exists())
             self.assertTrue((run_dir / "context_packs.json").exists())
             self.assertTrue((run_dir / "plan_review.json").exists())
+            self.assertTrue((run_dir / "product_plan.json").exists())
+            self.assertTrue((run_dir / "product_plan_validation.json").exists())
             self.assertTrue((run_dir / "approval_report.json").exists())
             self.assertTrue((run_dir / "policy_report.json").exists())
             self.assertTrue((run_dir / "budget_report.json").exists())

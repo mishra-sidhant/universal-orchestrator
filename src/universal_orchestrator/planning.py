@@ -58,6 +58,25 @@ class PlannerEnsemble:
             artifact_types=contract.primary_artifacts,
         )
 
+    def validate_product_plan(self, plan: ProductPlan, dag: TaskDAG) -> list[str]:
+        known_task_ids = {node.id for node in dag.nodes}
+        errors: list[str] = []
+        if plan.run_id != dag.run_id:
+            errors.append(
+                f"Product plan run {plan.run_id} does not match DAG run {dag.run_id}."
+            )
+        seen_chapter_ids: set[str] = set()
+        for chapter in plan.chapters:
+            if chapter.id in seen_chapter_ids:
+                errors.append(f"Product plan contains duplicate chapter id {chapter.id}.")
+            seen_chapter_ids.add(chapter.id)
+            for task_id in chapter.task_ids:
+                if task_id not in known_task_ids:
+                    errors.append(
+                        f"Product plan chapter {chapter.id} references unknown task {task_id}."
+                    )
+        return sorted(errors)
+
     def critical_path(self, dag: TaskDAG) -> list[str]:
         nodes = {node.id: node for node in dag.nodes}
         memo: dict[str, list[str]] = {}

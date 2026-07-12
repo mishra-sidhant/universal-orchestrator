@@ -24,3 +24,4 @@
 | Cross-provider handoff and durable checkpoints | fixed | `17a4df5` | `tests/test_tranche_h1_scheduler.py`, `tests/test_tranche_h2_handoff.py` |
 | Optional OCR/transcription connected to rich ingestion | fixed | `76fbf55` | `tests/test_rich_ingestion.py` |
 | Strict typing backlog removed without disabled error codes | fixed | `76fbf55` | `mypy src` |
+| Product plan persisted and task references validated in real runs | fixed | pending | `tests/test_pipeline.py`, `tests/test_tranche_k1_artifacts.py` |

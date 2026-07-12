@@ -35,6 +35,7 @@ from universal_orchestrator.models import (
     InputType,
     PlanReview,
     ProductContract,
+    ProductPlan,
     ProviderKind,
     ProvenanceRecord,
     QualityGateResult,
@@ -243,6 +244,12 @@ class Orchestrator:
             },
         )
         dag, budget_report = self.budget.apply(invocation, dag, context_packs)
+        product_plan = self.planner.create_product_plan(
+            run_id,
+            contract,
+            [node.id for node in dag.topological_order()],
+        )
+        product_plan_errors = self.planner.validate_product_plan(product_plan, dag)
         plan_review = self.planner.review_plan(run_id, contract, dag)
         self._ensure_not_cancelled(run_id)
         trace.checkpoint(
@@ -357,6 +364,8 @@ class Orchestrator:
                 approval_report=approval_report,
                 execution_policy=execution_policy,
                 dag=dag,
+                product_plan=product_plan,
+                product_plan_errors=product_plan_errors,
                 plan_review=plan_review,
                 budget_report=budget_report,
                 cost_ledger=cost_ledger,
@@ -876,6 +885,8 @@ class Orchestrator:
         approval_report: ApprovalReport,
         execution_policy: ExecutionPolicy,
         dag: TaskDAG,
+        product_plan: ProductPlan,
+        product_plan_errors: list[str],
         plan_review: PlanReview,
         budget_report: BudgetReport,
         cost_ledger: CostLedger,
@@ -920,6 +931,8 @@ class Orchestrator:
             ("approval_report.json", approval_report.model_dump(mode="json")),
             ("policy_report.json", execution_policy.model_dump(mode="json")),
             ("task_dag.json", dag.model_dump(mode="json")),
+            ("product_plan.json", product_plan.model_dump(mode="json")),
+            ("product_plan_validation.json", {"errors": product_plan_errors}),
             ("plan_review.json", plan_review.model_dump(mode="json")),
             ("budget_report.json", budget_report.model_dump(mode="json")),
             ("cost_ledger.json", cost_ledger.snapshot().model_dump(mode="json")),
@@ -1021,6 +1034,8 @@ class Orchestrator:
             "approval_report.json",
             "policy_report.json",
             "task_dag.json",
+            "product_plan.json",
+            "product_plan_validation.json",
             "plan_review.json",
             "budget_report.json",
             "cost_ledger.json",

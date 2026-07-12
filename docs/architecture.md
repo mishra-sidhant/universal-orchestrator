@@ -180,6 +180,8 @@ Repository runs produce an explicitly labeled plan rather than pretending determ
 
 Finalization is one-way: payload artifacts, trace/debug reports, integrity audit, one-time run manifest, checksums, ZIP, ZIP validation, then delivery receipt. The manifest never hashes or rewrites itself. The ZIP includes the frozen manifest, checksums, trace, debug manifest, and integrity report.
 
+Each package includes a validated `product_plan.json` and `product_plan_validation.json` binding chapter task references to the executable DAG.
+
 Each package includes:
 
 - `context_manifest.json`
