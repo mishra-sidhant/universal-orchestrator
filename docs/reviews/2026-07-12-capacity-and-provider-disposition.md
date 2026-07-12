@@ -14,4 +14,8 @@
 | Bounded provider handoff | fixed | pending | `tests/test_tranche_h2_handoff.py` |
 | Hybrid retrieval with persistent local vectors | fixed | pending | `tests/test_tranche_i1_retrieval.py` |
 | Lexical floor kept distinct from entailment | fixed | pending | `tests/test_tranche_i2_verification.py` |
+| Safe archive extraction | fixed | pending | `tests/test_tranche_j1_ingestion.py` |
+| OCR/transcription command boundaries | fixed | pending | `tests/test_tranche_j1_ingestion.py` |
+| Typed product/chapter/slide plans | fixed | pending | `tests/test_tranche_k1_artifacts.py` |
+| PPTX build and structural validation | fixed | pending | `tests/test_tranche_k1_artifacts.py` |
 | Cross-provider handoff and durable checkpoints | planned | pending | Tranche H |

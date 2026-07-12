@@ -44,15 +44,18 @@ Implemented now:
 - URL/API inventory without network fetch by default; permission-gated fetch enforces scheme, credentials, DNS, public-address, exact-host override, and no-redirect policy.
 - Binary metadata records for remaining media and unknown formats.
 
-Planned:
+Optional local extensions:
 
-- OCR, archive sandbox extraction, API schema inference, and audio/video transcription.
+- Safe archive extraction is explicit and sandboxed; default inventory remains non-extractive unless a run enables extraction.
+- Tesseract OCR and local Whisper transcription are command-bound, timestamp/provenance-ready, and never download models automatically.
 
 ## Context Intelligence Plane
 
 Context intelligence converts `InputRecord` values into `ContextCard` objects, ranks them against the prompt, and creates `ContextPack` values for task-specific execution.
 
 Current ranking is deterministic lexical overlap plus specificity and risk boosts. The system also writes a context index, conflict markers, and cache metadata for reuse and auditability. Future ranking should add embeddings, recency, trust, freshness, authority, and deeper semantic deduplication.
+
+The current retrieval extension adds a deterministic local hash-vector baseline, persistent SQLite vectors, hybrid lexical/semantic ranking, and per-hit explanations. It is explicitly a ranking aid; the structural verifier reports unresolved semantic entailment as `unknown`.
 
 Context chunk IDs are stable across equivalent runs, carry source/line/page/slide/sheet locators, and are ranked into per-task packs with Unicode-aware word matching. Repository chunks retain file-path and line locators. Provenance records bind those chunks back to source names and URIs:
 

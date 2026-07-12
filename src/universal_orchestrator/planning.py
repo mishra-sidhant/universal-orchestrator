@@ -6,6 +6,8 @@ from universal_orchestrator.models import (
     PlanCandidate,
     PlanReview,
     ProductContract,
+    ProductPlan,
+    ChapterPlan,
     RetryPolicy,
     TaskDAG,
     TaskNode,
@@ -32,6 +34,28 @@ class PlannerEnsemble:
             critical_path=critical_path,
             estimated_cost_tier=self.estimate_cost_tier(dag),
             simulation=self.simulate_plan(dag),
+        )
+
+    def create_product_plan(
+        self,
+        run_id: str,
+        contract: ProductContract,
+        task_ids: list[str],
+    ) -> ProductPlan:
+        """Create a deterministic chapter contract without claiming prose quality."""
+
+        title = contract.requested_output[:120] or "Universal Orchestrator Product"
+        chapter = ChapterPlan(
+            id="chapter-1",
+            title=title,
+            objective=contract.requested_output,
+            task_ids=task_ids,
+        )
+        return ProductPlan(
+            run_id=run_id,
+            title=title,
+            chapters=[chapter],
+            artifact_types=contract.primary_artifacts,
         )
 
     def critical_path(self, dag: TaskDAG) -> list[str]:

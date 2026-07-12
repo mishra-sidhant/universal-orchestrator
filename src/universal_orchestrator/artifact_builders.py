@@ -4,7 +4,7 @@ from html import escape
 from pathlib import Path
 import zipfile
 
-from universal_orchestrator.models import Artifact, ArtifactType
+from universal_orchestrator.models import Artifact, ArtifactType, SlideSpec
 from universal_orchestrator.utils import sha256_file
 
 
@@ -71,6 +71,44 @@ class ArtifactBuilder:
                 errors.append("DOCX has no paragraphs.")
         except Exception as exc:
             errors.append(f"DOCX validation failed: {exc}")
+        return errors
+
+    def build_pptx(self, slides: list[SlideSpec], path: Path) -> Artifact:
+        from pptx import Presentation
+        from pptx.util import Inches, Pt
+
+        path.parent.mkdir(parents=True, exist_ok=True)
+        presentation = Presentation()
+        for spec in slides:
+            slide = presentation.slides.add_slide(presentation.slide_layouts[5])
+            title = slide.shapes.title
+            if title is not None:
+                title.text = spec.title
+            textbox = slide.shapes.add_textbox(Inches(0.8), Inches(1.4), Inches(11.5), Inches(5.2))
+            frame = textbox.text_frame
+            frame.clear()
+            for index, line in enumerate(spec.body):
+                paragraph = frame.paragraphs[0] if index == 0 else frame.add_paragraph()
+                paragraph.text = line
+                paragraph.font.size = Pt(20)
+            if spec.notes:
+                slide.notes_slide.notes_text_frame.text = spec.notes
+        presentation.save(str(path))
+        return self._artifact(path, ArtifactType.PPTX)
+
+    def validate_pptx(self, path: Path) -> list[str]:
+        errors: list[str] = []
+        try:
+            from pptx import Presentation
+
+            presentation = Presentation(str(path))
+            if not presentation.slides:
+                errors.append("PPTX has no slides.")
+            for index, slide in enumerate(presentation.slides, start=1):
+                if not any(getattr(shape, "text", "").strip() for shape in slide.shapes):
+                    errors.append(f"PPTX slide {index} has no visible text.")
+        except Exception as exc:
+            errors.append(f"PPTX validation failed: {exc}")
         return errors
 
     def build_patch_plan(self, markdown: str, path: Path) -> Artifact:

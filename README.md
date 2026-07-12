@@ -9,6 +9,7 @@ The current milestone is a deterministic local runtime with fixture-validated li
 - Local CLI with `run`, `repo`, `doctor`, `providers`, `artifacts`, `status`, `cancel`, `smoke`, `bench`, and executable `evals` commands.
 - Typed Pydantic data models for invocations, manifests, product contracts, DAGs, routing, execution, quality, artifacts, and run manifests.
 - Universal input ingestion MVP for prompts, text/markdown, PDFs, folders, repositories, URLs, images, Office files, spreadsheets, archives, and unknown files.
+- Safe archive extraction with traversal/link/size guards, plus optional fixture-tested Tesseract OCR and local Whisper timestamped transcription boundaries; optional tools never download models automatically.
 - Secret and prompt-injection risk scanning before context cards are built.
 - Common provider/PAT/JWT/private-key/credential-URL redaction, complete archive-member inspection, SSRF/private-network blocking, and child-process environment scrubbing.
 - Recursive redaction at the provider transport boundary, prompt-injection chunk quarantine, and explicit untrusted-data delimiters around model context.
@@ -29,6 +30,7 @@ The current milestone is a deterministic local runtime with fixture-validated li
 - Model synthesis accepts only strict structured output, allows one metered reformat repair, audits each claim against delivered chunk IDs, and degrades honestly to extractive synthesis after validation failure.
 - Immutable delivery finalization with a frozen run manifest, checksums, validated ZIP, integrity report, and hash-bound delivery receipt.
 - A native-versus-orchestrated benchmark bundle with side-by-side outputs, per-path cost and latency, plus orchestrated quality/evidence reports. It makes no automated superiority claim; comparison requires human judgment.
+- Typed product/chapter plans and PPTX artifact construction with structural slide validation, alongside the existing PDF/DOCX builders.
 - Standard-library test suite, so the repo can validate without installing pytest.
 
 ## Quick Start

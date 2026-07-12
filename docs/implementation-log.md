@@ -18,6 +18,23 @@ Success: no issues found in 57 source files
 world_readiness_core: passed
 ```
 
+## Tranche J.1-K.1: Safe Media And Rich Artifact Boundaries
+
+Failing-first landmark:
+
+```text
+ModuleNotFoundError: No module named 'universal_orchestrator.providers.cli'
+```
+
+Added safe archive extraction, optional Tesseract OCR and local Whisper segment parsing, typed product/chapter/slide plans, PPTX construction, and structural slide validation. Archive and media boundaries remain injectable and offline-testable.
+
+Verification:
+
+```text
+Ran 188 tests in 4.781s - OK
+world_readiness_core: passed
+```
+
 ## Tranche H.1-I.2: Durable Parallel Handoff And Context Intelligence
 
 Failing-first landmarks:

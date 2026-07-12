@@ -80,6 +80,26 @@ def tool_definitions() -> list[dict[str, Any]]:
             },
         },
         {
+            "name": "ai_team.capacity",
+            "description": "Read observed provider/model capacity windows without secrets.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {"root": {"type": "string", "default": ".uo/runs"}},
+            },
+        },
+        {
+            "name": "ai_team.events",
+            "description": "Read the durable redacted runtime event stream for a run.",
+            "inputSchema": {
+                "type": "object",
+                "required": ["run_id"],
+                "properties": {
+                    "run_id": {"type": "string"},
+                    "root": {"type": "string", "default": ".uo/runs"},
+                },
+            },
+        },
+        {
             "name": "ai_team.cancel",
             "description": "Request durable cancellation for a run.",
             "inputSchema": {
@@ -129,6 +149,10 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, A
         return _tool_artifacts(args)
     if name == "ai_team.providers":
         return _tool_providers()
+    if name == "ai_team.capacity":
+        return _tool_capacity(args)
+    if name == "ai_team.events":
+        return _tool_events(args)
     if name == "ai_team.doctor":
         return _tool_doctor()
     if name == "ai_team.configure":
@@ -260,6 +284,22 @@ def _tool_artifacts(args: dict[str, Any]) -> dict[str, Any]:
 def _tool_providers() -> dict[str, Any]:
     registry = CapabilityRegistry.from_environment()
     return {"providers": [provider.model_dump(mode="json") for provider in registry.providers]}
+
+
+def _tool_capacity(args: dict[str, Any]) -> dict[str, Any]:
+    root = Path(args.get("root", ".uo/runs"))
+    runtime = RuntimeStore(root / "runtime.sqlite3")
+    return {
+        "root": str(root),
+        "snapshots": [snapshot.model_dump(mode="json") for snapshot in runtime.capacity_snapshots()],
+        "disclosure": "Unknown capacity is not treated as unlimited.",
+    }
+
+
+def _tool_events(args: dict[str, Any]) -> dict[str, Any]:
+    root = Path(args.get("root", ".uo/runs"))
+    runtime = RuntimeStore(root / "runtime.sqlite3")
+    return {"run_id": args["run_id"], "events": runtime.list_events(args["run_id"])}
 
 
 def _tool_doctor() -> dict[str, Any]:

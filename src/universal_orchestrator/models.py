@@ -398,7 +398,31 @@ class ProductContract(StrictModel):
     quality_bar: str = "serious"
     must_have: list[str]
     must_not_have: list[str]
+    constraints: dict[str, Any] = Field(default_factory=dict)
     definition_of_done: DefinitionOfDone
+
+
+class ChapterPlan(StrictModel):
+    id: str
+    title: str
+    objective: str
+    task_ids: list[str] = Field(default_factory=list)
+    evidence_budget: int = Field(default=8, ge=1)
+    token_budget: int = Field(default=16_000, ge=1)
+
+
+class ProductPlan(StrictModel):
+    run_id: str
+    title: str
+    chapters: list[ChapterPlan] = Field(default_factory=list)
+    artifact_types: list[str] = Field(default_factory=list)
+    continuity_terms: list[str] = Field(default_factory=list)
+
+
+class SlideSpec(StrictModel):
+    title: str
+    body: list[str] = Field(default_factory=list)
+    notes: str = ""
     constraints: dict[str, Any] = Field(default_factory=dict)
 
 

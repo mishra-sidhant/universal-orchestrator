@@ -46,6 +46,7 @@ from universal_orchestrator.models import (
     RunManifest,
     RunResult,
     RunState,
+    SlideSpec,
     TaskDAG,
     new_id,
     utc_now,
@@ -678,6 +679,14 @@ class Orchestrator:
             docx_artifact = self.artifact_builder.build_docx(product_package.final_markdown, docx_path)
             artifacts.append(docx_artifact)
             validation_jobs.append(("docx", docx_path))
+        if "pptx" in contract.primary_artifacts:
+            pptx_path = self.artifact_store.run_dir(run_id) / "final_report.pptx"
+            slides = [
+                SlideSpec(title="Universal Orchestrator Report", body=product_package.final_markdown.splitlines()[:12])
+            ]
+            pptx_artifact = self.artifact_builder.build_pptx(slides, pptx_path)
+            artifacts.append(pptx_artifact)
+            validation_jobs.append(("pptx", pptx_path))
         if "patch" in contract.primary_artifacts or contract.run_type == "repo_implementation":
             patch_path = self.artifact_store.run_dir(run_id) / "patch_plan.md"
             patch_artifact = self.artifact_builder.build_patch_plan(
@@ -690,6 +699,7 @@ class Orchestrator:
         validators = {
             "pdf": self.artifact_builder.validate_pdf,
             "docx": self.artifact_builder.validate_docx,
+            "pptx": self.artifact_builder.validate_pptx,
             "patch_plan": self.artifact_builder.validate_patch_plan,
         }
         for artifact_kind, artifact_path in validation_jobs:
@@ -1033,6 +1043,8 @@ class Orchestrator:
             expected.extend(["final_report.pdf", "pdf_validation.json"])
         if "docx" in contract.primary_artifacts:
             expected.extend(["final_report.docx", "docx_validation.json"])
+        if "pptx" in contract.primary_artifacts:
+            expected.extend(["final_report.pptx", "pptx_validation.json"])
         if "patch" in contract.primary_artifacts or contract.run_type == "repo_implementation":
             expected.extend(["patch_plan.md", "patch_plan_validation.json"])
         return expected

@@ -13,6 +13,8 @@ class MCPAdapterTests(unittest.TestCase):
         self.assertIn("ai_team.run", names)
         self.assertIn("ai_team.status", names)
         self.assertIn("ai_team.providers", names)
+        self.assertIn("ai_team.capacity", names)
+        self.assertIn("ai_team.events", names)
         self.assertIn("ai_team.doctor", names)
         self.assertIn("ai_team.evals", names)
 
@@ -79,6 +81,15 @@ class MCPAdapterTests(unittest.TestCase):
 
         text = response["result"]["content"][0]["text"]
         self.assertIn("python", json.loads(text))
+
+    def test_capacity_and_events_tools_are_read_only(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "runs"
+            capacity = call_tool("ai_team.capacity", {"root": str(root)})
+            events = call_tool("ai_team.events", {"root": str(root), "run_id": "missing"})
+
+        self.assertEqual(capacity["snapshots"], [])
+        self.assertEqual(events["events"], [])
 
 
 if __name__ == "__main__":
