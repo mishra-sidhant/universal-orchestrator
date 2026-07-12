@@ -189,6 +189,7 @@ class BudgetController:
                 "cost_ceiling_usd": ledger.cost_ceiling_usd,
                 "provider_calls": ledger.calls,
                 "total_actual_usd": actual,
+                "unknown_cost_calls": ledger.unknown_cost_calls,
                 "budget_stop": ledger.budget_stop,
                 "estimate_actual_reconciliation": {
                     "estimated_usd": estimated,

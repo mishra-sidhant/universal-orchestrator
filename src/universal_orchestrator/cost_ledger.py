@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from threading import Lock
+from typing import Literal
 
 from universal_orchestrator.models import (
     BudgetStopRecord,
@@ -27,6 +28,7 @@ class CostAuthorization:
     provider_id: str
     model: str
     quote: PriceQuote
+    billing_mode: Literal["metered", "subscription", "local"] = "metered"
 
 
 class CostLedger:
@@ -47,6 +49,7 @@ class CostLedger:
         model: str,
         input_tokens: int,
         output_tokens: int,
+        billing_mode: Literal["metered", "subscription", "local"] = "metered",
     ) -> CostAuthorization:
         quote = self.rate_table.quote(provider_id, model, input_tokens, output_tokens)
         with self._lock:
@@ -71,6 +74,7 @@ class CostLedger:
                 provider_id=provider_id,
                 model=model,
                 quote=quote,
+                billing_mode=billing_mode,
             )
             self._reservations[authorization.call_id] = authorization
             return authorization
@@ -87,6 +91,11 @@ class CostLedger:
             input_tokens,
             output_tokens,
         )
+        cost_status = {
+            "metered": "priced",
+            "subscription": "allocated_cost_unknown",
+            "local": "zero_cost_local",
+        }[authorization.billing_mode]
         with self._lock:
             if self._reservations.pop(authorization.call_id, None) is None:
                 raise RuntimeError(f"Unknown or closed cost authorization {authorization.call_id}")
@@ -102,6 +111,8 @@ class CostLedger:
                 actual_usd=actual_quote.cost_usd,
                 rate_table_version=actual_quote.rate_table_version,
                 rate_key=actual_quote.rate_key,
+                billing_mode=authorization.billing_mode,
+                cost_status=cost_status,
             )
             self._calls.append(row)
             return row
@@ -119,7 +130,12 @@ class CostLedger:
                 rate_table_source=self.rate_table.source_path,
                 calls=list(self._calls),
                 total_estimated_usd=sum(item.estimated_usd for item in self._calls),
-                total_actual_usd=sum(item.actual_usd for item in self._calls),
+                total_actual_usd=sum(
+                    item.actual_usd for item in self._calls if item.cost_status == "priced"
+                ),
+                unknown_cost_calls=sum(
+                    item.cost_status == "allocated_cost_unknown" for item in self._calls
+                ),
                 reserved_usd=sum(item.quote.cost_usd for item in self._reservations.values()),
                 budget_stop=self._budget_stop,
             )

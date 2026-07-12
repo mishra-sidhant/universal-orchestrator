@@ -745,6 +745,8 @@ class ProviderCallLedgerEntry(StrictModel):
     actual_usd: float = 0.0
     rate_table_version: str
     rate_key: str
+    billing_mode: Literal["metered", "subscription", "local"] = "metered"
+    cost_status: Literal["priced", "allocated_cost_unknown", "zero_cost_local"] = "priced"
 
 
 class BudgetStopRecord(StrictModel):
@@ -764,6 +766,7 @@ class CostLedgerReport(StrictModel):
     calls: list[ProviderCallLedgerEntry] = Field(default_factory=list)
     total_estimated_usd: float = 0.0
     total_actual_usd: float = 0.0
+    unknown_cost_calls: int = 0
     reserved_usd: float = 0.0
     budget_stop: BudgetStopRecord | None = None
 
@@ -782,6 +785,7 @@ class BudgetReport(StrictModel):
     cost_ceiling_usd: float = 0.50
     provider_calls: list[ProviderCallLedgerEntry] = Field(default_factory=list)
     total_actual_usd: float = 0.0
+    unknown_cost_calls: int = 0
     estimate_actual_reconciliation: dict[str, Any] = Field(default_factory=dict)
     budget_stop: BudgetStopRecord | None = None
     warnings: list[str] = Field(default_factory=list)

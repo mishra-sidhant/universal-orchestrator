@@ -14,6 +14,7 @@ from universal_orchestrator.models import (
     TaskNode,
     TaskType,
 )
+from universal_orchestrator.cost_ledger import CostLedger
 from universal_orchestrator.providers.cli import ClaudeCodeCLIAdapter, CodexCLIAdapter
 from universal_orchestrator.providers.command import (
     CommandResponse,
@@ -141,6 +142,26 @@ class CLIProviderTests(unittest.TestCase):
 
         self.assertNotIn("OPENAI_API_KEY", transport.requests[0].env)
         self.assertNotIn("ANTHROPIC_API_KEY", transport.requests[0].env)
+
+    def test_subscription_usage_is_not_reported_as_free_metered_spend(self) -> None:
+        transport = FakeCommandTransport(
+            [CommandResponse(returncode=0, stdout=json.dumps({"result": "ok"}), stderr="")]
+        )
+        ledger = CostLedger("R", ceiling_usd=0.50)
+        adapter = ClaudeCodeCLIAdapter(
+            descriptor("claude-code.cli"),
+            command_transport=transport,
+            executable="claude",
+            cost_ledger=ledger,
+        )
+        with patch.dict("os.environ", {"CLAUDE_CODE_MODEL": "fixture-model"}, clear=True):
+            adapter.execute(task())
+
+        report = ledger.snapshot()
+        self.assertEqual(len(report.calls), 1)
+        self.assertEqual(report.calls[0].billing_mode, "subscription")
+        self.assertEqual(report.calls[0].cost_status, "allocated_cost_unknown")
+        self.assertEqual(report.unknown_cost_calls, 1)
 
 
 if __name__ == "__main__":

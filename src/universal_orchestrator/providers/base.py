@@ -146,6 +146,7 @@ class ProviderAdapter(ABC):
             model,
             estimate.input_tokens,
             estimate.output_tokens,
+            billing_mode=self.descriptor.billing_mode,
         )
         guard = task.context.get("completion_guard")
         if guard is not None and hasattr(guard, "register_cleanup"):
