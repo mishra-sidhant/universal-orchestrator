@@ -20,5 +20,5 @@
 | PPTX build and structural validation | fixed | `1560b73` | `tests/test_tranche_k1_artifacts.py` |
 | Async MCP run start and host polling | fixed | `cdf227f` | `tests/test_mcp.py` |
 | Read-only Codex/Claude/VS Code/generic integration output | fixed | `cdf227f` | `tests/test_tranche_l1_host.py` |
-| Pre-call capacity reservation blocks known exhausted windows | fixed | working tree pending commit | `tests/test_tranche_g0_capacity.py` |
+| Pre-call capacity reservation blocks known exhausted windows | fixed | `00ccd2c` | `tests/test_tranche_g0_capacity.py` |
 | Cross-provider handoff and durable checkpoints | fixed | `17a4df5` | `tests/test_tranche_h1_scheduler.py`, `tests/test_tranche_h2_handoff.py` |
