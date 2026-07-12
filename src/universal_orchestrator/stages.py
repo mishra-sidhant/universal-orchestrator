@@ -306,7 +306,27 @@ class StageWorkerRegistry:
             except BudgetStopError:
                 raise
             except ProviderError as exc:
-                raise exc
+                handoffable = {
+                    ProviderErrorKind.CAPACITY_EXHAUSTED,
+                    ProviderErrorKind.RATE_LIMIT,
+                    ProviderErrorKind.TRANSIENT,
+                    ProviderErrorKind.TIMEOUT,
+                }
+                if exc.kind not in handoffable or not refs:
+                    raise
+                summary, findings, extra = self._extractive_synthesis(refs)
+                attempted = ", ".join(sorted(item for item in attempted_connectors if item))
+                return summary, findings, {
+                    **extra,
+                    "synthesis_path": "extractive_provider_fallback",
+                    "claims": [{"text": summary, "evidence_refs": refs}],
+                    "degraded_mode_notices": self.context.provider_health_notices,
+                    "_warnings": [
+                        *handoff_warnings,
+                        "All eligible model providers failed; used grounded extractive fallback.",
+                        f"Attempted providers: {attempted}; final error: {exc.kind.value}.",
+                    ],
+                }
             except ModelOutputValidationError as exc:
                 summary, findings, extra = self._extractive_synthesis(refs)
                 return summary, findings, {
