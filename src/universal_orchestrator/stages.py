@@ -90,7 +90,7 @@ class StageWorkerRegistry:
         completion_guard: Any | None = None,
     ) -> ExecutionResult:
         started_at = utc_now()
-        evidence_required = task.id == "T-SYNTHESIS"
+        evidence_required = task.task_type == "final_synthesis" or task.id == "T-SYNTHESIS"
         refs = (
             list(self.context.chunk_refs_by_task.get(task.id, []))
             if evidence_required
@@ -113,6 +113,8 @@ class StageWorkerRegistry:
                 warnings=[decision.reason],
             )
         handler = self.handlers.get(task.id)
+        if handler is None and task.task_type == "final_synthesis":
+            handler = self._synthesis
         if handler is None:
             reason = "No registered deterministic stage worker can execute this task."
             return self._result(
@@ -127,6 +129,10 @@ class StageWorkerRegistry:
             )
         try:
             if task.id == "T-SYNTHESIS":
+                summary, findings, extra = self._synthesis(
+                    task, decision, refs, completion_guard
+                )
+            elif task.task_type == "final_synthesis":
                 summary, findings, extra = self._synthesis(
                     task, decision, refs, completion_guard
                 )
@@ -234,57 +240,73 @@ class StageWorkerRegistry:
             handoff_warnings: list[str] = []
             effective_provider_id: str | None = None
             try:
-                model_result = self.model_synthesis.run(
-                    adapter,
-                    task,
-                    pack,
-                    self.context.operator_prompt,
-                    completion_guard,
-                )
+                attempted_connectors = {
+                    decision.provider_id
+                } if decision.provider_id else set()
+                current_adapter = adapter
+                current_connector_id = decision.provider_id
+                attempt = 1
+                while True:
+                    try:
+                        model_result = self.model_synthesis.run(
+                            current_adapter,
+                            task,
+                            pack,
+                            self.context.operator_prompt,
+                            completion_guard,
+                        )
+                        if current_connector_id != decision.provider_id:
+                            effective_provider_id = current_connector_id
+                        break
+                    except ProviderError as exc:
+                        handoffable = {
+                            ProviderErrorKind.CAPACITY_EXHAUSTED,
+                            ProviderErrorKind.RATE_LIMIT,
+                            ProviderErrorKind.TRANSIENT,
+                            ProviderErrorKind.TIMEOUT,
+                        }
+                        if (
+                            exc.kind not in handoffable
+                            or self.context.handoff_controller is None
+                        ):
+                            raise
+                        handoff = self.context.handoff_controller.choose(
+                            task.run_id,
+                            task.id,
+                            attempt=attempt,
+                            candidates=list(decision.alternatives),
+                            attempted_connectors=attempted_connectors,
+                            reason=(
+                                f"{current_connector_id} stopped with {exc.kind.value}; "
+                                "preserved task context and budget boundary."
+                            ),
+                            current_connector_id=current_connector_id,
+                        )
+                        next_adapter = (
+                            self.context.provider_adapters.get(handoff.to_connector_id)
+                            if handoff and self.context.provider_adapters
+                            else None
+                        )
+                        if handoff is None or next_adapter is None:
+                            raise
+                        if self.context.execution_policy:
+                            allowed, reason = PolicyCompiler().provider_allowed(
+                                self.context.execution_policy, next_adapter.descriptor
+                            )
+                            if not allowed:
+                                raise RuntimeError(reason)
+                        attempted_connectors.add(handoff.to_connector_id or "")
+                        handoff_warnings.append(
+                            f"Provider handoff completed from {current_connector_id} "
+                            f"to {handoff.to_connector_id} (attempt {attempt + 1})."
+                        )
+                        current_adapter = next_adapter
+                        current_connector_id = handoff.to_connector_id
+                        attempt += 1
             except BudgetStopError:
                 raise
             except ProviderError as exc:
-                handoffable = {
-                    ProviderErrorKind.CAPACITY_EXHAUSTED,
-                    ProviderErrorKind.RATE_LIMIT,
-                    ProviderErrorKind.TRANSIENT,
-                    ProviderErrorKind.TIMEOUT,
-                }
-                if exc.kind not in handoffable or self.context.handoff_controller is None:
-                    raise
-                handoff = self.context.handoff_controller.choose(
-                    task.run_id,
-                    task.id,
-                    attempt=1,
-                    candidates=list(decision.alternatives),
-                    attempted_connectors={decision.provider_id} if decision.provider_id else set(),
-                    reason=f"{decision.provider_id} stopped with {exc.kind.value}; preserved task context.",
-                    current_connector_id=decision.provider_id,
-                )
-                next_adapter = (
-                    self.context.provider_adapters.get(handoff.to_connector_id)
-                    if handoff and self.context.provider_adapters
-                    else None
-                )
-                if handoff is None or next_adapter is None:
-                    raise
-                if self.context.execution_policy:
-                    allowed, reason = PolicyCompiler().provider_allowed(
-                        self.context.execution_policy, next_adapter.descriptor
-                    )
-                    if not allowed:
-                        raise RuntimeError(reason)
-                model_result = self.model_synthesis.run(
-                    next_adapter,
-                    task,
-                    pack,
-                    self.context.operator_prompt,
-                    completion_guard,
-                )
-                effective_provider_id = handoff.to_connector_id
-                handoff_warnings.append(
-                    f"Provider handoff completed from {decision.provider_id} to {handoff.to_connector_id}."
-                )
+                raise exc
             except ModelOutputValidationError as exc:
                 summary, findings, extra = self._extractive_synthesis(refs)
                 return summary, findings, {
@@ -404,7 +426,7 @@ class StageWorkerRegistry:
             "summary": summary,
             "findings": findings,
             "evidence_refs": evidence_refs,
-            "evidence_required": task.id == "T-SYNTHESIS",
+            "evidence_required": task.task_type == "final_synthesis" or task.id == "T-SYNTHESIS",
             "files": [],
             "metrics": {
                 "finding_count": len(findings),
