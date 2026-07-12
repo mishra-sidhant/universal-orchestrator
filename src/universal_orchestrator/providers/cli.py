@@ -26,7 +26,6 @@ from universal_orchestrator.providers.base import (
 )
 from universal_orchestrator.providers.command import (
     CommandRequest,
-    CommandTimeout,
     CommandTransport,
     SubprocessCommandTransport,
     sanitized_cli_environment,

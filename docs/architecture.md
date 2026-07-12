@@ -23,6 +23,9 @@ The repo now includes a dependency-light stdio JSON-RPC/MCP-style adapter in `un
 - `ai_team.cancel`
 - `ai_team.resume`
 - `ai_team.evals`
+- `ai_team.run_start`
+- `ai_team.events`
+- `ai_team.capacity`
 
 `ai_team.status` now includes the runtime snapshot, and `ai_team.cancel` writes a durable cancellation request unless the run is already terminal. `ai_team.evals` can either list the built-in suite or execute it and write `eval_report.json`.
 
@@ -39,21 +42,22 @@ Implemented now:
 - DOCX paragraph/table extraction through `python-docx` when available.
 - PPTX slide and notes extraction through `python-pptx` when available.
 - CSV/TSV and XLSX sampling through the standard library and `openpyxl` when available.
-- Image metadata extraction through Pillow when available.
+- Image metadata extraction through Pillow when available, with injected Tesseract OCR when the local tool is installed.
 - Full-member ZIP/TAR safety scans without unpacking, including traversal and tar link warnings.
 - URL/API inventory without network fetch by default; permission-gated fetch enforces scheme, credentials, DNS, public-address, exact-host override, and no-redirect policy.
-- Binary metadata records for remaining media and unknown formats.
+- Timestamped local Whisper transcription for audio/video when the operator installs the CLI; otherwise media remains an explicit partial record.
+- Binary metadata records for unknown formats.
 
 Optional local extensions:
 
 - Safe archive extraction is explicit and sandboxed; default inventory remains non-extractive unless a run enables extraction.
-- Tesseract OCR and local Whisper transcription are command-bound, timestamp/provenance-ready, and never download models automatically.
+- Tesseract OCR and local Whisper transcription are command-bound, connected to ingestion through injectable adapters, timestamp/provenance-ready, and never download models automatically.
 
 ## Context Intelligence Plane
 
 Context intelligence converts `InputRecord` values into `ContextCard` objects, ranks them against the prompt, and creates `ContextPack` values for task-specific execution.
 
-Current ranking is deterministic lexical overlap plus specificity and risk boosts. The system also writes a context index, conflict markers, and cache metadata for reuse and auditability. Future ranking should add embeddings, recency, trust, freshness, authority, and deeper semantic deduplication.
+Card ranking remains deterministic lexical overlap plus specificity and risk boosts. The retrieval extension adds a model-versioned local vector index and hybrid lexical/semantic ordering, while recency, trust, freshness, authority, and deeper semantic deduplication remain injectable future ranking signals.
 
 The current retrieval extension adds a deterministic local hash-vector baseline, persistent SQLite vectors, hybrid lexical/semantic ranking, and per-hit explanations. It is explicitly a ranking aid; the structural verifier reports unresolved semantic entailment as `unknown`.
 
@@ -88,7 +92,7 @@ The kernel uses `PlannerEnsemble` to create a five-node typed `TaskDAG`: context
 
 Each run writes `plan_review.json` with strategic, decomposition, risk, cost, and skeptic views. Their scores derive from contract artifact coverage, registered-worker coverage, dependency coverage, quality-stage coverage, cache safety, and actual cost tiers; no role has a hardcoded score.
 
-Plan review includes critical path analysis, cost-tier estimation, batch simulation, and residual risks. The current real DAG is linear and truthfully reports max parallelism of one.
+Plan review includes critical path analysis, cost-tier estimation, batch simulation, and residual risks. The default product plan is intentionally linear, but the scheduler executes dependency-ready fan-out batches with bounded concurrency when a plan supplies independent tasks.
 
 The DAG is validated for missing dependencies and cycles before routing.
 
@@ -165,7 +169,7 @@ Part C feeds `RepoValidationRunner` into quality scoring: failed executed repo v
 
 ## Artifact Plane
 
-`ArtifactStore` writes one run directory per run under `.uo/runs/{run_id}`. A final product owner assembles the user-facing package, rejects thin fragments, and writes `product_package.json` plus `final_report.md`. When requested, artifact builders create and validate PDF/DOCX outputs.
+`ArtifactStore` writes one run directory per run under `.uo/runs/{run_id}`. A final product owner assembles the user-facing package, rejects thin fragments, and writes `product_package.json` plus `final_report.md`. When requested, artifact builders create and structurally validate PDF, DOCX, and PPTX outputs.
 
 Repository runs produce an explicitly labeled plan rather than pretending deterministic analysis edited the repository:
 

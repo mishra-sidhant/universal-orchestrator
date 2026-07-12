@@ -13,6 +13,7 @@ from urllib.parse import ParseResult, urlparse
 
 from universal_orchestrator.ingestion.detectors import detect_input_type
 from universal_orchestrator.ingestion.hardening import IngestionLimits, detect_text_encoding, symlink_warning
+from universal_orchestrator.media import LocalWhisperTranscriber, TesseractOCR, TranscriptSegment
 from universal_orchestrator.models import (
     ContextManifest,
     HostInvocation,
@@ -51,10 +52,15 @@ class InputIngestor:
         max_file_bytes: int = 5_000_000,
         max_folder_files: int = 500,
         allowed_url_hosts: set[str] | None = None,
+        *,
+        ocr: TesseractOCR | None = None,
+        transcriber: LocalWhisperTranscriber | None = None,
     ) -> None:
         self.limits = IngestionLimits(max_file_bytes=max_file_bytes, max_folder_files=max_folder_files)
         self.repo_analyzer = RepoAnalyzer()
         self.allowed_url_hosts = allowed_url_hosts
+        self.ocr = ocr or TesseractOCR()
+        self.transcriber = transcriber or LocalWhisperTranscriber()
 
     @property
     def max_file_bytes(self) -> int:
@@ -182,6 +188,8 @@ class InputIngestor:
             return self._ingest_image(path, attachment)
         if input_type == InputType.ARCHIVE:
             return self._ingest_archive(path, attachment)
+        if input_type == InputType.AUDIO_VIDEO:
+            return self._ingest_audio_video(path, attachment)
         return self._ingest_binary_metadata(path, input_type, attachment)
 
     def _resolve_path(self, uri: str, cwd: str | None) -> Path:
@@ -376,26 +384,102 @@ class InputIngestor:
                 )
         except Exception as exc:
             warnings.append(f"Image metadata parser failed: {exc}")
+        ocr_text = ""
+        metadata["ocr_available"] = self.ocr.available
+        if self.ocr.available:
+            metadata["ocr_attempted"] = True
+            try:
+                result = self.ocr.extract(path)
+                if result.warning:
+                    warnings.append(result.warning)
+                ocr_text = redact_text(result.text)
+                metadata["ocr_chars"] = len(ocr_text)
+                metadata["ocr_confidence"] = result.confidence
+                if not ocr_text:
+                    warnings.append("OCR completed without recognized text.")
+            except Exception as exc:  # pragma: no cover - command boundary
+                warnings.append(f"OCR failed: {exc}")
+                metadata["ocr_chars"] = 0
+        else:
+            metadata["ocr_attempted"] = False
+            metadata["ocr_chars"] = 0
+            warnings.append("Tesseract is not installed; image text was not extracted.")
         dimensions = (
             f"{metadata.get('width')}x{metadata.get('height')}"
             if metadata.get("width") and metadata.get("height")
             else "unknown dimensions"
         )
+        metadata_text = f"Image metadata: dimensions={dimensions}; format={metadata.get('format', 'unknown')}."
+        content_text = metadata_text
+        if ocr_text:
+            content_text = f"{metadata_text}\nOCR text: {ocr_text}"
+        findings = scan_text(ocr_text, location=f"{path}#ocr") if ocr_text else []
         return InputRecord(
             id=new_id("input"),
             type=InputType.IMAGE,
             name=attachment.name or path.name,
             uri=attachment.uri,
             path=str(path),
-            status=InputStatus.PARSED if "width" in metadata else InputStatus.PARTIAL,
+            status=InputStatus.PARSED if "width" in metadata or ocr_text else InputStatus.PARTIAL,
             content_hash=sha256_file(path),
             size_bytes=path.stat().st_size,
             mime_type=mimetypes.guess_type(path.name)[0],
-            summary=f"Image metadata extracted: {dimensions}, format={metadata.get('format', 'unknown')}. OCR is not enabled yet.",
-            content_text=f"Image metadata: dimensions={dimensions}; format={metadata.get('format', 'unknown')}.",
+            summary=truncate_words(content_text, 180),
+            content_text=content_text,
             metadata=metadata,
             warnings=warnings,
+            security_findings=findings,
         )
+
+    def _ingest_audio_video(self, path: Path, attachment: InputAttachment) -> InputRecord:
+        warnings: list[str] = []
+        metadata: dict[str, object] = {
+            "suffix": path.suffix.lower(),
+            "transcriber_available": self.transcriber.available,
+            "transcript_timestamps": True,
+        }
+        segments: list[TranscriptSegment] = []
+        if self.transcriber.available:
+            try:
+                segments = self.transcriber.transcribe(path)
+            except Exception as exc:  # pragma: no cover - command boundary
+                warnings.append(f"Transcription failed: {exc}")
+        else:
+            warnings.append("Whisper is not installed; media was not transcribed.")
+        lines = [
+            f"[{self._format_timestamp(segment.start_seconds)}-"
+            f"{self._format_timestamp(segment.end_seconds)}] {redact_text(segment.text)}"
+            for segment in segments
+        ]
+        text = "\n".join(lines)
+        findings = scan_text(text, location=f"{path}#transcript")
+        redacted = redact_text(text)
+        metadata["transcript_segments"] = len(segments)
+        status = InputStatus.PARSED if segments else InputStatus.PARTIAL
+        content_text = redacted or "Media file was recorded but no transcript was extracted."
+        return InputRecord(
+            id=new_id("input"),
+            type=InputType.AUDIO_VIDEO,
+            name=attachment.name or path.name,
+            uri=attachment.uri,
+            path=str(path),
+            status=status,
+            content_hash=sha256_file(path),
+            size_bytes=path.stat().st_size,
+            mime_type=mimetypes.guess_type(path.name)[0],
+            summary=truncate_words(content_text, 180),
+            content_text=content_text,
+            metadata=metadata,
+            warnings=warnings,
+            security_findings=findings,
+        )
+
+    @staticmethod
+    def _format_timestamp(seconds: float) -> str:
+        bounded = max(0.0, float(seconds))
+        minutes = int(bounded // 60)
+        remainder = bounded - (minutes * 60)
+        return f"{minutes:02d}:{remainder:06.3f}"
 
     def _ingest_archive(self, path: Path, attachment: InputAttachment) -> InputRecord:
         warnings: list[str] = []
@@ -514,29 +598,21 @@ class InputIngestor:
         self, path: Path, input_type: InputType, attachment: InputAttachment
     ) -> InputRecord:
         size = path.stat().st_size
-        summary_by_type = {
-            InputType.DOCX: "DOCX file detected; structured parsing is planned for the next parser milestone.",
-            InputType.PPTX: "PPTX file detected; slide parsing is planned for the next parser milestone.",
-            InputType.SPREADSHEET: "Spreadsheet detected; schema extraction is planned for the next parser milestone.",
-            InputType.IMAGE: "Image detected; OCR and visual source cards are planned for the next parser milestone.",
-            InputType.ARCHIVE: "Archive detected; sandbox unpacking is planned and not performed in this MVP.",
-            InputType.AUDIO_VIDEO: "Media file detected; transcription is planned for a later milestone.",
-        }
-        status = InputStatus.PARTIAL if input_type in summary_by_type else InputStatus.PARSED
+        summary = f"Binary input detected: {path.name} ({size} bytes)."
         return InputRecord(
             id=new_id("input"),
             type=input_type,
             name=attachment.name or path.name,
             uri=attachment.uri,
             path=str(path),
-            status=status,
+            status=InputStatus.PARSED,
             content_hash=sha256_file(path),
             size_bytes=size,
             mime_type=mimetypes.guess_type(path.name)[0],
-            summary=summary_by_type.get(input_type, f"{input_type} file detected."),
-            content_text=summary_by_type.get(input_type, f"{input_type} file detected."),
+            summary=summary,
+            content_text=summary,
             metadata={"suffix": path.suffix.lower()},
-            warnings=[] if status == InputStatus.PARSED else ["Structured parser not implemented yet."],
+            warnings=[],
         )
 
     def _ingest_folder(

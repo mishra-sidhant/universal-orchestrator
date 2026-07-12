@@ -5,7 +5,7 @@ from tempfile import TemporaryDirectory
 
 from universal_orchestrator.capacity import CapacityBroker
 from universal_orchestrator.handoff import HandoffController
-from universal_orchestrator.models import CapacitySnapshot, CapacityStatus, utc_now
+from universal_orchestrator.models import CapacitySnapshot, CapacityStatus
 from universal_orchestrator.runtime import RuntimeStore
 
 

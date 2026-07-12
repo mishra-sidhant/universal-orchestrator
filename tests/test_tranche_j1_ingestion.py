@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import stat
 import tempfile
 import unittest
 import zipfile

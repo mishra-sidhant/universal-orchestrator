@@ -22,3 +22,5 @@
 | Read-only Codex/Claude/VS Code/generic integration output | fixed | `cdf227f` | `tests/test_tranche_l1_host.py` |
 | Pre-call capacity reservation blocks known exhausted windows | fixed | `00ccd2c` | `tests/test_tranche_g0_capacity.py` |
 | Cross-provider handoff and durable checkpoints | fixed | `17a4df5` | `tests/test_tranche_h1_scheduler.py`, `tests/test_tranche_h2_handoff.py` |
+| Optional OCR/transcription connected to rich ingestion | fixed | pending | `tests/test_rich_ingestion.py` |
+| Strict typing backlog removed without disabled error codes | fixed | pending | `mypy src` |

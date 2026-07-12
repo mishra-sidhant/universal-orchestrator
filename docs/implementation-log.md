@@ -1,5 +1,24 @@
 # Implementation Log
 
+## Tranche J.2-L.3: Complete Rich Media And Strict Typing Boundaries
+
+Failing-first landmarks:
+
+```text
+TypeError: InputIngestor.__init__() got an unexpected keyword argument 'ocr'
+TypeError: InputIngestor.__init__() got an unexpected keyword argument 'transcriber'
+```
+
+Connected the fixtureable Tesseract and local Whisper command adapters to the ingestion pipeline. Image OCR and timestamped transcripts now pass through the same scan/redact boundary as text sources, retain tool availability and segment metadata, and remain explicitly partial when optional local tools are absent. Removed unnecessary mypy error-code suppression after the full strict source check passed.
+
+Verification:
+
+```text
+Ran 193 tests in 5.039s - OK
+Ruff: All checks passed
+Success: no issues found in 64 source files
+```
+
 ## Tranche G.0-G.1: Capacity Foundation And Provider Matrix
 
 Failing-first landmark:

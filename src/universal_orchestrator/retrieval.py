@@ -11,7 +11,7 @@ from collections.abc import Iterator
 from typing import Protocol
 
 from universal_orchestrator.models import ContextChunk, RetrievalHit
-from universal_orchestrator.utils import ensure_dir, sha256_bytes
+from universal_orchestrator.utils import ensure_dir
 
 
 class EmbeddingProvider(Protocol):

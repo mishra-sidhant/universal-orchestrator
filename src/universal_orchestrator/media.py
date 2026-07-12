@@ -7,7 +7,6 @@ from pathlib import Path
 
 from universal_orchestrator.providers.command import (
     CommandRequest,
-    CommandResponse,
     CommandTransport,
     SubprocessCommandTransport,
     sanitized_cli_environment,

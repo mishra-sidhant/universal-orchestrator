@@ -25,7 +25,6 @@ from universal_orchestrator.models import (
     ProviderDescriptor,
     ProviderHealth,
     ProviderKind,
-    ProviderResult,
     ProviderTask,
     ProviderStatus,
     TaskNode,

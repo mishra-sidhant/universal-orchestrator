@@ -10,7 +10,6 @@ from universal_orchestrator.execution import DeterministicExecutor
 from universal_orchestrator.models import (
     ExecutionResult,
     TaskCheckpoint,
-    TaskLease,
     RoutingDecision,
     ScheduleReport,
     ScheduledTaskRecord,
