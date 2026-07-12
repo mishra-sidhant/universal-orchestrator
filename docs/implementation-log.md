@@ -29,6 +29,8 @@ Success: no issues found in 64 source files
 Successfully built universal_orchestrator-0.1.0.tar.gz and universal_orchestrator-0.1.0-py3-none-any.whl
 ```
 
+The exact canonical `uv run` commands were rerun after this record: tests, evals, doctor, strict mypy, and isolated build all passed with no credentials or live provider calls.
+
 ## Tranche G.7: Complete Provider Health Matrix
 
 Failing-first landmark:
