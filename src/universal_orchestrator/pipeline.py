@@ -830,92 +830,169 @@ class Orchestrator:
             )
         )
 
-        self.runtime.transition(run_id, RunState.PACKAGING)
-        run_dir = self.artifact_store.run_dir(run_id)
-        run_manifest = RunManifest(
+        return self._finalize_delivery(
             run_id=run_id,
-            invocation=self._redacted_invocation(invocation),
-            state=final_state,
-            context_manifest_path=str(run_dir / "context_manifest.json"),
-            product_contract_path=str(run_dir / "product_contract.json"),
-            task_dag_path=str(run_dir / "task_dag.json"),
-            quality_report_path=str(run_dir / "quality_report.json"),
-            checksums_path=str(run_dir / "checksums.json"),
-            delivery_receipt_path=(
-                str(run_dir / "delivery_receipt.json")
-                if final_state == RunState.DELIVERED
-                else None
-            ),
-            artifacts=list(artifacts),
-            warnings=manifest.warnings + quality.warnings,
+            invocation=invocation,
+            context_manifest=manifest,
+            contract=contract,
+            artifacts=artifacts,
+            quality=quality,
+            final_state=final_state,
             routing_decisions=all_decisions,
             started_at=started_at,
-            completed_at=utc_now(),
-        )
-        run_manifest_artifact = self.artifact_store.write_run_manifest(run_manifest)
-        checksum_inputs = [*artifacts, run_manifest_artifact]
-        checksums_artifact = self.artifact_store.write_json_artifact(
-            run_id,
-            "checksums.json",
-            self.integrity.checksums_payload(run_id, checksum_inputs),
         )
 
-        bundle_inputs = [*checksum_inputs, checksums_artifact]
+    def _finalize_delivery(
+        self,
+        *,
+        run_id: str,
+        invocation: HostInvocation,
+        context_manifest: ContextManifest,
+        contract: ProductContract,
+        artifacts: list[Artifact],
+        quality: QualityGateResult,
+        final_state: RunState,
+        routing_decisions: list[RoutingDecision],
+        started_at: datetime,
+    ) -> RunResult:
+        """Freeze a state-consistent manifest and only issue a receipt for a valid ZIP."""
+
+        self.runtime.transition(run_id, RunState.PACKAGING)
+        run_dir = self.artifact_store.run_dir(run_id)
         zip_path = run_dir / "delivery_bundle.zip"
-        zip_artifact = self.artifact_builder.build_zip(bundle_inputs, zip_path)
-        zip_errors = self.artifact_builder.validate_zip(zip_path)
+        receipt_path = run_dir / "delivery_receipt.json"
+        zip_attempts: list[dict[str, Any]] = []
+        run_manifest: RunManifest | None = None
+        run_manifest_artifact: Artifact | None = None
+        checksums_artifact: Artifact | None = None
+        zip_artifact: Artifact | None = None
+        zip_errors: list[str] = []
+        bundle_inputs: list[Artifact] = []
+
+        for attempt in range(1, 3):
+            quality_artifact = self.artifact_store.write_json_artifact(
+                run_id, "quality_report.json", quality.model_dump(mode="json")
+            )
+            artifacts = [
+                artifact for artifact in artifacts if artifact.name != "quality_report.json"
+            ]
+            artifacts.append(quality_artifact)
+            run_manifest = RunManifest(
+                run_id=run_id,
+                invocation=self._redacted_invocation(invocation),
+                state=final_state,
+                context_manifest_path=str(run_dir / "context_manifest.json"),
+                product_contract_path=str(run_dir / "product_contract.json"),
+                task_dag_path=str(run_dir / "task_dag.json"),
+                quality_report_path=str(run_dir / "quality_report.json"),
+                checksums_path=str(run_dir / "checksums.json"),
+                delivery_receipt_path=(
+                    str(receipt_path) if final_state == RunState.DELIVERED else None
+                ),
+                artifacts=list(artifacts),
+                warnings=context_manifest.warnings + quality.warnings,
+                routing_decisions=routing_decisions,
+                started_at=started_at,
+                completed_at=utc_now(),
+            )
+            run_manifest_artifact = self.artifact_store.write_run_manifest(run_manifest)
+            checksum_inputs = [*artifacts, run_manifest_artifact]
+            checksums_artifact = self.artifact_store.write_json_artifact(
+                run_id,
+                "checksums.json",
+                self.integrity.checksums_payload(run_id, checksum_inputs),
+            )
+            bundle_inputs = [*checksum_inputs, checksums_artifact]
+            zip_artifact = self.artifact_builder.build_zip(bundle_inputs, zip_path)
+            zip_errors = self.artifact_builder.validate_zip(
+                zip_path, [artifact.name for artifact in bundle_inputs]
+            )
+            zip_attempts.append({"attempt": attempt, "errors": zip_errors})
+            if not zip_errors:
+                break
+            if attempt == 1:
+                quality = quality.model_copy(
+                    update={
+                        "passed": False,
+                        "violations": [
+                            *quality.violations,
+                            *[f"delivery_bundle.zip: {error}" for error in zip_errors],
+                        ],
+                    }
+                )
+                final_state = RunState.NEEDS_ATTENTION
+                trace_path = run_dir / "trace_report.json"
+                if trace_path.exists():
+                    trace_payload = read_json(trace_path)
+                    trace_payload["final_state"] = final_state
+                    trace_payload["warning_count"] = int(trace_payload.get("warning_count", 0)) + len(
+                        zip_errors
+                    )
+                    trace_artifact = self.artifact_store.write_json_artifact(
+                        run_id, "trace_report.json", trace_payload
+                    )
+                    artifacts = [
+                        artifact for artifact in artifacts if artifact.name != "trace_report.json"
+                    ]
+                    artifacts.append(trace_artifact)
+
+        if run_manifest is None or run_manifest_artifact is None or checksums_artifact is None:
+            raise RuntimeError("Delivery finalization did not produce a manifest and checksums.")
+        if zip_artifact is None:
+            raise RuntimeError("Delivery finalization did not produce a delivery bundle.")
+
         zip_validation_artifact = self.artifact_store.write_json_artifact(
             run_id,
             "zip_validation.json",
             {
-                "schema_version": "1.0",
+                "schema_version": "2.0",
                 "path": str(zip_path),
                 "content_hash": sha256_file(zip_path),
                 "errors": zip_errors,
+                "attempts": zip_attempts,
             },
         )
-        receipt_artifact = None
-        if final_state == RunState.DELIVERED:
+        finalization_artifact = self.artifact_store.write_json_artifact(
+            run_id,
+            "delivery_finalization.json",
+            {
+                "schema_version": "1.0",
+                "run_id": run_id,
+                "state": final_state,
+                "zip_valid": not zip_errors,
+                "receipt_issued": final_state == RunState.DELIVERED and not zip_errors,
+                "attempts": zip_attempts,
+            },
+        )
+        receipt_artifact: Artifact | None = None
+        if final_state == RunState.DELIVERED and not zip_errors:
             receipt_artifact = self.artifact_store.write_json_artifact(
                 run_id,
                 "delivery_receipt.json",
                 {
-                    "schema_version": "1.0",
+                    "schema_version": "2.0",
                     "run_id": run_id,
                     "state": final_state,
-                    "bundle": {
-                        "name": zip_artifact.name,
-                        "path": zip_artifact.path,
-                        "content_hash": zip_artifact.content_hash,
-                        "size_bytes": zip_artifact.size_bytes,
-                    },
-                    "manifest": {
-                        "name": run_manifest_artifact.name,
-                        "content_hash": run_manifest_artifact.content_hash,
-                        "size_bytes": run_manifest_artifact.size_bytes,
-                    },
-                    "checksums": {
-                        "name": checksums_artifact.name,
-                        "content_hash": checksums_artifact.content_hash,
-                        "size_bytes": checksums_artifact.size_bytes,
-                    },
-                    "validation": {
-                        "name": zip_validation_artifact.name,
-                        "content_hash": zip_validation_artifact.content_hash,
-                        "errors": zip_errors,
-                    },
+                    "bundle": zip_artifact.model_dump(mode="json"),
+                    "manifest": run_manifest_artifact.model_dump(mode="json"),
+                    "checksums": checksums_artifact.model_dump(mode="json"),
+                    "validation": zip_validation_artifact.model_dump(mode="json"),
                     "bundle_inventory": sorted(artifact.name for artifact in bundle_inputs),
                     "issued_at": utc_now().isoformat(),
                 },
             )
+        else:
+            receipt_path.unlink(missing_ok=True)
+
         delivery_artifacts = [
             *artifacts,
             run_manifest_artifact,
             checksums_artifact,
             zip_artifact,
             zip_validation_artifact,
+            finalization_artifact,
         ]
-        if receipt_artifact:
+        if receipt_artifact is not None:
             delivery_artifacts.append(receipt_artifact)
         self.runtime.save_run_summary(
             run_id,
@@ -927,15 +1004,18 @@ class Orchestrator:
         self.runtime.record_event(
             RuntimeEvent(
                 run_id=run_id,
-                event_type="delivered" if quality.passed else "needs_attention",
-                payload={"artifact_count": len(delivery_artifacts), "quality_passed": quality.passed},
+                event_type="delivered" if run_manifest.state == RunState.DELIVERED else "needs_attention",
+                payload={
+                    "artifact_count": len(delivery_artifacts),
+                    "quality_passed": quality.passed,
+                    "zip_valid": not zip_errors,
+                },
             )
         )
-
         return RunResult(
             run_id=run_id,
             state=run_manifest.state,
-            artifact_dir=str(self.artifact_store.run_dir(run_id)),
+            artifact_dir=str(run_dir),
             manifest=run_manifest,
             quality=quality,
         )

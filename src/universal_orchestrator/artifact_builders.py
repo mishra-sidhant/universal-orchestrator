@@ -294,7 +294,7 @@ class ArtifactBuilder:
                     archive.write(artifact_path, arcname=artifact_path.name)
         return self._artifact(path, ArtifactType.ZIP)
 
-    def validate_zip(self, path: Path) -> list[str]:
+    def validate_zip(self, path: Path, expected_names: list[str] | None = None) -> list[str]:
         errors: list[str] = []
         if not path.exists():
             return ["ZIP file does not exist."]
@@ -303,8 +303,22 @@ class ArtifactBuilder:
                 bad_member = archive.testzip()
                 if bad_member:
                     errors.append(f"ZIP member failed CRC check: {bad_member}")
-                if not archive.namelist():
+                names = archive.namelist()
+                if not names:
                     errors.append("ZIP contains no files.")
+                duplicates = sorted({name for name in names if names.count(name) > 1})
+                errors.extend(f"ZIP contains duplicate member: {name}" for name in duplicates)
+                if expected_names is not None:
+                    expected = set(expected_names)
+                    actual = set(names)
+                    errors.extend(
+                        f"ZIP is missing required member: {name}"
+                        for name in sorted(expected - actual)
+                    )
+                    errors.extend(
+                        f"ZIP contains unexpected member: {name}"
+                        for name in sorted(actual - expected)
+                    )
         except Exception as exc:
             errors.append(f"ZIP validation failed: {exc}")
         return errors
