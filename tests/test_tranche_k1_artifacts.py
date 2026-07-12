@@ -57,6 +57,21 @@ class ArtifactAndProductPlanTests(unittest.TestCase):
         self.assertEqual(artifact.name, "report.pptx")
         self.assertEqual(errors, [])
 
+    def test_render_validation_is_a_quality_tier_gate(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "report.pdf"
+            ArtifactBuilder().build_pdf("# Report\n\nGrounded content.", path)
+            builder = ArtifactBuilder()
+            builder._render_first_page = lambda kind, artifact: (None, "fixture renderer unavailable")
+
+            serious_errors, serious_warnings = builder.validate_rendered("pdf", path, "serious")
+            standard_errors, standard_warnings = builder.validate_rendered("pdf", path, "standard")
+
+        self.assertTrue(serious_errors)
+        self.assertEqual(serious_warnings, [])
+        self.assertEqual(standard_errors, [])
+        self.assertTrue(standard_warnings)
+
 
 if __name__ == "__main__":
     unittest.main()

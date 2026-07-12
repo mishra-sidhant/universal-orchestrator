@@ -1,7 +1,12 @@
 from __future__ import annotations
 
 from html import escape
+import os
 from pathlib import Path
+import shutil
+import subprocess
+import tempfile
+import textwrap
 import zipfile
 
 from universal_orchestrator.models import Artifact, ArtifactType, SlideSpec
@@ -80,19 +85,24 @@ class ArtifactBuilder:
         path.parent.mkdir(parents=True, exist_ok=True)
         presentation = Presentation()
         for spec in slides:
-            slide = presentation.slides.add_slide(presentation.slide_layouts[5])
-            title = slide.shapes.title
-            if title is not None:
-                title.text = spec.title
-            textbox = slide.shapes.add_textbox(Inches(0.8), Inches(1.4), Inches(11.5), Inches(5.2))
-            frame = textbox.text_frame
-            frame.clear()
-            for index, line in enumerate(spec.body):
-                paragraph = frame.paragraphs[0] if index == 0 else frame.add_paragraph()
-                paragraph.text = line
-                paragraph.font.size = Pt(20)
-            if spec.notes:
-                slide.notes_slide.notes_text_frame.text = spec.notes
+            wrapped: list[str] = []
+            for line in spec.body:
+                wrapped.extend(textwrap.wrap(line, width=120) or [""])
+            chunks = [wrapped[index:index + 5] for index in range(0, len(wrapped), 5)] or [[]]
+            for chunk_index, body in enumerate(chunks, start=1):
+                slide = presentation.slides.add_slide(presentation.slide_layouts[5])
+                title = slide.shapes.title
+                if title is not None:
+                    title.text = spec.title if chunk_index == 1 else f"{spec.title} (continued)"
+                textbox = slide.shapes.add_textbox(Inches(0.8), Inches(1.4), Inches(8.4), Inches(5.2))
+                frame = textbox.text_frame
+                frame.clear()
+                for index, line in enumerate(body):
+                    paragraph = frame.paragraphs[0] if index == 0 else frame.add_paragraph()
+                    paragraph.text = line
+                    paragraph.font.size = Pt(20)
+                if spec.notes:
+                    slide.notes_slide.notes_text_frame.text = spec.notes
         presentation.save(str(path))
         return self._artifact(path, ArtifactType.PPTX)
 
@@ -100,6 +110,7 @@ class ArtifactBuilder:
         errors: list[str] = []
         try:
             from pptx import Presentation
+            from pptx.util import Inches
 
             presentation = Presentation(str(path))
             if not presentation.slides:
@@ -107,9 +118,144 @@ class ArtifactBuilder:
             for index, slide in enumerate(presentation.slides, start=1):
                 if not any(getattr(shape, "text", "").strip() for shape in slide.shapes):
                     errors.append(f"PPTX slide {index} has no visible text.")
+                for shape in slide.shapes:
+                    if shape.left < 0 or shape.top < 0:
+                        errors.append(f"PPTX slide {index} contains an off-canvas shape.")
+                    if shape.left + shape.width > presentation.slide_width + Inches(0.05):
+                        errors.append(f"PPTX slide {index} contains a horizontally clipped shape.")
+                    if shape.top + shape.height > presentation.slide_height + Inches(0.05):
+                        errors.append(f"PPTX slide {index} contains a vertically clipped shape.")
         except Exception as exc:
             errors.append(f"PPTX validation failed: {exc}")
         return errors
+
+    def validate_rendered(
+        self,
+        kind: str,
+        path: Path,
+        quality_bar: str = "serious",
+        expected_anchors: list[str] | None = None,
+    ) -> tuple[list[str], list[str]]:
+        """Run structural and bitmap-level checks without claiming visual perfection."""
+
+        structural_validator = {
+            "pdf": self.validate_pdf,
+            "docx": self.validate_docx,
+            "pptx": self.validate_pptx,
+            "patch_plan": self.validate_patch_plan,
+        }.get(kind)
+        if structural_validator is None:
+            return [f"No validator is registered for artifact kind {kind}."], []
+        errors = structural_validator(path)
+        if errors or kind == "patch_plan":
+            return errors, []
+        rendered, render_error = self._render_first_page(kind, path)
+        if render_error is not None:
+            message = f"Render validation unavailable: {render_error}"
+            if quality_bar in {"serious", "max"}:
+                return [message], []
+            return [], [message]
+        if rendered is None:
+            return self._render_quality_result(
+                "Render validation produced no preview image.", quality_bar
+            )
+        from PIL import Image, ImageStat
+
+        try:
+            with Image.open(rendered) as image:
+                rgb = image.convert("RGB")
+                extrema = ImageStat.Stat(rgb).extrema
+                nonblank = sum(1 for channel in extrema if channel[1] - channel[0] > 2)
+                if nonblank == 0:
+                    return self._render_quality_result(
+                        "Rendered artifact preview is visually blank.", quality_bar
+                    )
+                if rgb.width < 100 or rgb.height < 100:
+                    return self._render_quality_result(
+                        "Rendered artifact preview is unexpectedly small.", quality_bar
+                    )
+        except Exception as exc:
+            return [f"Rendered artifact preview could not be inspected: {exc}"], []
+        anchor_errors = self._validate_text_anchors(kind, path, expected_anchors or [])
+        if anchor_errors:
+            return anchor_errors, []
+        shutil.rmtree(rendered.parent, ignore_errors=True)
+        return [], []
+
+    def _render_quality_result(self, message: str, quality_bar: str) -> tuple[list[str], list[str]]:
+        if quality_bar in {"serious", "max"}:
+            return [message], []
+        return [], [message]
+
+    def _validate_text_anchors(
+        self, kind: str, path: Path, expected_anchors: list[str]
+    ) -> list[str]:
+        if not expected_anchors:
+            return []
+        try:
+            if kind == "pdf":
+                from pypdf import PdfReader
+
+                text = "\n".join(page.extract_text() or "" for page in PdfReader(str(path)).pages)
+            elif kind == "docx":
+                from docx import Document
+
+                text = "\n".join(paragraph.text for paragraph in Document(str(path)).paragraphs)
+            elif kind == "pptx":
+                from pptx import Presentation
+
+                text = "\n".join(
+                    getattr(shape, "text", "")
+                    for slide in Presentation(str(path)).slides
+                    for shape in slide.shapes
+                )
+            else:
+                text = path.read_text(errors="replace")
+        except Exception as exc:
+            return [f"Artifact text anchors could not be inspected: {exc}"]
+        return [
+            f"Artifact is missing required text anchor: {anchor}"
+            for anchor in expected_anchors
+            if anchor not in text
+        ]
+
+    def _render_first_page(self, kind: str, path: Path) -> tuple[Path | None, str | None]:
+        pdftoppm = os.getenv("UO_PDFTOPPM_BIN") or shutil.which("pdftoppm")
+        if not pdftoppm:
+            return None, "pdftoppm is not installed"
+        temp_dir = Path(tempfile.mkdtemp(prefix="uo-render-"))
+        source_pdf = path
+        if kind in {"docx", "pptx"}:
+            soffice = os.getenv("UO_SOFFICE_BIN") or shutil.which("soffice")
+            if not soffice:
+                shutil.rmtree(temp_dir, ignore_errors=True)
+                return None, "LibreOffice soffice is not installed"
+            completed = subprocess.run(
+                [soffice, "--headless", "--convert-to", "pdf", "--outdir", str(temp_dir), str(path)],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
+            )
+            source_pdf = temp_dir / f"{path.stem}.pdf"
+            if completed.returncode != 0 or not source_pdf.exists():
+                message = completed.stderr.strip() or completed.stdout.strip() or "conversion failed"
+                shutil.rmtree(temp_dir, ignore_errors=True)
+                return None, f"{kind} conversion failed: {message}"
+        output_prefix = temp_dir / "page"
+        completed = subprocess.run(
+            [pdftoppm, "-png", "-f", "1", "-l", "1", str(source_pdf), str(output_prefix)],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        preview = temp_dir / "page-1.png"
+        if completed.returncode != 0 or not preview.exists():
+            message = completed.stderr.strip() or completed.stdout.strip() or "PDF rasterization failed"
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            return None, message
+        return preview, None
 
     def build_patch_plan(self, markdown: str, path: Path) -> Artifact:
         path.parent.mkdir(parents=True, exist_ok=True)

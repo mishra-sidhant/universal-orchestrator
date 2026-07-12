@@ -53,6 +53,26 @@ class GuardAwareExecutor:
 
 
 class TrancheE4RuntimeTests(unittest.TestCase):
+    def test_artifact_validation_failure_blocks_delivery_and_receipt(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            orchestrator = Orchestrator(Path(tmp) / "runs")
+            with patch.object(
+                orchestrator.artifact_builder,
+                "validate_pdf",
+                return_value=["forced render corruption"],
+            ):
+                result = orchestrator.run(HostInvocation(prompt="Create a PDF report"))
+
+            run_dir = Path(result.artifact_dir)
+            validation = json.loads((run_dir / "pdf_validation.json").read_text())
+            quality = json.loads((run_dir / "quality_report.json").read_text())
+
+        self.assertEqual(result.state, RunState.NEEDS_ATTENTION)
+        self.assertFalse(result.quality.passed)
+        self.assertEqual(validation["errors"], ["forced render corruption"])
+        self.assertTrue(any("forced render corruption" in item for item in quality["violations"]))
+        self.assertIsNone(result.manifest.delivery_receipt_path)
+
     def test_two_runs_on_one_orchestrator_are_isolated(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
