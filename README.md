@@ -15,20 +15,23 @@ The current milestone is a deterministic local runtime with fixture-validated li
 - Recursive redaction at the provider transport boundary, prompt-injection chunk quarantine, and explicit untrusted-data delimiters around model context.
 - Redacted full-text extraction, bounded repository hot/prompt-matched file reads, stable source chunks with path/line locators, provenance, and task-specific context packs.
 - Product contract compiler that turns natural prompts into enforceable definitions of done.
-- Property-derived planner review and a five-node typed DAG backed by real local stage workers.
+- Property-derived planner review and a typed DAG with independent chapter fan-out, durable checkpoints, and real local stage workers.
 - Capability-based routing with truthful local capabilities; unsupported work reshapes, pauses, or skips instead of echo-completing.
 - Provider/model/account capacity windows with exact reservation checks, configured-prior disclosure, and capacity-aware routing across API, local, and frontier provider families.
+- Request, directional-token, total-token, concurrency, and bounded subscription-call reservations are enforced before provider execution; subscription usage is durable in the run SQLite store and never presented as free metered spend.
 - Gemini AI Studio, xAI, and generic OpenAI-compatible fixture-tested adapters; consumer subscription execution remains isolated to official CLI adapters.
 - Official Claude Code and Codex CLI subprocess adapters with stdin prompts, read-only bounded execution, CLI-owned authentication, structured output parsing, usage capture, and quota-failure classification.
 - TTL-cached provider liveness probes, health-weighted cross-family routing, explicit degraded-mode reports, and local fallback when hosted families are down.
 - A default $0.50 live-spend ceiling, pre-call reservations, versioned configured rates, provider-reported actual token accounting, estimate/actual reconciliation, and explicit budget stops.
 - Reconciled dry-run usage estimates, token-budget control, relevant-prior-run delta planning, versioned exact-match cache reuse, typed provider failures, bounded retries, socket timeouts, durable cancellation, failure diagnostics, and same-run resume.
+- Resume restores only validated cacheable checkpoints with an exact execution fingerprint; side-effecting artifact tasks rerun. Provider handoff can cross two bounded alternatives while preserving the original task context and budget boundary.
 - Approval gates, safe repo validation planning/execution, and daemon/MCP status parity.
 - Quality gate engine with contract, manifest, DAG, routing, security, evidence audit, repo validation, and artifact integrity checks.
 - Quality telemetry is provenance-limited: parse coverage, consumed-reference coverage, task continuity, routing efficiency, artifact presence, and executed code validation. It does not claim factuality or style scoring.
 - Quality failures execute repair tasks through the scheduler; unresolved runs terminate as `needs_attention` and never receive a delivery receipt.
 - Model synthesis accepts only strict structured output, allows one metered reformat repair, audits each claim against delivered chunk IDs, and degrades honestly to extractive synthesis after validation failure.
 - Immutable delivery finalization with a frozen run manifest, checksums, validated ZIP, integrity report, and hash-bound delivery receipt.
+- PDF, DOCX, and PPTX delivery includes structural checks plus bitmap render validation. Serious/max quality bars block on render failure or unavailable render tooling; fast/standard record a warning. Rich reports are assembled from independently synthesized chapters rather than a single cosmetic slide.
 - A native-versus-orchestrated benchmark bundle with side-by-side outputs, per-path cost and latency, plus orchestrated quality/evidence reports. It makes no automated superiority claim; comparison requires human judgment.
 - Typed product/chapter plans and PPTX artifact construction with structural slide validation, alongside the existing PDF/DOCX builders.
 - Standard-library test suite, so the repo can validate without installing pytest.

@@ -953,3 +953,42 @@ Anthropic smoke: pending operator execution
 Ollama smoke: pending operator execution if configured
 Real bench: pending operator execution
 ```
+
+## Tranche M: Reliability Closure And Product-Quality Execution
+
+Failing-first checkpoints:
+
+```text
+capacity regression: provider authorization omitted REQUESTS and TOTAL_TOKENS; expired snapshots had no effective status API
+resume regression: a second scheduler invocation re-executed a completed task because latest_checkpoint() was never consumed
+handoff regression: synthesis attempted one alternative and escaped on the second provider failure
+artifact regression: forced validate_pdf() failure still returned delivered with quality_passed=true
+media regression: redaction happened before OCR/transcript scanning, so raw secret findings were lost
+chapter regression: ProductPlan contained chapter-1 only and artifact assembly did not depend on chapter outputs
+```
+
+Implemented:
+
+- Exact request, directional-token, total-token, concurrency, and durable bounded subscription reservations; stale capacity observations are exposed as `unknown`.
+- Fingerprinted checkpoint recovery with distinct checkpoint telemetry and mandatory rerun for side-effecting tasks.
+- Bounded multi-hop handoff across at most three attempts and two handoff records, preserving the same task, context pack, and budget boundary.
+- Injectable claim verification, contradiction blocking, and raw-before-redaction OCR/transcript security scanning.
+- A real three-chapter DAG with independent findings/evidence and risks/actions tasks, plus chapter-aware report and slide assembly.
+- Structural and render-aware PDF/DOCX/PPTX validation wired into the final quality result and delivery-receipt gate.
+
+Verification transcript for this implementation:
+
+```text
+targeted M.0/M.1 capacity tests: passed
+checkpoint and lease tests: passed
+multi-hop handoff fixture: passed (provider-a -> provider-b -> provider-c)
+claim contradiction and raw OCR security tests: passed
+chapter DAG and artifact gate tests: passed
+ruff check src tests: passed
+full unittest suite: 208 tests passed
+evals: pending final committed-tree gate
+doctor: pending final committed-tree gate
+package build: pending final committed-tree gate
+```
+
+Live provider smoke and benchmark execution remain operator-only and pending credentials. Capability numbers remain configured priors until measured by the benchmark command.
