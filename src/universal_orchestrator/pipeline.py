@@ -328,7 +328,7 @@ class Orchestrator:
             ]
             chunk_refs_by_task[task_id] = (
                 (source_refs or prompt_refs)[:3]
-                if task_id == "T-SYNTHESIS"
+                if task_id.startswith("T-CHAPTER-") or task_id == "T-SYNTHESIS"
                 else []
             )
         repo_validation_report = self.repo_validation.run(invocation, manifest)
@@ -690,9 +690,38 @@ class Orchestrator:
             validation_jobs.append(("docx", docx_path))
         if "pptx" in contract.primary_artifacts:
             pptx_path = self.artifact_store.run_dir(run_id) / "final_report.pptx"
-            slides = [
-                SlideSpec(title="Universal Orchestrator Report", body=product_package.final_markdown.splitlines()[:12])
-            ]
+            chapter_titles = {
+                "T-SYNTHESIS": "Executive Synthesis",
+                "T-CHAPTER-002": "Findings And Evidence",
+                "T-CHAPTER-003": "Risks And Actions",
+            }
+            slides: list[SlideSpec] = []
+            for result in all_results:
+                title = chapter_titles.get(result.task_id)
+                worker_output = result.output.get("worker_output", {})
+                if title is None or not isinstance(worker_output, dict):
+                    continue
+                body = [str(worker_output.get("summary", ""))]
+                body.extend(
+                    str(finding.get("message", ""))
+                    for finding in worker_output.get("findings", [])[:4]
+                    if isinstance(finding, dict) and finding.get("message")
+                )
+                refs = worker_output.get("evidence_refs", [])
+                slides.append(
+                    SlideSpec(
+                        title=title,
+                        body=body,
+                        notes=f"Evidence refs: {', '.join(str(ref) for ref in refs)}",
+                    )
+                )
+            if not slides:
+                slides = [
+                    SlideSpec(
+                        title="Universal Orchestrator Report",
+                        body=product_package.final_markdown.splitlines()[:12],
+                    )
+                ]
             pptx_artifact = self.artifact_builder.build_pptx(slides, pptx_path)
             artifacts.append(pptx_artifact)
             validation_jobs.append(("pptx", pptx_path))
@@ -711,13 +740,58 @@ class Orchestrator:
             "pptx": self.artifact_builder.validate_pptx,
             "patch_plan": self.artifact_builder.validate_patch_plan,
         }
+        artifact_validation_errors: list[str] = []
+        artifact_validation_warnings: list[str] = []
         for artifact_kind, artifact_path in validation_jobs:
-            validation_errors = validators[artifact_kind](artifact_path)
+            if artifact_kind == "patch_plan":
+                validation_errors = validators[artifact_kind](artifact_path)
+                validation_warnings: list[str] = []
+            else:
+                validation_errors, validation_warnings = self.artifact_builder.validate_rendered(
+                    artifact_kind,
+                    artifact_path,
+                    contract.quality_bar,
+                    [
+                        "Executive Synthesis",
+                        "Findings And Evidence",
+                        "Risks And Actions",
+                    ]
+                    if artifact_kind == "pptx"
+                    else ["Universal Orchestrator Final Product"],
+                )
+            artifact_validation_errors.extend(
+                f"{artifact_kind}: {error}" for error in validation_errors
+            )
+            artifact_validation_warnings.extend(
+                f"{artifact_kind}: {warning}" for warning in validation_warnings
+            )
             artifacts.append(
                 self.artifact_store.write_json_artifact(
                     run_id,
                     f"{artifact_kind}_validation.json",
-                    {"path": str(artifact_path), "errors": validation_errors},
+                    {
+                        "path": str(artifact_path),
+                        "quality_bar": contract.quality_bar,
+                        "errors": validation_errors,
+                        "warnings": validation_warnings,
+                    },
+                )
+            )
+
+        if artifact_validation_errors or artifact_validation_warnings:
+            quality = quality.model_copy(
+                update={
+                    "passed": quality.passed and not artifact_validation_errors,
+                    "violations": [*quality.violations, *artifact_validation_errors],
+                    "warnings": [*quality.warnings, *artifact_validation_warnings],
+                }
+            )
+            artifacts = [
+                artifact for artifact in artifacts if artifact.name != "quality_report.json"
+            ]
+            artifacts.append(
+                self.artifact_store.write_json_artifact(
+                    run_id, "quality_report.json", quality.model_dump(mode="json")
                 )
             )
 

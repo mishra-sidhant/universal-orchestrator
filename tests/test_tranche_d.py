@@ -298,7 +298,7 @@ class TrancheDTests(unittest.TestCase):
             schedule = loads((run_dir / "schedule_report.json").read_text())
             package = loads((run_dir / "product_package.json").read_text())
 
-            self.assertEqual(len(schedule["cache_hits"]), 3)
+            self.assertEqual(len(schedule["cache_hits"]), 5)
             self.assertEqual(package["rejected_fragments"], [])
             self.assertTrue(second.quality.passed)
 

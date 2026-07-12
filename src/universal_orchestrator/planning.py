@@ -45,16 +45,39 @@ class PlannerEnsemble:
         """Create a deterministic chapter contract without claiming prose quality."""
 
         title = contract.requested_output[:120] or "Universal Orchestrator Product"
-        chapter = ChapterPlan(
-            id="chapter-1",
-            title=title,
-            objective=contract.requested_output,
-            task_ids=task_ids,
-        )
+        chapter_specs = [
+            ("chapter-1", title, contract.requested_output, "T-SYNTHESIS"),
+            (
+                "chapter-2",
+                "Findings And Evidence",
+                "Present the independently synthesized findings and their evidence.",
+                "T-CHAPTER-002",
+            ),
+            (
+                "chapter-3",
+                "Risks And Actions",
+                "Present risks, limitations, and concrete next actions.",
+                "T-CHAPTER-003",
+            ),
+        ]
+        chapters = [
+            ChapterPlan(id=chapter_id, title=chapter_title, objective=objective, task_ids=[task_id])
+            for chapter_id, chapter_title, objective, task_id in chapter_specs
+            if task_id in task_ids
+        ]
+        if not chapters:
+            chapters = [
+                ChapterPlan(
+                    id="chapter-1",
+                    title=title,
+                    objective=contract.requested_output,
+                    task_ids=task_ids,
+                )
+            ]
         return ProductPlan(
             run_id=run_id,
             title=title,
-            chapters=[chapter],
+            chapters=chapters,
             artifact_types=contract.primary_artifacts,
         )
 
@@ -243,11 +266,31 @@ class PlannerEnsemble:
             ),
             self._node(
                 run_id,
+                "T-CHAPTER-002",
+                "Synthesize findings and evidence chapter",
+                TaskType.FINAL_SYNTHESIS,
+                {"extractive_synthesis": 0.9},
+                ["T-GAP-ANALYSIS"],
+                Criticality.HIGH,
+                CostTier.FREE,
+            ),
+            self._node(
+                run_id,
+                "T-CHAPTER-003",
+                "Synthesize risks and actions chapter",
+                TaskType.FINAL_SYNTHESIS,
+                {"extractive_synthesis": 0.9},
+                ["T-GAP-ANALYSIS"],
+                Criticality.HIGH,
+                CostTier.FREE,
+            ),
+            self._node(
+                run_id,
                 "T-ARTIFACT-BUILD",
                 "Build static run artifacts",
                 TaskType.ARTIFACT_BUILD,
                 {"artifact_build": 0.9, "file_io": 0.9},
-                ["T-SYNTHESIS"],
+                ["T-SYNTHESIS", "T-CHAPTER-002", "T-CHAPTER-003"],
                 Criticality.MISSION_CRITICAL,
                 CostTier.FREE,
                 cacheable=False,

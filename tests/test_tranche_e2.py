@@ -38,6 +38,8 @@ class TrancheE2KernelTests(unittest.TestCase):
                 "T-AGGREGATE",
                 "T-GAP-ANALYSIS",
                 "T-SYNTHESIS",
+                "T-CHAPTER-002",
+                "T-CHAPTER-003",
                 "T-ARTIFACT-BUILD",
                 "T-QUALITY",
             ],
@@ -127,7 +129,7 @@ class TrancheE2KernelTests(unittest.TestCase):
 
             self.assertNotIn("completed by local deterministic tools", report)
             self.assertIn("source passage", report)
-            self.assertEqual(len(result.manifest.routing_decisions), 5)
+        self.assertEqual(len(result.manifest.routing_decisions), 7)
 
 
 if __name__ == "__main__":

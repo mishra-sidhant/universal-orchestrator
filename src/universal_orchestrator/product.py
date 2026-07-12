@@ -107,9 +107,16 @@ class FinalProductOwner:
             lines.extend(["", "## Rejected Fragments", ""])
             lines.extend(f"- {item}" for item in rejected)
         lines.extend(["", "## Key Findings", ""])
+        chapter_titles = {
+            "T-SYNTHESIS": "Executive Synthesis",
+            "T-CHAPTER-002": "Findings And Evidence",
+            "T-CHAPTER-003": "Risks And Actions",
+        }
         for result in results[:12]:
             worker_output = result.output.get("worker_output", {})
             if isinstance(worker_output, dict):
+                if result.task_id in chapter_titles:
+                    lines.extend([f"### {chapter_titles[result.task_id]}", ""])
                 summary = worker_output.get("summary", "")
                 risks = worker_output.get("risks", [])
                 risk_text = f" Risks: {', '.join(risks)}." if risks else ""
