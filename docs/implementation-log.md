@@ -31,6 +31,18 @@ Successfully built universal_orchestrator-0.1.0.tar.gz and universal_orchestrato
 
 ## Tranche K.2: Persist And Validate Product Plans
 
+## Tranche G.7: Complete Provider Health Matrix
+
+Failing-first landmark:
+
+```text
+ValueError: No liveness endpoint configured for gemini.configured
+ValueError: No liveness endpoint configured for xai.configured
+ValueError: No liveness endpoint configured for openai-compatible.local
+```
+
+Added redaction-safe models-list probes for Gemini, xAI, and OpenAI-compatible gateways. Subscription CLIs remain execution-status driven because they expose no standard HTTP liveness surface; their quota observations stay explicitly unknown or observed. Hosted health failures now feed the same degraded routing path across the provider matrix.
+
 Failing-first landmarks:
 
 ```text

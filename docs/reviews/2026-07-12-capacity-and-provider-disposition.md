@@ -27,3 +27,4 @@
 | Product plan persisted and task references validated in real runs | fixed | `8f8826d` | `tests/test_pipeline.py`, `tests/test_tranche_k1_artifacts.py` |
 | MCP hosts preserve privacy, budget, URL, shell/write, and artifact controls | fixed | `03357c8` | `tests/test_mcp.py` |
 | Expired provider windows reopen as unknown after reset | fixed | `4649b07` | `tests/test_tranche_g0_capacity.py` |
+| Gemini, xAI, and OpenAI-compatible health probes use fixture-tested endpoints | fixed | `8df8f43` | `tests/test_tranche_f5.py` |
