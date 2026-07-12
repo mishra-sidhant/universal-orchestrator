@@ -49,3 +49,9 @@ Use stronger, case-specific containment if live execution later includes CPU-bou
 - Late threads may finish in memory, but cannot commit kernel-owned state.
 - Cost reservations cannot remain stranded after scheduler timeout.
 - The containment proof is executable and tied to the same transport interface used by production adapters.
+
+## Tranche N Clarifications
+
+Delivery finalization is a second, independent side-effect fence: a provider response may not become a delivered product unless the final manifest, checksums, ZIP inventory, quality state, and receipt agree. ZIP validation failure removes any stale receipt and terminates the run as `needs_attention`.
+
+Provider capacity is durable but epistemically scoped. Exact windows may be reserved only against the effective snapshot that authorized the reservation; a newer snapshot prevents local decrement against stale state. Headerless or otherwise unknown observations are retained as observations and do not erase a previously known exact window. Unknown remains unknown, never unlimited.

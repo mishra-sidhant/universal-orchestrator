@@ -31,7 +31,7 @@ The current milestone is a deterministic local runtime with fixture-validated li
 - Quality failures execute repair tasks through the scheduler; unresolved runs terminate as `needs_attention` and never receive a delivery receipt.
 - Model synthesis accepts only strict structured output, allows one metered reformat repair, audits each claim against delivered chunk IDs, and degrades honestly to extractive synthesis after validation failure.
 - Immutable delivery finalization with a frozen run manifest, checksums, validated ZIP, integrity report, and hash-bound delivery receipt.
-- PDF, DOCX, and PPTX delivery includes structural checks plus bitmap render validation. Serious/max quality bars block on render failure or unavailable render tooling; fast/standard record a warning. Rich reports are assembled from independently synthesized chapters rather than a single cosmetic slide.
+- PDF, DOCX, and PPTX delivery includes structural checks plus bitmap validation of every rendered page. Serious/max quality bars block on render failure, blank pages, or unavailable render tooling; fast/standard record a warning. Rich reports are assembled from independently synthesized, run-type-specific chapters rather than a single cosmetic slide.
 - A native-versus-orchestrated benchmark bundle with side-by-side outputs, per-path cost and latency, plus orchestrated quality/evidence reports. It makes no automated superiority claim; comparison requires human judgment.
 - Typed product/chapter plans and PPTX artifact construction with structural slide validation, alongside the existing PDF/DOCX builders.
 - Standard-library test suite, so the repo can validate without installing pytest.
@@ -88,6 +88,8 @@ Current limitation: keyless synthesis is extractive, and neither local nor model
 
 Provider capability numbers are configured priors used for routing, not measured quality facts. They remain priors until a versioned benchmark records a measurement.
 
+Capacity observations follow the same honesty rule: exact structured provider windows can be reserved durably; observed-only or unknown limits are surfaced as such and never treated as unlimited. A provider that exhausts or stalls during a task can be handed off within the configured alternatives, with grounded local fallback and a degraded-mode notice when no provider remains.
+
 The kernel is headless. Codex, Claude Code, VS Code/Copilot, compatible desktop agents, and the terminal are host surfaces; MCP and CLI expose the same run, status, capacity, and artifact contract. A separate dashboard is not required.
 
 Use `uv run ai-team integrate --host codex|claude-code|vscode|generic` to print a read-only MCP configuration. See [Headless Host Integrations](docs/host-integrations.md).
@@ -112,3 +114,5 @@ uv run python -m universal_orchestrator bench \
 Run real smoke checks once per configured provider, then one real bench. These are operator actions and are never part of CI. Paste their JSON summaries into `docs/implementation-log.md` under "Operator Live Evidence." `bench` is a measurement instrument: it records outputs, latency, cost, quality, and evidence for review, but never declares a winner.
 
 For subscription execution, authenticate through the official CLI (`claude` login flow or `codex login`). The orchestrator does not read CLI auth files and does not forward API-key environment variables into CLI processes. CLI capacity is exact only when the official surface exposes a structured limit; otherwise it is reported as observed or unknown.
+
+Best practices: start keyless with local runs and fixture evals; keep the default $0.50 ceiling unless you intentionally configure a lower operator limit; use `local_only` for sensitive inputs; run `smoke` before a real job; review `budget_report.json`, `cost_ledger.json`, `evidence_audit.json`, and provider health before trusting a delivery; and treat benchmark output as evidence for human comparison, never as an automatic quality claim.

@@ -1004,3 +1004,45 @@ git diff --check: passed
 ```
 
 Live provider smoke and benchmark execution remain operator-only and pending credentials. Capability numbers remain configured priors until measured by the benchmark command.
+
+## Tranche N: Release Integrity And Product Differentiation
+
+Baseline: Sol review of Tranche M at `5c9c1e5`. The review findings were accepted in `28c2a5e` before implementation. Each phase below was implemented with a failing-first regression and committed independently.
+
+### Failing-first checkpoints
+
+```text
+N.1: forced ZIP validation failure still produced a delivered result and receipt
+N.2: the default pipeline broker was not bound to the run SQLite store; stale reservations could be reused; unknown headers erased exact windows
+N.3: when every handoff candidate failed, the synthesis task failed without a grounded fallback
+N.4: claim verification saw unconsumed chunks and contradicted claims remained citation-eligible
+N.5: chapter nodes had no chapter contract, emitted generic identical extractive summaries, and the model prompt had no chapter objective
+N.6: rendered validation inspected only page one and leaked temporary render directories on failure
+```
+
+### Implemented
+
+- Made delivery finalization atomic at the product boundary: ZIP inventory, CRC, manifest, checksums, quality state, and receipt now agree. A failed ZIP demotes the run and cannot receive a receipt.
+- Bound the default capability registry to the durable runtime store. Capacity observations retain latest raw observations separately from effective windows; local commits cannot consume against a newer provider snapshot.
+- Added a grounded `extractive_provider_fallback` after all eligible provider handoffs are exhausted. Non-handoffable failures still fail honestly.
+- Scoped claim verification to chunks consumed by the task, separated structural support from citation eligibility, and rendered contradicted claims under `Rejected Claims` without citing them.
+- Added stable run-type-specific chapter contracts for research, repository, code review, and general work. Chapter IDs, titles, and objectives flow through the DAG, deterministic workers, model prompts, final reports, and PPTX slides.
+- Rendered every PDF/DOCX/PPTX page, computed a visible-content floor per page, generated a temporary contact sheet for inspection, preserved structural validation as blocking, and cleaned render output on every exit path.
+- Updated the disposition ledger, README disclosures, and this implementation log. Capability scores remain configured priors; live provider quality and semantic entailment remain explicitly unproven/deferred.
+
+### Verification gate (2026-07-12, no keys and no live provider calls)
+
+```text
+unittest discover: 222 tests passed
+evals --run: 3/3 passed
+doctor: passed with all provider credentials absent
+ruff check src tests: passed
+mypy src: no issues in 64 source files
+python -m build: wheel and source distribution built successfully
+git diff --check: passed before documentation changes
+fixture key-sweep and local_only-with-keys regressions: passed within the suite
+```
+
+### Operator live evidence
+
+Still pending by design. The operator must add credentials or authenticate official subscription CLIs locally, run one sanctioned smoke per configured provider, and run one real benchmark. Those results belong under the existing `Operator Live Evidence` section and must not be inferred from fixture results.
