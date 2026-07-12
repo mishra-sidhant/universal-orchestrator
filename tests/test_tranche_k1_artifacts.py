@@ -3,6 +3,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from universal_orchestrator.artifact_builders import ArtifactBuilder
 from universal_orchestrator.models import ProductContract, SlideSpec, TaskDAG, TaskNode, TaskType
@@ -71,6 +72,40 @@ class ArtifactAndProductPlanTests(unittest.TestCase):
         self.assertEqual(serious_warnings, [])
         self.assertEqual(standard_errors, [])
         self.assertTrue(standard_warnings)
+
+    def test_render_validation_inspects_every_page_and_cleans_temp_output(self) -> None:
+        from reportlab.pdfgen import canvas
+        from PIL import Image, ImageDraw
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = root / "two-pages.pdf"
+            document = canvas.Canvas(str(path))
+            document.drawString(72, 720, "Visible first page")
+            document.showPage()
+            document.showPage()
+            document.save()
+
+            render_dir = root / "rendered"
+            render_dir.mkdir()
+            first_page = render_dir / "page-1.png"
+            second_page = render_dir / "page-2.png"
+            first_image = Image.new("RGB", (400, 300), "white")
+            ImageDraw.Draw(first_image).rectangle((20, 20, 200, 120), fill="black")
+            first_image.save(first_page)
+            Image.new("RGB", (400, 300), "white").save(second_page)
+
+            builder = ArtifactBuilder()
+            with patch.object(
+                builder,
+                "_render_first_page",
+                return_value=(first_page, None),
+            ):
+                errors, warnings = builder.validate_rendered("pdf", path, "serious")
+
+            self.assertTrue(any("page 2" in error for error in errors))
+            self.assertEqual(warnings, [])
+            self.assertFalse(render_dir.exists())
 
 
 if __name__ == "__main__":

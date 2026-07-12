@@ -763,11 +763,7 @@ class Orchestrator:
                     artifact_kind,
                     artifact_path,
                     contract.quality_bar,
-                    [
-                        "Executive Synthesis",
-                        "Findings And Evidence",
-                        "Risks And Actions",
-                    ]
+                    [node.chapter_title for node in dag.nodes if node.chapter_title]
                     if artifact_kind == "pptx"
                     else ["Universal Orchestrator Final Product"],
                 )

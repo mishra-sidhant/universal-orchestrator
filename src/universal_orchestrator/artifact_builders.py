@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from html import escape
 import os
 from pathlib import Path
@@ -155,43 +156,101 @@ class ArtifactBuilder:
         errors = structural_validator(path)
         if errors or kind == "patch_plan":
             return errors, []
-        rendered, render_error = self._render_first_page(kind, path)
-        if render_error is not None:
-            message = f"Render validation unavailable: {render_error}"
-            if quality_bar in {"serious", "max"}:
-                return [message], []
-            return [], [message]
-        if rendered is None:
-            return self._render_quality_result(
-                "Render validation produced no preview image.", quality_bar
-            )
-        from PIL import Image, ImageStat
-
+        rendered: Path | None = None
+        render_dir: Path | None = None
         try:
-            with Image.open(rendered) as image:
-                rgb = image.convert("RGB")
-                extrema = ImageStat.Stat(rgb).extrema
-                nonblank = sum(1 for channel in extrema if channel[1] - channel[0] > 2)
-                if nonblank == 0:
-                    return self._render_quality_result(
-                        "Rendered artifact preview is visually blank.", quality_bar
-                    )
-                if rgb.width < 100 or rgb.height < 100:
-                    return self._render_quality_result(
-                        "Rendered artifact preview is unexpectedly small.", quality_bar
-                    )
-        except Exception as exc:
-            return [f"Rendered artifact preview could not be inspected: {exc}"], []
-        anchor_errors = self._validate_text_anchors(kind, path, expected_anchors or [])
-        if anchor_errors:
-            return anchor_errors, []
-        shutil.rmtree(rendered.parent, ignore_errors=True)
-        return [], []
+            rendered, render_error = self._render_first_page(kind, path)
+            if render_error is not None:
+                message = f"Render validation unavailable: {render_error}"
+                return self._render_quality_result(message, quality_bar)
+            if rendered is None:
+                return self._render_quality_result(
+                    "Render validation produced no preview image.", quality_bar
+                )
+            render_dir = rendered.parent
+            page_paths = self._rendered_page_paths(rendered)
+            page_errors = self._inspect_rendered_pages(page_paths, render_dir)
+            if page_errors:
+                return self._render_quality_result_list(page_errors, quality_bar)
+            anchor_errors = self._validate_text_anchors(kind, path, expected_anchors or [])
+            if anchor_errors:
+                return anchor_errors, []
+            return [], []
+        finally:
+            if render_dir is not None:
+                shutil.rmtree(render_dir, ignore_errors=True)
 
     def _render_quality_result(self, message: str, quality_bar: str) -> tuple[list[str], list[str]]:
         if quality_bar in {"serious", "max"}:
             return [message], []
         return [], [message]
+
+    def _render_quality_result_list(
+        self, messages: list[str], quality_bar: str
+    ) -> tuple[list[str], list[str]]:
+        if quality_bar in {"serious", "max"}:
+            return messages, []
+        return [], messages
+
+    def _rendered_page_paths(self, first_page: Path) -> list[Path]:
+        pages = sorted(
+            first_page.parent.glob("page-*.png"),
+            key=lambda item: int(item.stem.rsplit("-", 1)[-1]),
+        )
+        return pages or [first_page]
+
+    def _inspect_rendered_pages(self, pages: list[Path], render_dir: Path) -> list[str]:
+        from PIL import Image, ImageChops, ImageStat
+
+        if not pages:
+            return ["Rendered artifact produced no pages."]
+        errors: list[str] = []
+        thumbnails: list[Image.Image] = []
+        for page_number, page in enumerate(pages, start=1):
+            try:
+                with Image.open(page) as image:
+                    rgb = image.convert("RGB")
+                    if rgb.width < 100 or rgb.height < 100:
+                        errors.append(
+                            f"Rendered artifact page {page_number} is unexpectedly small."
+                        )
+                    background = Image.new("RGB", rgb.size, "white")
+                    difference = ImageChops.difference(rgb, background)
+                    mask = difference.convert("L").point(
+                        lambda value: 255 if value > 10 else 0
+                    )
+                    nonblank_ratio = ImageStat.Stat(mask).mean[0] / 255
+                    if nonblank_ratio < 0.0005:
+                        errors.append(
+                            f"Rendered artifact page {page_number} is visually blank "
+                            f"(nonblank ratio {nonblank_ratio:.6f})."
+                        )
+                    thumbnail = rgb.copy()
+                    thumbnail.thumbnail((240, 180))
+                    thumbnails.append(thumbnail)
+            except Exception as exc:
+                errors.append(
+                    f"Rendered artifact page {page_number} could not be inspected: {exc}"
+                )
+        self._write_contact_sheet(thumbnails, render_dir)
+        return errors
+
+    def _write_contact_sheet(self, thumbnails: Sequence[object], render_dir: Path) -> None:
+        from PIL import Image
+
+        if not thumbnails:
+            return
+        typed_thumbnails = [item for item in thumbnails if isinstance(item, Image.Image)]
+        if not typed_thumbnails:
+            return
+        columns = min(3, len(typed_thumbnails))
+        rows = (len(typed_thumbnails) + columns - 1) // columns
+        sheet = Image.new("RGB", (columns * 240, rows * 180), "white")
+        for index, thumbnail in enumerate(typed_thumbnails):
+            left = (index % columns) * 240
+            top = (index // columns) * 180
+            sheet.paste(thumbnail, (left, top))
+        sheet.save(render_dir / "contact-sheet.png")
 
     def _validate_text_anchors(
         self, kind: str, path: Path, expected_anchors: list[str]
@@ -226,6 +285,8 @@ class ArtifactBuilder:
         ]
 
     def _render_first_page(self, kind: str, path: Path) -> tuple[Path | None, str | None]:
+        """Render every page and return the first page for compatibility with older callers."""
+
         pdftoppm = os.getenv("UO_PDFTOPPM_BIN") or shutil.which("pdftoppm")
         if not pdftoppm:
             return None, "pdftoppm is not installed"
@@ -250,18 +311,21 @@ class ArtifactBuilder:
                 return None, f"{kind} conversion failed: {message}"
         output_prefix = temp_dir / "page"
         completed = subprocess.run(
-            [pdftoppm, "-png", "-f", "1", "-l", "1", str(source_pdf), str(output_prefix)],
+            [pdftoppm, "-png", str(source_pdf), str(output_prefix)],
             capture_output=True,
             text=True,
             timeout=30,
             check=False,
         )
-        preview = temp_dir / "page-1.png"
-        if completed.returncode != 0 or not preview.exists():
+        pages = sorted(
+            temp_dir.glob("page-*.png"),
+            key=lambda item: int(item.stem.rsplit("-", 1)[-1]),
+        )
+        if completed.returncode != 0 or not pages:
             message = completed.stderr.strip() or completed.stdout.strip() or "PDF rasterization failed"
             shutil.rmtree(temp_dir, ignore_errors=True)
             return None, message
-        return preview, None
+        return pages[0], None
 
     def build_patch_plan(self, markdown: str, path: Path) -> Artifact:
         path.parent.mkdir(parents=True, exist_ok=True)
