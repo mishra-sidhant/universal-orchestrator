@@ -36,6 +36,7 @@ cli = [
   "rich>=13.7",
 ]
 dev = [
+  "build>=1.2",
   "pytest>=8.2",
   "ruff>=0.5",
   "mypy>=1.10",

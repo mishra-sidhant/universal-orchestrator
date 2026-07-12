@@ -5,7 +5,9 @@ import math
 import re
 import sqlite3
 from dataclasses import dataclass
+from contextlib import contextmanager
 from pathlib import Path
+from collections.abc import Iterator
 from typing import Protocol
 
 from universal_orchestrator.models import ContextChunk, RetrievalHit
@@ -66,8 +68,17 @@ class SQLiteEmbeddingIndex:
         connection.execute("PRAGMA journal_mode=WAL")
         return connection
 
+    @contextmanager
+    def _connection(self) -> Iterator[sqlite3.Connection]:
+        connection = self._connect()
+        try:
+            with connection:
+                yield connection
+        finally:
+            connection.close()
+
     def _init(self) -> None:
-        with self._connect() as connection:
+        with self._connection() as connection:
             connection.execute(
                 """
                 CREATE TABLE IF NOT EXISTS embeddings (
@@ -83,7 +94,7 @@ class SQLiteEmbeddingIndex:
 
     def upsert(self, chunks: list[ContextChunk]) -> None:
         vectors = self.provider.embed([chunk.text for chunk in chunks])
-        with self._connect() as connection:
+        with self._connection() as connection:
             for chunk, vector in zip(chunks, vectors, strict=True):
                 connection.execute(
                     """
@@ -105,7 +116,7 @@ class SQLiteEmbeddingIndex:
 
     def search(self, query: str, limit: int = 8) -> list[tuple[str, str, list[float]]]:
         query_vector = self.provider.embed([query])[0]
-        with self._connect() as connection:
+        with self._connection() as connection:
             rows = connection.execute(
                 "SELECT chunk_id, text, vector FROM embeddings WHERE model_id=?",
                 (self.provider.model_id,),

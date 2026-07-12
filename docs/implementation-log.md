@@ -35,6 +35,17 @@ Ran 190 tests - OK
 Success: no issues found in 64 source files
 ```
 
+## Final Canonical Verification
+
+Executed through the project uv environment after declaring `build` in the dev extra:
+
+```text
+Ran 190 tests in 4.339s - OK
+world_readiness_core: passed
+Success: no issues found in 64 source files
+Successfully built universal_orchestrator-0.1.0.tar.gz and universal_orchestrator-0.1.0-py3-none-any.whl
+```
+
 ## Tranche J.1-K.1: Safe Media And Rich Artifact Boundaries
 
 Failing-first landmark:
