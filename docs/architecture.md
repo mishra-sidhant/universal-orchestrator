@@ -102,12 +102,17 @@ Live spend has a separate accounting plane. `CostLedger` reserves the configured
 
 Capability values are configured priors for routing. They are not measured provider-quality claims; a prior becomes measured evidence only through a versioned benchmark record.
 
+Capacity is a separate routing signal. `CapacityBroker` stores provider/model/account snapshots, rejects known exhausted or cooling connectors before transport, reserves exact remaining request/token windows, and penalizes unknown capacity without treating it as unlimited. HTTP response headers are normalized into snapshots and persisted for operator inspection. Subscription CLI capacity is reported as observed or unknown rather than converted into fictitious API dollars.
+
 Current providers:
 
 - `deterministic.tools`: always available local tools.
 - `openai.configured`: enabled only when `OPENAI_API_KEY` exists.
 - `anthropic.configured`: enabled only when `ANTHROPIC_API_KEY` exists.
 - `ollama.local`: enabled only when `OLLAMA_BASE_URL` exists.
+- `gemini.configured`: Gemini API adapter, enabled by `GOOGLE_API_KEY` and `GEMINI_MODEL`.
+- `xai.configured`: xAI OpenAI-compatible adapter, enabled by `XAI_API_KEY` and `XAI_MODEL`.
+- `openai-compatible.local`: local OpenAI-compatible gateway for Llama/OSS runtimes.
 
 Ordinary orchestration remains local/extractive at this phase. A separate, explicit `smoke` command is the only enabled live round trip; it is key-gated, bounded, and excluded from CI.
 

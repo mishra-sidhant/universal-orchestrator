@@ -7,7 +7,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
-from universal_orchestrator.models import RuntimeEvent
+from universal_orchestrator.models import CapacitySnapshot, RuntimeEvent
 from universal_orchestrator.utils import ensure_dir
 
 
@@ -114,6 +114,16 @@ class RuntimeStore:
                 )
                 """
             )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS capacity_snapshots (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    connector_id TEXT NOT NULL,
+                    observed_at TEXT NOT NULL,
+                    payload TEXT NOT NULL
+                )
+                """
+            )
 
     def record_event(self, event: RuntimeEvent) -> None:
         with self._connection() as conn:
@@ -217,6 +227,38 @@ class RuntimeStore:
                 (run_id, stage, type(error).__name__, str(error), utc_now().isoformat()),
             )
 
+    def save_capacity_snapshot(self, snapshot: CapacitySnapshot) -> None:
+        with self._connection() as conn:
+            conn.execute(
+                "INSERT INTO capacity_snapshots(connector_id, observed_at, payload) VALUES (?, ?, ?)",
+                (
+                    snapshot.connector_id,
+                    snapshot.observed_at.isoformat(),
+                    json.dumps(snapshot.model_dump(mode="json"), sort_keys=True),
+                ),
+            )
+
+    def latest_capacity_snapshot(self, connector_id: str) -> CapacitySnapshot | None:
+        with self._connection() as conn:
+            row = conn.execute(
+                "SELECT payload FROM capacity_snapshots WHERE connector_id=? ORDER BY id DESC LIMIT 1",
+                (connector_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return CapacitySnapshot.model_validate(json.loads(row[0]))
+
+    def capacity_snapshots(self, connector_id: str | None = None) -> list[CapacitySnapshot]:
+        query = "SELECT payload FROM capacity_snapshots"
+        params: tuple[str, ...] = ()
+        if connector_id is not None:
+            query += " WHERE connector_id=?"
+            params = (connector_id,)
+        query += " ORDER BY id"
+        with self._connection() as conn:
+            rows = conn.execute(query, params).fetchall()
+        return [CapacitySnapshot.model_validate(json.loads(row[0])) for row in rows]
+
     def latest_state(self, run_id: str) -> str | None:
         with self._connection() as conn:
             row = conn.execute(
@@ -299,7 +341,7 @@ class RuntimeStore:
         return {"requested": True, "reason": row[0], "requested_at": row[1]}
 
     def is_cancel_requested(self, run_id: str) -> bool:
-        return self.cancel_status(run_id).get("requested", False)
+        return bool(self.cancel_status(run_id).get("requested", False))
 
     def clear_cancel(self, run_id: str) -> None:
         with self._connection() as conn:

@@ -3,7 +3,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from threading import Event, Lock
 from time import sleep
-from typing import Callable
+from typing import Any, Callable, cast
 
 from universal_orchestrator.cache import ExactMatchCache
 from universal_orchestrator.execution import DeterministicExecutor
@@ -85,8 +85,8 @@ class DAGScheduler:
         self,
         dag: TaskDAG,
         decisions: list[RoutingDecision],
-        executor: DeterministicExecutor,
-        cache_context: dict | None = None,
+        executor: Any,
+        cache_context: dict[str, Any] | None = None,
         cancellation_check: Callable[[], bool] | None = None,
     ) -> tuple[list[ExecutionResult], ScheduleReport]:
         decision_by_task = {decision.task_id: decision for decision in decisions}
@@ -203,7 +203,7 @@ class DAGScheduler:
         else:
             future = pool.submit(executor.execute, [task], [decision])
         try:
-            return future.result(timeout=max(0, task.timeout_seconds))[0]
+            return cast(list[ExecutionResult], future.result(timeout=max(0, task.timeout_seconds)))[0]
         except FutureTimeoutError:
             completion_guard.deactivate()
             future.cancel()
@@ -263,7 +263,7 @@ class DAGScheduler:
             warnings=result.warnings,
         )
 
-    def cache_key_for_task(self, task: TaskNode, cache_context: dict | None = None) -> str:
+    def cache_key_for_task(self, task: TaskNode, cache_context: dict[str, Any] | None = None) -> str:
         payload = {
             "task_id": task.id,
             "title": task.title,
@@ -277,14 +277,14 @@ class DAGScheduler:
             return self.cache.key_for("task", payload)
         return f"task_{task.id}"
 
-    def cached_payload(self, cache_key: str, cacheable: bool = True) -> dict | None:
+    def cached_payload(self, cache_key: str, cacheable: bool = True) -> dict[str, Any] | None:
         return self.cache.get(cache_key) if self.cache and cacheable else None
 
     def cached_payload_for_task(
         self,
         task: TaskNode,
-        cache_context: dict | None = None,
-    ) -> dict | None:
+        cache_context: dict[str, Any] | None = None,
+    ) -> dict[str, Any] | None:
         return self.cached_payload(
             self.cache_key_for_task(task, cache_context),
             task.cacheable,

@@ -33,6 +33,7 @@ class AnthropicAdapter(JSONHTTPMixin, ProviderAdapter):
         if not model:
             return unavailable_result(self.id, "ANTHROPIC_MODEL is not configured.")
 
+        self._active_model = model
         cost_estimate, authorization = self.authorize_cost(task, model)
         try:
             response = self._post_json(
@@ -82,15 +83,17 @@ class AnthropicAdapter(JSONHTTPMixin, ProviderAdapter):
         return self._max_tokens()
 
     def _extract_output_text(self, response: dict[str, Any]) -> str:
+        content_items = response.get("content")
         texts = [
             item.get("text", "")
-            for item in response.get("content", []) or []
-            if item.get("type") == "text"
-        ]
+            for item in content_items
+            if isinstance(item, dict) and item.get("type") == "text"
+        ] if isinstance(content_items, list) else []
         return "\n".join(text for text in texts if text).strip() or "Anthropic response completed without text content."
 
     def _usage(self, response: dict[str, Any]) -> dict[str, int]:
-        usage = response.get("usage") if isinstance(response.get("usage"), dict) else {}
+        usage_value = response.get("usage")
+        usage = usage_value if isinstance(usage_value, dict) else {}
         input_tokens = int(usage.get("input_tokens", 0) or 0)
         output_tokens = int(usage.get("output_tokens", 0) or 0)
         return {

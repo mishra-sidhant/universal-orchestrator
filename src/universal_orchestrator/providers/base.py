@@ -9,6 +9,7 @@ from time import sleep
 from typing import Any, Callable
 
 from universal_orchestrator.models import (
+    CapacitySnapshot,
     CostEstimate,
     ProviderDescriptor,
     ProviderHealth,
@@ -17,6 +18,7 @@ from universal_orchestrator.models import (
     ProviderTask,
     TaskStatus,
 )
+from universal_orchestrator.capacity import CapacityBroker, snapshot_from_headers
 from universal_orchestrator.cost_ledger import CostAuthorization, CostLedger
 from universal_orchestrator.pricing import RateTable
 from universal_orchestrator.security import redact_text, scan_text
@@ -65,6 +67,7 @@ class ProviderAdapter(ABC):
         jitter: Callable[[], float] | None = None,
         cost_ledger: CostLedger | None = None,
         rate_table: RateTable | None = None,
+        capacity_broker: CapacityBroker | None = None,
     ) -> None:
         self.descriptor = descriptor
         self.transport = transport or UrllibHTTPTransport()
@@ -72,6 +75,9 @@ class ProviderAdapter(ABC):
         self.jitter = jitter or random.random
         self.cost_ledger = cost_ledger
         self.rate_table = rate_table or (cost_ledger.rate_table if cost_ledger else RateTable.load())
+        self.capacity_broker = capacity_broker
+        self.latest_capacity: CapacitySnapshot | None = None
+        self._active_model = descriptor.model_id
         self._authorization_guards: dict[str, Any] = {}
         self._authorization_guard_lock = Lock()
 
@@ -81,6 +87,24 @@ class ProviderAdapter(ABC):
 
     def health_check(self) -> ProviderHealth:
         return self.descriptor.health
+
+    @property
+    def connector_id(self) -> str:
+        return self.descriptor.connector_id or f"{self.id}/{self.descriptor.model_id}"
+
+    def observe_capacity(self, headers: dict[str, str]) -> CapacitySnapshot:
+        model_id = str(getattr(self, "_active_model", self.descriptor.model_id))
+        snapshot = snapshot_from_headers(
+            connector_id=self.connector_id,
+            provider_id=self.id,
+            model_id=model_id,
+            account_scope=self.descriptor.account_scope,
+            headers=headers,
+        )
+        self.latest_capacity = snapshot
+        if self.capacity_broker is not None:
+            self.capacity_broker.update(snapshot)
+        return snapshot
 
     def estimate_cost(self, task: ProviderTask) -> CostEstimate:
         return self.estimate_model_cost(task, "default")
@@ -208,6 +232,9 @@ class JSONHTTPMixin:
         for attempt in range(1, attempts + 1):
             try:
                 response = transport.send(request)
+                observer = getattr(self, "observe_capacity", None)
+                if callable(observer):
+                    observer(response.headers)
                 if 200 <= response.status_code < 300:
                     try:
                         decoded = json.loads(response.body.decode("utf-8"))

@@ -15,6 +15,18 @@
     "ollama.local": {
       "default": {"input_usd": 0.0, "output_usd": 0.0},
       "models": {}
+    },
+    "gemini.configured": {
+      "default": {"input_usd": 0.0, "output_usd": 0.0},
+      "models": {}
+    },
+    "xai.configured": {
+      "default": {"input_usd": 0.0, "output_usd": 0.0},
+      "models": {}
+    },
+    "openai-compatible.local": {
+      "default": {"input_usd": 0.0, "output_usd": 0.0},
+      "models": {}
     }
   }
 }

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from universal_orchestrator.models import (
     ExecutionPolicy,
     ExecutionResult,
@@ -23,7 +25,7 @@ class DeterministicExecutor:
         prompt: str = "",
         allow_network: bool = False,
         dry_run_external: bool = True,
-        context: dict | None = None,
+        context: dict[str, Any] | None = None,
         execution_policy: ExecutionPolicy | None = None,
     ) -> None:
         self.adapters = adapters

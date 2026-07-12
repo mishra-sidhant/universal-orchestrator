@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from datetime import datetime
 from typing import Any
 
 from universal_orchestrator.approvals import ApprovalGateEngine
@@ -122,7 +123,7 @@ class Orchestrator:
         self,
         invocation: HostInvocation,
         run_id: str,
-        started_at,
+        started_at: datetime,
         request_artifact: Artifact,
     ) -> RunResult:
         try:
@@ -167,7 +168,7 @@ class Orchestrator:
         self,
         invocation: HostInvocation,
         run_id: str,
-        started_at,
+        started_at: datetime,
         request_artifact: Artifact,
     ) -> RunResult:
         trace = TraceRecorder(run_id)

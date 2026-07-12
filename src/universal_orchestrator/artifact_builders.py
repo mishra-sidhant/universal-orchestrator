@@ -10,9 +10,9 @@ from universal_orchestrator.utils import sha256_file
 
 class ArtifactBuilder:
     def build_pdf(self, markdown: str, path: Path) -> Artifact:
-        from reportlab.lib.pagesizes import A4  # type: ignore[import-not-found]
-        from reportlab.lib.styles import getSampleStyleSheet  # type: ignore[import-not-found]
-        from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer  # type: ignore[import-not-found]
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.styles import getSampleStyleSheet
+        from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer
 
         path.parent.mkdir(parents=True, exist_ok=True)
         styles = getSampleStyleSheet()
@@ -35,7 +35,7 @@ class ArtifactBuilder:
         return self._artifact(path, ArtifactType.PDF)
 
     def build_docx(self, markdown: str, path: Path) -> Artifact:
-        from docx import Document  # type: ignore[import-not-found]
+        from docx import Document
 
         path.parent.mkdir(parents=True, exist_ok=True)
         document = Document()
@@ -46,13 +46,13 @@ class ArtifactBuilder:
                 document.add_heading(line[3:].strip(), level=2)
             elif line.strip():
                 document.add_paragraph(line.strip())
-        document.save(path)
+        document.save(str(path))
         return self._artifact(path, ArtifactType.DOCX)
 
     def validate_pdf(self, path: Path) -> list[str]:
         errors: list[str] = []
         try:
-            from pypdf import PdfReader  # type: ignore[import-not-found]
+            from pypdf import PdfReader
 
             reader = PdfReader(str(path))
             if len(reader.pages) < 1:
@@ -64,9 +64,9 @@ class ArtifactBuilder:
     def validate_docx(self, path: Path) -> list[str]:
         errors: list[str] = []
         try:
-            from docx import Document  # type: ignore[import-not-found]
+            from docx import Document
 
-            document = Document(path)
+            document = Document(str(path))
             if not document.paragraphs:
                 errors.append("DOCX has no paragraphs.")
         except Exception as exc:

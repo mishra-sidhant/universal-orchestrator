@@ -8,7 +8,8 @@ import tarfile
 import urllib.request
 import zipfile
 from pathlib import Path
-from urllib.parse import urlparse
+from typing import Any
+from urllib.parse import ParseResult, urlparse
 
 from universal_orchestrator.ingestion.detectors import detect_input_type
 from universal_orchestrator.ingestion.hardening import IngestionLimits, detect_text_encoding, symlink_warning
@@ -19,6 +20,7 @@ from universal_orchestrator.models import (
     InputRecord,
     InputStatus,
     InputType,
+    SecurityFinding,
     new_id,
 )
 from universal_orchestrator.policy import SecurityPolicy
@@ -222,9 +224,9 @@ class InputIngestor:
         paragraphs: list[str] = []
         table_count = 0
         try:
-            from docx import Document  # type: ignore[import-not-found]
+            from docx import Document
 
-            document = Document(path)
+            document = Document(str(path))
             paragraphs = [paragraph.text for paragraph in document.paragraphs if paragraph.text.strip()]
             table_count = len(document.tables)
             for table in document.tables[:5]:
@@ -260,9 +262,9 @@ class InputIngestor:
         slide_text: list[str] = []
         slide_count = 0
         try:
-            from pptx import Presentation  # type: ignore[import-not-found]
+            from pptx import Presentation
 
-            presentation = Presentation(path)
+            presentation = Presentation(str(path))
             slide_count = len(presentation.slides)
             for index, slide in enumerate(presentation.slides[:50], start=1):
                 fragments: list[str] = []
@@ -321,7 +323,7 @@ class InputIngestor:
             text_parts = [" | ".join(row) for row in rows]
         else:
             try:
-                import openpyxl  # type: ignore[import-not-found]
+                import openpyxl
 
                 workbook = openpyxl.load_workbook(path, read_only=True, data_only=True)
                 metadata["sheets"] = workbook.sheetnames
@@ -361,7 +363,7 @@ class InputIngestor:
         warnings: list[str] = []
         metadata: dict[str, object] = {"suffix": path.suffix.lower()}
         try:
-            from PIL import Image  # type: ignore[import-not-found]
+            from PIL import Image
 
             with Image.open(path) as image:
                 metadata.update(
@@ -435,10 +437,18 @@ class InputIngestor:
         ]
         metadata["unsafe_paths"] = unsafe
         metadata["unsafe_links"] = unsafe_links
-        if metadata.get("entries", 0) > self.limits.max_archive_entries:
-            warnings.append(f"Archive exceeds max entries: {metadata['entries']}")
-        if metadata.get("uncompressed_bytes", 0) > self.limits.max_archive_uncompressed_bytes:
-            warnings.append(f"Archive exceeds max uncompressed bytes: {metadata['uncompressed_bytes']}")
+        raw_entry_count = metadata.get("entries", 0)
+        raw_uncompressed_bytes = metadata.get("uncompressed_bytes", 0)
+        entry_count = int(raw_entry_count) if isinstance(raw_entry_count, (int, float, str)) else 0
+        uncompressed_bytes = (
+            int(raw_uncompressed_bytes)
+            if isinstance(raw_uncompressed_bytes, (int, float, str))
+            else 0
+        )
+        if entry_count > self.limits.max_archive_entries:
+            warnings.append(f"Archive exceeds max entries: {entry_count}")
+        if uncompressed_bytes > self.limits.max_archive_uncompressed_bytes:
+            warnings.append(f"Archive exceeds max uncompressed bytes: {uncompressed_bytes}")
         if unsafe:
             warnings.append(f"Archive contains unsafe paths: {unsafe[:5]}")
         if unsafe_links:
@@ -450,7 +460,7 @@ class InputIngestor:
             name=attachment.name or path.name,
             uri=attachment.uri,
             path=str(path),
-            status=InputStatus.PARSED if entries or metadata.get("entries") == 0 else InputStatus.PARTIAL,
+            status=InputStatus.PARSED if entries or entry_count == 0 else InputStatus.PARTIAL,
             content_hash=sha256_file(path),
             size_bytes=path.stat().st_size,
             mime_type=mimetypes.guess_type(path.name)[0],
@@ -466,7 +476,7 @@ class InputIngestor:
         metadata: dict[str, object] = {"suffix": ".pdf"}
         text_parts: list[str] = []
         try:
-            import pdfplumber  # type: ignore[import-not-found]
+            import pdfplumber
 
             with pdfplumber.open(path) as pdf:
                 metadata["pages"] = len(pdf.pages)
@@ -597,9 +607,9 @@ class InputIngestor:
         files: list[Path],
         prompt: str,
         hot_files: set[str],
-    ) -> tuple[str, list[str], list]:
+    ) -> tuple[str, list[str], list[SecurityFinding]]:
         prompt_terms = self._unicode_terms(prompt)
-        candidates: list[tuple[int, str, str, list]] = []
+        candidates: list[tuple[int, str, str, list[SecurityFinding]]] = []
         for file_path in files:
             try:
                 size = file_path.stat().st_size
@@ -623,7 +633,7 @@ class InputIngestor:
 
         selected_text: list[str] = []
         selected_files: list[str] = []
-        findings = []
+        findings: list[SecurityFinding] = []
         used_bytes = 0
         for _, relative, text, file_findings in sorted(
             candidates, key=lambda item: (-item[0], item[1])
@@ -678,7 +688,7 @@ class InputIngestor:
         self,
         attachment: InputAttachment,
         input_type: InputType,
-        parsed,
+        parsed: ParseResult,
         allowed_url_hosts: set[str] | None = None,
     ) -> InputRecord:
         warnings: list[str] = []
@@ -761,6 +771,14 @@ class InputIngestor:
 
 
 class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
+    def redirect_request(
+        self,
+        req: Any,
+        fp: Any,
+        code: int,
+        msg: str,
+        headers: Any,
+        newurl: str,
+    ) -> Any:
         del req, fp, code, msg, headers, newurl
         return None

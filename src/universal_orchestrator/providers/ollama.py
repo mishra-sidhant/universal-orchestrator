@@ -29,6 +29,7 @@ class OllamaAdapter(JSONHTTPMixin, ProviderAdapter):
         if not model:
             return unavailable_result(self.id, "OLLAMA_MODEL is not configured.")
 
+        self._active_model = model
         cost_estimate, authorization = self.authorize_cost(task, model)
         try:
             response = self._post_json(

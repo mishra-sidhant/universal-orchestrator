@@ -153,6 +153,9 @@ def serve_stdio(stdin: TextIO = sys.stdin, stdout: TextIO = sys.stdout) -> None:
             stdout.flush()
 
     with ThreadPoolExecutor(max_workers=4, thread_name_prefix="uo-mcp-run") as workers:
+        def dispatch(item: dict[str, Any]) -> None:
+            write_response(handle_json_rpc(item))
+
         for line in stdin:
             if not line.strip():
                 continue
@@ -165,7 +168,7 @@ def serve_stdio(stdin: TextIO = sys.stdin, stdout: TextIO = sys.stdout) -> None:
                 write_response(_error(None, -32600, "Invalid Request"))
                 continue
             if _is_run_request(request) and "id" in request:
-                workers.submit(lambda item=request: write_response(handle_json_rpc(item)))
+                workers.submit(dispatch, request)
             else:
                 write_response(handle_json_rpc(request))
 
@@ -174,6 +177,7 @@ def handle_json_rpc(request: dict[str, Any]) -> dict[str, Any] | None:
     request_id = request.get("id")
     method = request.get("method")
     try:
+        result: dict[str, Any]
         if method == "initialize":
             result = {
                 "protocolVersion": "2024-11-05",
@@ -183,8 +187,11 @@ def handle_json_rpc(request: dict[str, Any]) -> dict[str, Any] | None:
         elif method == "tools/list":
             result = {"tools": tool_definitions()}
         elif method == "tools/call":
-            params = request.get("params", {})
-            payload = call_tool(params.get("name", ""), params.get("arguments", {}))
+            params_value = request.get("params", {})
+            params = params_value if isinstance(params_value, dict) else {}
+            arguments_value = params.get("arguments", {})
+            arguments = arguments_value if isinstance(arguments_value, dict) else {}
+            payload = call_tool(str(params.get("name", "")), arguments)
             result = {"content": [{"type": "text", "text": json.dumps(payload, indent=2, sort_keys=True)}]}
         elif method == "ping":
             result = {}

@@ -81,7 +81,7 @@ class ProductContractCompiler:
             },
         )
 
-    def _infer_run_type(self, prompt: str, input_types: set[str]) -> str:
+    def _infer_run_type(self, prompt: str, input_types: set[InputType]) -> str:
         if any(word in prompt for word in ["report", "research", "pdf"]):
             return "research_report"
         if InputType.REPO in input_types or any(word in prompt for word in ["repo", "codebase"]):

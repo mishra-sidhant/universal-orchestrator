@@ -39,6 +39,7 @@ class OpenAIResponsesAdapter(JSONHTTPMixin, ProviderAdapter):
         if not model:
             return unavailable_result(self.id, "OPENAI_MODEL is not configured.")
 
+        self._active_model = model
         cost_estimate, authorization = self.authorize_cost(task, model)
         try:
             response = self._post_json(
@@ -85,7 +86,10 @@ class OpenAIResponsesAdapter(JSONHTTPMixin, ProviderAdapter):
         return render_provider_prompt(task)
 
     def _safe_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
-        return self._redact_value(payload)
+        redacted = self._redact_value(payload)
+        if not isinstance(redacted, dict):
+            raise TypeError("Redacted provider payload must remain a JSON object")
+        return redacted
 
     def _redact_value(self, value: Any) -> Any:
         if isinstance(value, str):
@@ -97,17 +101,29 @@ class OpenAIResponsesAdapter(JSONHTTPMixin, ProviderAdapter):
         return value
 
     def _extract_output_text(self, response: dict[str, Any]) -> str:
-        if isinstance(response.get("output_text"), str):
-            return response["output_text"]
+        output_text = response.get("output_text")
+        if isinstance(output_text, str):
+            return output_text
         texts: list[str] = []
-        for item in response.get("output", []) or []:
-            for content in item.get("content", []) or []:
-                if content.get("type") == "output_text" and isinstance(content.get("text"), str):
-                    texts.append(content["text"])
+        output = response.get("output")
+        if isinstance(output, list):
+            for item in output:
+                if not isinstance(item, dict):
+                    continue
+                content_items = item.get("content")
+                if not isinstance(content_items, list):
+                    continue
+                for content in content_items:
+                    if not isinstance(content, dict):
+                        continue
+                    text = content.get("text")
+                    if content.get("type") == "output_text" and isinstance(text, str):
+                        texts.append(text)
         return "\n".join(texts).strip() or "OpenAI response completed without extractable output_text."
 
     def _usage(self, response: dict[str, Any]) -> dict[str, int]:
-        usage = response.get("usage") if isinstance(response.get("usage"), dict) else {}
+        usage_value = response.get("usage")
+        usage = usage_value if isinstance(usage_value, dict) else {}
         input_tokens = int(usage.get("input_tokens", 0) or 0)
         output_tokens = int(usage.get("output_tokens", 0) or 0)
         return {

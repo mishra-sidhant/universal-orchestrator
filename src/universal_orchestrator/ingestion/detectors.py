@@ -49,8 +49,8 @@ def is_url(value: str) -> bool:
 
 def detect_input_type(uri: str) -> InputType:
     if is_url(uri):
-        path = urlparse(uri).path.lower()
-        if "/api/" in path or path.endswith(".json"):
+        url_path = urlparse(uri).path.lower()
+        if "/api/" in url_path or url_path.endswith(".json"):
             return InputType.API
         return InputType.URL
 
@@ -80,4 +80,3 @@ def detect_input_type(uri: str) -> InputType:
     if suffix in CODE_SUFFIXES:
         return InputType.CODE
     return InputType.UNKNOWN
-

@@ -16,6 +16,8 @@ The current milestone is a deterministic local runtime with fixture-validated li
 - Product contract compiler that turns natural prompts into enforceable definitions of done.
 - Property-derived planner review and a five-node typed DAG backed by real local stage workers.
 - Capability-based routing with truthful local capabilities; unsupported work reshapes, pauses, or skips instead of echo-completing.
+- Provider/model/account capacity windows with exact reservation checks, configured-prior disclosure, and capacity-aware routing across API, local, and frontier provider families.
+- Gemini AI Studio, xAI, and generic OpenAI-compatible fixture-tested adapters; consumer subscription execution remains isolated to official CLI adapters.
 - TTL-cached provider liveness probes, health-weighted cross-family routing, explicit degraded-mode reports, and local fallback when hosted families are down.
 - A default $0.50 live-spend ceiling, pre-call reservations, versioned configured rates, provider-reported actual token accounting, estimate/actual reconciliation, and explicit budget stops.
 - Reconciled dry-run usage estimates, token-budget control, relevant-prior-run delta planning, versioned exact-match cache reuse, typed provider failures, bounded retries, socket timeouts, durable cancellation, failure diagnostics, and same-run resume.
@@ -79,6 +81,8 @@ See [Product Requirements](docs/product-requirements.md) and [Implementation Pla
 Current limitation: keyless synthesis is extractive, and neither local nor model synthesis proves factual entailment. Evidence refs are restricted to chunks actually delivered to each task; `citation_support` means consumed-reference coverage, while the model-path lexical-overlap warning is only a weak diagnostic floor. See [Quality Metric Provenance](docs/quality-metrics.md) and [ADR-001](docs/adr/ADR-001-kernel-unification.md).
 
 Provider capability numbers are configured priors used for routing, not measured quality facts. They remain priors until a versioned benchmark records a measurement.
+
+The kernel is headless. Codex, Claude Code, VS Code/Copilot, compatible desktop agents, and the terminal are host surfaces; MCP and CLI expose the same run/status/capacity/artifact contract. A separate dashboard is not required.
 
 ## Live Setup And Measurement
 

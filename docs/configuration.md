@@ -22,6 +22,13 @@ Use `.env.example` as the template. `.env.local` is ignored by git.
 - `ANTHROPIC_MAX_TOKENS`: optional positive output-token limit; defaults to `4096` and is included in dry-run usage estimates.
 - `OLLAMA_BASE_URL`: enables the `ollama.local` provider descriptor.
 - `OLLAMA_MODEL`: model id used by the Ollama adapter when live calls are enabled.
+- `GOOGLE_API_KEY`: enables `gemini.configured` through the Gemini API.
+- `GEMINI_MODEL`: Gemini model id.
+- `XAI_API_KEY`: enables `xai.configured`.
+- `XAI_MODEL`: xAI model id.
+- `OPENAI_COMPATIBLE_BASE_URL`: enables a local OpenAI-compatible gateway.
+- `OPENAI_COMPATIBLE_MODEL`: model id for that gateway.
+- `CLAUDE_CODE_BIN` and `CODEX_BIN`: optional explicit executable paths; otherwise the official CLIs are discovered on `PATH` in the CLI tranche.
 
 Provider detection is read-only by default. Hosted execution requires `--allow-internet`, `--allow-cloud`, a privacy mode that permits hosted models, and the provider-specific key/model variables. Internet permission alone never grants cloud execution, and `local_only` privacy cannot be overridden by a key or flag.
 
@@ -49,11 +56,22 @@ ANTHROPIC_MODEL=
 # ANTHROPIC_MAX_TOKENS=4096
 OLLAMA_BASE_URL=
 OLLAMA_MODEL=
+GOOGLE_API_KEY=
+GEMINI_MODEL=
+XAI_API_KEY=
+XAI_MODEL=
+# OPENAI_COMPATIBLE_BASE_URL=http://127.0.0.1:8000/v1
+OPENAI_COMPATIBLE_MODEL=
+# OPENAI_COMPATIBLE_API_KEY=
+# CLAUDE_CODE_BIN=claude
+# CODEX_BIN=codex
 ```
 
 Run `python -m universal_orchestrator configure` to see missing values without printing configured secrets.
 
 Provider capability numbers shown by `providers` are configured routing priors, not measured facts. Update them only as configuration-backed hypotheses until benchmark evidence exists.
+
+Capacity is reported with a source and confidence. A provider with no observation is `unknown`, not unlimited. Subscription-backed CLI calls record capacity usage separately from metered API dollars.
 
 ## Explicit Live Smoke
 

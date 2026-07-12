@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from universal_orchestrator.models import (
     ContextManifest,
@@ -23,7 +24,7 @@ class ValidatorRegistry:
         severity: str,
         pass_message: str,
         fail_message: str,
-        metadata: dict | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> ValidationFinding:
         return ValidationFinding(
             validator=validator,

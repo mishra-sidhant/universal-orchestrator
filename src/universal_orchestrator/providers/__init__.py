@@ -3,13 +3,16 @@ from universal_orchestrator.providers.base import ProviderAdapter, ProviderAdapt
 from universal_orchestrator.providers.deterministic import DeterministicToolsAdapter
 from universal_orchestrator.providers.ollama import OllamaAdapter
 from universal_orchestrator.providers.openai import OpenAIResponsesAdapter
+from universal_orchestrator.providers.gemini import GeminiAdapter
+from universal_orchestrator.providers.openai_compatible import OpenAICompatibleChatAdapter
 
 __all__ = [
     "AnthropicAdapter",
     "DeterministicToolsAdapter",
     "OllamaAdapter",
     "OpenAIResponsesAdapter",
+    "GeminiAdapter",
+    "OpenAICompatibleChatAdapter",
     "ProviderAdapter",
     "ProviderAdapterRegistry",
 ]
-

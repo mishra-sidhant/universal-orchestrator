@@ -1,5 +1,25 @@
 # Implementation Log
 
+## Tranche G.0-G.1: Capacity Foundation And Provider Matrix
+
+Failing-first landmark:
+
+```text
+ModuleNotFoundError: No module named 'universal_orchestrator.capacity'
+```
+
+Implemented typed capacity states/windows, thread-safe exact reservations, SQLite snapshot persistence, response-header normalization, capacity-aware routing fields, and fixture-tested Gemini and OpenAI-compatible adapters for xAI/local gateways. Capability values remain explicitly configured priors.
+
+Verification:
+
+```text
+Ran 166 tests in 3.874s - OK
+Success: no issues found in 57 source files
+world_readiness_core: passed
+```
+
+The standard `uv` and isolated build commands were unavailable in this shell: `uv` is not installed and the isolated build environment cannot download `hatchling` without network access. The bundled Python verification passed; the operator must rerun the canonical `uv` gate before merging.
+
 Date: July 8, 2026
 
 ## Source Understanding

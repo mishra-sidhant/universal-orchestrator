@@ -56,8 +56,9 @@ class EvidenceAuditor:
         cited_source_ids = sorted(
             {source_by_chunk[ref] for ref in supported_refs if ref in source_by_chunk}
         )
-        final_citations_present = bool(package) and "## Sources" in package.final_markdown and all(
-            f"[{ref}]" in package.final_markdown for ref in supported_refs
+        final_markdown = package.final_markdown if package is not None else ""
+        final_citations_present = bool(package) and "## Sources" in final_markdown and all(
+            f"[{ref}]" in final_markdown for ref in supported_refs
         )
         findings = [
             EvidenceAuditFinding(

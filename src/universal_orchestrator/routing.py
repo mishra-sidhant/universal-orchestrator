@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 
 from universal_orchestrator.config import load_env_file
+from universal_orchestrator.capacity import CapacityBroker
 from universal_orchestrator.cost_ledger import CostLedger
 from universal_orchestrator.execution_policy import PolicyCompiler
 from universal_orchestrator.health import ProviderHealthChecker
@@ -23,8 +24,10 @@ from universal_orchestrator.models import (
 from universal_orchestrator.providers import (
     AnthropicAdapter,
     DeterministicToolsAdapter,
+    GeminiAdapter,
     OllamaAdapter,
     OpenAIResponsesAdapter,
+    OpenAICompatibleChatAdapter,
     ProviderAdapter,
     ProviderAdapterRegistry,
 )
@@ -47,11 +50,13 @@ class CapabilityRegistry:
         transports: dict[str, HTTPTransport] | None = None,
         cost_ledger: CostLedger | None = None,
         health_checker: ProviderHealthChecker | None = None,
+        capacity_broker: CapacityBroker | None = None,
     ) -> None:
         self.providers = providers
         self.transports = transports or {}
         self.cost_ledger = cost_ledger
         self.health_checker = health_checker or ProviderHealthChecker()
+        self.capacity_broker = capacity_broker or CapacityBroker()
 
     @classmethod
     def from_environment(
@@ -59,6 +64,7 @@ class CapabilityRegistry:
         transports: dict[str, HTTPTransport] | None = None,
         cost_ledger: CostLedger | None = None,
         health_checker: ProviderHealthChecker | None = None,
+        capacity_broker: CapacityBroker | None = None,
     ) -> "CapabilityRegistry":
         load_env_file()
         providers = [
@@ -164,11 +170,93 @@ class CapabilityRegistry:
                 ),
             ),
         ]
+        providers.extend(
+            [
+                ProviderDescriptor(
+                    id="gemini.configured",
+                    kind=ProviderKind.HOSTED_MODEL,
+                    connector_id="gemini.configured/default",
+                    billing_mode="metered",
+                    enabled=bool(os.getenv("GOOGLE_API_KEY") and os.getenv("GEMINI_MODEL")),
+                    capabilities={
+                        "strategic_reasoning": 0.9,
+                        "final_synthesis": 0.88,
+                        "structured_output": 0.86,
+                        "research": 0.9,
+                    },
+                    cost_tier=CostTier.PREMIUM,
+                    context_limit_tokens=1_000_000,
+                    health=ProviderHealth(
+                        status=ProviderStatus.HEALTHY
+                        if os.getenv("GOOGLE_API_KEY") and os.getenv("GEMINI_MODEL")
+                        else ProviderStatus.UNAVAILABLE,
+                        reliability_score=0.8
+                        if os.getenv("GOOGLE_API_KEY") and os.getenv("GEMINI_MODEL")
+                        else 0.0,
+                        message="Gemini API key and model detected. Capability values are configured priors.",
+                    ),
+                ),
+                ProviderDescriptor(
+                    id="xai.configured",
+                    kind=ProviderKind.HOSTED_MODEL,
+                    connector_id="xai.configured/default",
+                    billing_mode="metered",
+                    enabled=bool(os.getenv("XAI_API_KEY") and os.getenv("XAI_MODEL")),
+                    capabilities={
+                        "strategic_reasoning": 0.86,
+                        "final_synthesis": 0.84,
+                        "structured_output": 0.8,
+                        "research": 0.82,
+                    },
+                    cost_tier=CostTier.PREMIUM,
+                    context_limit_tokens=128_000,
+                    health=ProviderHealth(
+                        status=ProviderStatus.HEALTHY
+                        if os.getenv("XAI_API_KEY") and os.getenv("XAI_MODEL")
+                        else ProviderStatus.UNAVAILABLE,
+                        reliability_score=0.78
+                        if os.getenv("XAI_API_KEY") and os.getenv("XAI_MODEL")
+                        else 0.0,
+                        message="xAI API key and model detected. Capability values are configured priors.",
+                    ),
+                ),
+                ProviderDescriptor(
+                    id="openai-compatible.local",
+                    kind=ProviderKind.LOCAL_MODEL,
+                    connector_id="openai-compatible.local/default",
+                    billing_mode="local",
+                    enabled=bool(
+                        os.getenv("OPENAI_COMPATIBLE_BASE_URL")
+                        and os.getenv("OPENAI_COMPATIBLE_MODEL")
+                    ),
+                    capabilities={
+                        "summarization": 0.7,
+                        "extraction": 0.68,
+                        "structured_output": 0.6,
+                        "final_synthesis": 0.62,
+                    },
+                    cost_tier=CostTier.FREE,
+                    context_limit_tokens=32_000,
+                    health=ProviderHealth(
+                        status=ProviderStatus.UNKNOWN
+                        if os.getenv("OPENAI_COMPATIBLE_BASE_URL")
+                        and os.getenv("OPENAI_COMPATIBLE_MODEL")
+                        else ProviderStatus.UNAVAILABLE,
+                        reliability_score=0.5
+                        if os.getenv("OPENAI_COMPATIBLE_BASE_URL")
+                        and os.getenv("OPENAI_COMPATIBLE_MODEL")
+                        else 0.0,
+                        message="OpenAI-compatible local endpoint detected; health is not yet probed.",
+                    ),
+                ),
+            ]
+        )
         return cls(
             providers,
             transports=transports,
             cost_ledger=cost_ledger,
             health_checker=health_checker,
+            capacity_broker=capacity_broker,
         )
 
     def refresh_health(
@@ -216,6 +304,7 @@ class CapabilityRegistry:
                         provider,
                         transport=self.transports.get(provider.id),
                         cost_ledger=self.cost_ledger,
+                        capacity_broker=self.capacity_broker,
                     )
                 )
             elif provider.id == "anthropic.configured":
@@ -224,6 +313,7 @@ class CapabilityRegistry:
                         provider,
                         transport=self.transports.get(provider.id),
                         cost_ledger=self.cost_ledger,
+                        capacity_broker=self.capacity_broker,
                     )
                 )
             elif provider.id == "ollama.local":
@@ -232,6 +322,42 @@ class CapabilityRegistry:
                         provider,
                         transport=self.transports.get(provider.id),
                         cost_ledger=self.cost_ledger,
+                        capacity_broker=self.capacity_broker,
+                    )
+                )
+            elif provider.id == "gemini.configured":
+                adapters.append(
+                    GeminiAdapter(
+                        provider,
+                        transport=self.transports.get(provider.id),
+                        cost_ledger=self.cost_ledger,
+                        capacity_broker=self.capacity_broker,
+                    )
+                )
+            elif provider.id == "xai.configured":
+                adapters.append(
+                    OpenAICompatibleChatAdapter(
+                        provider,
+                        api_key_env="XAI_API_KEY",
+                        model_env="XAI_MODEL",
+                        base_url_env="XAI_BASE_URL",
+                        default_base_url="https://api.x.ai/v1",
+                        transport=self.transports.get(provider.id),
+                        cost_ledger=self.cost_ledger,
+                        capacity_broker=self.capacity_broker,
+                    )
+                )
+            elif provider.id == "openai-compatible.local":
+                adapters.append(
+                    OpenAICompatibleChatAdapter(
+                        provider,
+                        api_key_env="OPENAI_COMPATIBLE_API_KEY",
+                        model_env="OPENAI_COMPATIBLE_MODEL",
+                        base_url_env="OPENAI_COMPATIBLE_BASE_URL",
+                        default_base_url="http://127.0.0.1:8000/v1",
+                        transport=self.transports.get(provider.id),
+                        cost_ledger=self.cost_ledger,
+                        capacity_broker=self.capacity_broker,
                     )
                 )
         return ProviderAdapterRegistry(adapters)
@@ -333,12 +459,25 @@ class AdaptiveRouter:
                 reasons.append("provider has no matching required capabilities")
             if not provider.supports(task.required_capabilities):
                 reasons.append("provider capabilities are below task requirements")
+            connector_id = provider.connector_id or f"{provider.id}/{provider.model_id}"
+            capacity_snapshot = self.registry.capacity_broker.snapshot(connector_id)
+            capacity_eligible = self.registry.capacity_broker.is_eligible(connector_id)
+            if not capacity_eligible:
+                reasons.append(
+                    f"capacity {capacity_snapshot.status if capacity_snapshot else 'unavailable'}"
+                )
             reliability = provider.health.reliability_score
             cost_score = 1.0 - (COST_ORDER[provider.cost_tier] / 4)
+            capacity_score = self.registry.capacity_broker.score(connector_id)
             total = 0.0
             eligible = not reasons
             if eligible:
-                total = capability_score * 0.65 + reliability * 0.25 + cost_score * 0.10
+                total = (
+                    capability_score * 0.55
+                    + reliability * 0.20
+                    + cost_score * 0.10
+                    + capacity_score * 0.15
+                )
             metrics.append(
                 ProviderRoutingMetric(
                     task_id=task.id,
@@ -350,6 +489,9 @@ class AdaptiveRouter:
                     capability_score=round(capability_score, 4),
                     cost_score=round(cost_score, 4),
                     total_score=round(total, 4),
+                    capacity_status=(capacity_snapshot.status if capacity_snapshot else "unknown"),
+                    capacity_score=round(capacity_score, 4),
+                    capacity_reason=capacity_snapshot.reason if capacity_snapshot else "No capacity observation yet.",
                     eligible=eligible,
                     supports_requirements=provider.supports(task.required_capabilities),
                     rejection_reasons=reasons,

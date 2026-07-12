@@ -178,6 +178,68 @@ class ProviderStatus(StrEnum):
     UNKNOWN = "unknown"
 
 
+class CapacityStatus(StrEnum):
+    AVAILABLE = "available"
+    CONSTRAINED = "constrained"
+    EXHAUSTED = "exhausted"
+    COOLING_DOWN = "cooling_down"
+    UNKNOWN = "unknown"
+    UNAVAILABLE = "unavailable"
+
+
+class CapacityDimension(StrEnum):
+    REQUESTS = "requests"
+    INPUT_TOKENS = "input_tokens"
+    OUTPUT_TOKENS = "output_tokens"
+    TOTAL_TOKENS = "total_tokens"
+    SPEND_USD = "spend_usd"
+    CONCURRENT_REQUESTS = "concurrent_requests"
+    SUBSCRIPTION_CALLS = "subscription_calls"
+
+
+class CapacitySource(StrEnum):
+    RESPONSE_HEADERS = "response_headers"
+    QUOTA_ENDPOINT = "quota_endpoint"
+    CLI_STATUS = "cli_status"
+    OBSERVED_ERROR = "observed_error"
+    CONFIGURED = "configured"
+    LOCAL_TELEMETRY = "local_telemetry"
+
+
+class CapacityWindow(StrictModel):
+    dimension: CapacityDimension
+    limit: float | None = Field(default=None, ge=0.0)
+    remaining: float | None = Field(default=None, ge=0.0)
+    used_percent: float | None = Field(default=None, ge=0.0, le=100.0)
+    window_seconds: int | None = Field(default=None, ge=0)
+    reset_at: datetime | None = None
+    reserved: float = Field(default=0.0, ge=0.0)
+
+
+class CapacitySnapshot(StrictModel):
+    connector_id: str
+    provider_id: str
+    model_id: str
+    account_scope: str
+    status: CapacityStatus = CapacityStatus.UNKNOWN
+    source: CapacitySource = CapacitySource.CONFIGURED
+    confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+    observed_at: datetime = Field(default_factory=utc_now)
+    expires_at: datetime | None = None
+    windows: list[CapacityWindow] = Field(default_factory=list)
+    reason: str = ""
+
+
+class CapacityReservation(StrictModel):
+    reservation_id: str
+    run_id: str
+    task_id: str
+    connector_id: str
+    dimensions: dict[CapacityDimension, float] = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=utc_now)
+    expires_at: datetime | None = None
+
+
 class ArtifactType(StrEnum):
     MANIFEST = "manifest"
     REPORT = "report"
@@ -450,6 +512,10 @@ class ProviderHealth(StrictModel):
 class ProviderDescriptor(StrictModel):
     id: str
     kind: ProviderKind
+    connector_id: str | None = None
+    model_id: str = "default"
+    account_scope: str = "default"
+    billing_mode: Literal["metered", "subscription", "local"] = "metered"
     enabled: bool = True
     capabilities: dict[str, float] = Field(default_factory=dict)
     cost_tier: CostTier = CostTier.MEDIUM
@@ -505,6 +571,9 @@ class ProviderRoutingMetric(StrictModel):
     capability_score: float = Field(default=0.0, ge=0.0)
     cost_score: float = Field(default=0.0, ge=0.0, le=1.0)
     total_score: float = Field(default=0.0, ge=0.0)
+    capacity_status: CapacityStatus = CapacityStatus.UNKNOWN
+    capacity_score: float = Field(default=1.0, ge=0.0, le=1.0)
+    capacity_reason: str = ""
     eligible: bool = False
     supports_requirements: bool = False
     rejection_reasons: list[str] = Field(default_factory=list)

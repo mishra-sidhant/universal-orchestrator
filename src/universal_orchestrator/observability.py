@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from universal_orchestrator.models import (
     Artifact,
     DebugBundleManifest,
@@ -16,7 +18,7 @@ class TraceRecorder:
         self._last_checkpoint = utc_now()
         self.spans: list[TraceSpan] = []
 
-    def checkpoint(self, name: str, metadata: dict | None = None) -> None:
+    def checkpoint(self, name: str, metadata: dict[str, Any] | None = None) -> None:
         completed = utc_now()
         duration_ms = (completed - self._last_checkpoint).total_seconds() * 1000
         self.spans.append(

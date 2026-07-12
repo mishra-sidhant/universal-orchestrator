@@ -6,7 +6,7 @@ import os
 import re
 import tempfile
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, cast
 
 from pydantic import BaseModel
 
@@ -75,7 +75,9 @@ def write_json(path: Path, payload: Any) -> None:
 
 
 def read_json(path: Path) -> dict[str, Any]:
-    return json.loads(path.read_text())
+    # Existing artifacts include both object and array JSON documents. Callers
+    # that need an object validate the payload at their boundary.
+    return cast(dict[str, Any], json.loads(path.read_text()))
 
 
 def iter_files(root: Path, ignored_names: Iterable[str], max_files: int) -> list[Path]:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter
+from typing import Any
 
 from universal_orchestrator.models import (
     Artifact,
@@ -36,7 +37,7 @@ class ArtifactIntegrityAuditor:
             entries=entries,
         )
 
-    def checksums_payload(self, run_id: str, artifacts: list[Artifact]) -> dict:
+    def checksums_payload(self, run_id: str, artifacts: list[Artifact]) -> dict[str, Any]:
         return {
             "schema_version": "1.0",
             "run_id": run_id,
