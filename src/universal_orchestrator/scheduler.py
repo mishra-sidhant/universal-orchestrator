@@ -100,10 +100,13 @@ class DAGScheduler:
         cache_context: dict[str, Any] | None = None,
         cancellation_check: Callable[[], bool] | None = None,
     ) -> tuple[list[ExecutionResult], ScheduleReport]:
+        if self.runtime_store is not None:
+            self.runtime_store.recover_expired_leases()
         decision_by_task = {decision.task_id: decision for decision in decisions}
         results: list[ExecutionResult] = []
         records: list[ScheduledTaskRecord] = []
         cache_hits: list[str] = []
+        checkpoint_hits: list[str] = []
         execution_order: list[str] = []
         result_by_task: dict[str, ExecutionResult] = {}
         batches = self.parallel_batches(dag)
@@ -131,7 +134,29 @@ class DAGScheduler:
                     batch_records[task.id] = [self._record(task, result, 0, cache_key)]
                 else:
                     cached = self.cached_payload(cache_key, task.cacheable)
-                    if cached and cached.get("schema_version") == "2.0" and cached.get("status") == "completed":
+                    checkpoint = (
+                        self.runtime_store.latest_checkpoint(dag.run_id, task.id)
+                        if self.runtime_store is not None and task.cacheable
+                        else None
+                    )
+                    if (
+                        checkpoint is not None
+                        and checkpoint.execution_fingerprint == cache_key
+                        and checkpoint.output_schema_version == "1.0"
+                    ):
+                        checkpoint_hits.append(task.id)
+                        result = ExecutionResult(
+                            task_id=task.id,
+                            provider_id=checkpoint.provider_id,
+                            status=TaskStatus.CACHED,
+                            output=checkpoint.validated_output,
+                            warnings=["Loaded validated checkpoint during resume."],
+                            started_at=checkpoint.created_at,
+                            completed_at=utc_now(),
+                        )
+                        batch_results[task.id] = result
+                        batch_records[task.id] = [self._record(task, result, 0, cache_key)]
+                    elif cached and cached.get("schema_version") == "2.0" and cached.get("status") == "completed":
                         cache_hits.append(task.id)
                         result = ExecutionResult(
                             task_id=task.id,
@@ -216,9 +241,13 @@ class DAGScheduler:
                                 run_id=dag.run_id,
                                 task_id=task.id,
                                 attempt=max(1, attempt),
-                                sequence=attempt,
+                                sequence=self.runtime_store.next_checkpoint_sequence(
+                                    dag.run_id, task.id
+                                ),
                                 lease_epoch=lease.epoch,
                                 validated_output=result.output,
+                                provider_id=result.provider_id,
+                                execution_fingerprint=cache_key,
                             )
                             if not self.runtime_store.save_checkpoint(checkpoint, lease):
                                 result = result.model_copy(
@@ -256,6 +285,7 @@ class DAGScheduler:
             execution_order=execution_order,
             parallel_batches=[[task.id for task in batch] for batch in batches],
             cache_hits=cache_hits,
+            checkpoint_hits=checkpoint_hits,
             failed_tasks=[result.task_id for result in results if result.status == TaskStatus.FAILED],
         )
         return results, report

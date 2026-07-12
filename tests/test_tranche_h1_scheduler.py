@@ -49,6 +49,62 @@ class OverlapExecutor:
 
 
 class ParallelSchedulerTests(unittest.TestCase):
+    def test_resume_consumes_matching_validated_checkpoint_without_reexecution(self) -> None:
+        with TemporaryDirectory() as directory:
+            runtime = RuntimeStore(f"{directory}/runtime.sqlite3")
+            dag = TaskDAG(
+                run_id="R",
+                nodes=[TaskNode(id="A", run_id="R", title="A", task_type=TaskType.PLANNING)],
+            )
+            decision = RoutingDecision(
+                task_id="A", action=RoutingAction.ROUTE, provider_id="fixture", reason="test"
+            )
+            DAGScheduler(runtime_store=runtime).execute(
+                dag, [decision], OverlapExecutor(), {"input": "same"}
+            )
+            second_executor = OverlapExecutor()
+            results, report = DAGScheduler(runtime_store=runtime).execute(
+                dag, [decision], second_executor, {"input": "same"}
+            )
+
+            self.assertEqual(results[0].status, TaskStatus.CACHED)
+            self.assertEqual(report.checkpoint_hits, ["A"])
+            self.assertEqual(second_executor.max_active, 0)
+
+    def test_resume_reexecutes_when_fingerprint_changes_or_task_is_side_effecting(self) -> None:
+        with TemporaryDirectory() as directory:
+            runtime = RuntimeStore(f"{directory}/runtime.sqlite3")
+            cacheable = TaskNode(id="A", run_id="R", title="A", task_type=TaskType.PLANNING)
+            side_effecting = TaskNode(
+                id="B",
+                run_id="R",
+                title="B",
+                task_type=TaskType.ARTIFACT_BUILD,
+                cacheable=False,
+            )
+            dag = TaskDAG(run_id="R", nodes=[cacheable, side_effecting])
+            decisions = [
+                RoutingDecision(
+                    task_id=task.id,
+                    action=RoutingAction.ROUTE,
+                    provider_id="fixture",
+                    reason="test",
+                )
+                for task in dag.nodes
+            ]
+            DAGScheduler(runtime_store=runtime).execute(
+                dag, decisions, OverlapExecutor(), {"input": "same"}
+            )
+            results, report = DAGScheduler(runtime_store=runtime).execute(
+                dag, decisions, OverlapExecutor(), {"input": "changed"}
+            )
+
+            self.assertEqual(report.checkpoint_hits, ["A"])
+            self.assertEqual(
+                [result.status for result in results],
+                [TaskStatus.CACHED, TaskStatus.COMPLETED],
+            )
+
     def test_independent_tasks_overlap_and_dependents_wait(self) -> None:
         dag = TaskDAG(
             run_id="R",
