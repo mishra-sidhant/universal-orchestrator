@@ -394,9 +394,14 @@ class DAGScheduler:
 
     def cache_key_for_task(self, task: TaskNode, cache_context: dict[str, Any] | None = None) -> str:
         payload = {
+            "execution_contract_version": "2026-07-13-o4-validator-panel",
             "task_id": task.id,
             "title": task.title,
+            "chapter_id": task.chapter_id,
+            "chapter_title": task.chapter_title,
+            "objective": task.objective,
             "task_type": task.task_type,
+            "output_schema": task.output_schema,
             "capabilities": task.required_capabilities,
             "dependencies": task.dependencies,
             "max_cost_tier": task.max_cost_tier,

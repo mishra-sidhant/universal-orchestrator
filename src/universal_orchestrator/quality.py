@@ -6,6 +6,7 @@ from universal_orchestrator.models import (
     ContextManifest,
     ExecutionResult,
     ProductContract,
+    ProductPlan,
     QualityGateResult,
     QualityScore,
     RepoValidationReport,
@@ -31,8 +32,17 @@ class QualityGateEngine:
         results: list[ExecutionResult],
         artifact_paths: list[Path],
         repo_validation_report: RepoValidationReport | None = None,
+        product_plan: ProductPlan | None = None,
     ) -> QualityGateResult:
-        findings = self.validators.evaluate(manifest, contract, dag, decisions, results, artifact_paths)
+        findings = self.validators.evaluate(
+            manifest,
+            contract,
+            dag,
+            decisions,
+            results,
+            artifact_paths,
+            product_plan=product_plan,
+        )
         violations: list[str] = [
             finding.message
             for finding in findings

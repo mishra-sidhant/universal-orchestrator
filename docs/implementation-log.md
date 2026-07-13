@@ -1143,3 +1143,29 @@ Focused verification (2026-07-13, fixture-only):
 ```text
 structured manuscript and model-path tests: 11 passed
 ```
+
+## Tranche O.4: Validator Panel And Product-Owner Controls
+
+Failing-first transcript:
+
+```text
+validator registry had no product-plan or manuscript contract findings
+normal runs emitted no named validator panel artifact
+product owner accepted a final-synthesis fragment with no manuscript section
+```
+
+Implemented:
+
+- Added named product-plan validators for executable steps, acceptance criteria, and required artifacts.
+- Added manuscript validators for every final-synthesis DAG task, including missing and malformed section detection.
+- Persisted `validator_panel.json` with pass state, finding count, failed validator identities, full findings, and a clear non-entailment disclosure; the artifact is included in expected delivery contents.
+- Applied high-severity panel failures to the quality result before final assembly, so a failed contract check cannot be hidden by an otherwise complete report.
+- Made the product owner reject missing or malformed manuscript fragments based on the DAG's final-synthesis tasks, not on optional worker metadata.
+
+Focused verification (2026-07-13, fixture-only):
+
+```text
+validator-panel, product-owner, and cache-contract tests: 4 passed
+```
+
+The panel integration initially exposed stale scheduler cache entries from pre-manuscript runs. The cache fingerprint now includes an execution-contract version, chapter metadata, objective, and output schema; the regression suite proves an output-contract change cannot reuse the old task result.

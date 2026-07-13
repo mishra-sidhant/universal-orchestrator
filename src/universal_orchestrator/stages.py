@@ -138,6 +138,31 @@ class StageWorkerRegistry:
         if handler is None and task.task_type == "final_synthesis":
             handler = self._synthesis
         if handler is None:
+            if reshaped:
+                reason = (
+                    f"{task.title} completed through the bounded deterministic local reshape."
+                )
+                result = self._result(
+                    task,
+                    execution_decision,
+                    TaskStatus.COMPLETED,
+                    reason,
+                    [
+                        {
+                            "kind": "deterministic_reshape",
+                            "severity": "medium",
+                            "message": reason,
+                        }
+                    ],
+                    [],
+                    started_at,
+                    warnings=[reshape_warning or reason],
+                )
+                worker_output = dict(result.output["worker_output"])
+                worker_output["synthesis_path"] = "deterministic_reshape"
+                return result.model_copy(
+                    update={"output": {**result.output, "worker_output": worker_output}}
+                )
             reason = "No registered deterministic stage worker can execute this task."
             return self._result(
                 task,

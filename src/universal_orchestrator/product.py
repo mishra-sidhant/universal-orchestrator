@@ -32,7 +32,7 @@ class FinalProductOwner:
         blocked_claims: list[str] | None = None,
         product_plan: ProductPlan | None = None,
     ) -> ProductPackage:
-        rejected = self._reject_fragments(results)
+        rejected = self._reject_fragments(results, dag)
         markdown = self._render_markdown(
             manifest,
             contract,
@@ -57,8 +57,11 @@ class FinalProductOwner:
             validation_notes=quality.warnings + quality.violations,
         )
 
-    def _reject_fragments(self, results: list[ExecutionResult]) -> list[str]:
+    def _reject_fragments(self, results: list[ExecutionResult], dag: TaskDAG) -> list[str]:
         rejected: list[str] = []
+        manuscript_task_ids = {
+            node.id for node in dag.nodes if node.task_type == "final_synthesis"
+        }
         for result in results:
             worker_output = result.output.get("worker_output")
             if not task_succeeded(result.status):
@@ -67,6 +70,16 @@ class FinalProductOwner:
                 rejected.append(f"{result.task_id}: missing structured worker output")
             elif len(str(worker_output.get("summary", "")).strip()) < 10:
                 rejected.append(f"{result.task_id}: summary too thin")
+            elif result.task_id in manuscript_task_ids and not worker_output.get("manuscript"):
+                rejected.append(f"{result.task_id}: missing manuscript section")
+            elif result.task_id in manuscript_task_ids and any(
+                not isinstance(section, dict)
+                or not str(section.get("heading", "")).strip()
+                or not str(section.get("objective", "")).strip()
+                or not str(section.get("body", "")).strip()
+                for section in worker_output.get("manuscript", [])
+            ):
+                rejected.append(f"{result.task_id}: malformed manuscript section")
         return rejected
 
     def _render_markdown(

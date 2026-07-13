@@ -50,6 +50,7 @@ from universal_orchestrator.models import (
     RunState,
     SlideSpec,
     TaskDAG,
+    ValidatorPanelReport,
     new_id,
     utc_now,
 )
@@ -393,6 +394,7 @@ class Orchestrator:
                 results=stage_results,
                 artifact_paths=[artifact.as_path for artifact in stage_context.artifacts],
                 repo_validation_report=repo_validation_report,
+                product_plan=product_plan,
             )
 
         stage_context = KernelStageContext(
@@ -613,13 +615,48 @@ class Orchestrator:
             }
         )
         validation_findings = self.quality.validators.evaluate(
-            manifest, contract, dag, all_decisions, all_results, [artifact.as_path for artifact in artifacts]
+            manifest,
+            contract,
+            dag,
+            all_decisions,
+            all_results,
+            [artifact.as_path for artifact in artifacts],
+            product_plan=product_plan,
         )
+        validator_panel = ValidatorPanelReport(
+            run_id=run_id,
+            passed=not any(
+                not finding.passed and finding.severity in {"high", "critical"}
+                for finding in validation_findings
+            ),
+            finding_count=len(validation_findings),
+            failed_validators=sorted(
+                {finding.validator for finding in validation_findings if not finding.passed}
+            ),
+            findings=validation_findings,
+        )
+        panel_violations = [
+            finding.message
+            for finding in validation_findings
+            if not finding.passed and finding.severity in {"high", "critical"}
+        ]
+        if panel_violations:
+            quality = quality.model_copy(
+                update={
+                    "passed": False,
+                    "violations": [*quality.violations, *panel_violations],
+                }
+            )
         artifacts.append(
             self.artifact_store.write_json_artifact(
                 run_id,
                 "validation_findings.json",
                 [finding.model_dump(mode="json") for finding in validation_findings],
+            )
+        )
+        artifacts.append(
+            self.artifact_store.write_json_artifact(
+                run_id, "validator_panel.json", validator_panel.model_dump(mode="json")
             )
         )
         supported_evidence_refs_by_task: dict[str, list[str]] = {}
@@ -1250,6 +1287,7 @@ class Orchestrator:
             "repo_validation_report.json",
             "provider_health_report.json",
             "validation_findings.json",
+            "validator_panel.json",
             "evidence_audit.json",
             "quality_report.json",
             "product_package.json",

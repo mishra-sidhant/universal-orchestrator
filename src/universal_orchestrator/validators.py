@@ -7,6 +7,7 @@ from universal_orchestrator.models import (
     ContextManifest,
     ExecutionResult,
     ProductContract,
+    ProductPlan,
     RoutingAction,
     RoutingDecision,
     TaskDAG,
@@ -44,6 +45,7 @@ class ValidatorRegistry:
         decisions: list[RoutingDecision],
         results: list[ExecutionResult],
         artifact_paths: list[Path],
+        product_plan: ProductPlan | None = None,
     ) -> list[ValidationFinding]:
         findings: list[ValidationFinding] = []
         findings.extend(self._manifest_findings(manifest))
@@ -52,7 +54,80 @@ class ValidatorRegistry:
         findings.extend(self._routing_findings(dag, decisions))
         findings.extend(self._execution_findings(results))
         findings.extend(self._artifact_findings(artifact_paths))
+        if product_plan is not None:
+            findings.extend(self._plan_findings(product_plan))
+            findings.extend(self._manuscript_findings(dag, results))
         return findings
+
+    def _plan_findings(self, plan: ProductPlan) -> list[ValidationFinding]:
+        return [
+            self._finding(
+                validator="product_plan",
+                passed=bool(plan.execution_steps),
+                severity="high",
+                pass_message="Product plan contains executable steps.",
+                fail_message="Product plan contains no executable steps.",
+                metadata={"step_count": len(plan.execution_steps)},
+            ),
+            self._finding(
+                validator="product_plan",
+                passed=bool(plan.acceptance_criteria),
+                severity="high",
+                pass_message="Product plan contains acceptance criteria.",
+                fail_message="Product plan contains no acceptance criteria.",
+                metadata={"criterion_count": len(plan.acceptance_criteria)},
+            ),
+            self._finding(
+                validator="product_plan",
+                passed=bool(plan.required_artifacts),
+                severity="high",
+                pass_message="Product plan names required artifacts.",
+                fail_message="Product plan names no required artifacts.",
+                metadata={"required_artifacts": plan.required_artifacts},
+            ),
+        ]
+
+    def _manuscript_findings(
+        self, dag: TaskDAG, results: list[ExecutionResult]
+    ) -> list[ValidationFinding]:
+        result_by_task = {result.task_id: result for result in results}
+        missing: list[str] = []
+        malformed: list[str] = []
+        for node in dag.nodes:
+            if node.task_type != "final_synthesis":
+                continue
+            result = result_by_task.get(node.id)
+            worker_output = result.output.get("worker_output", {}) if result else {}
+            sections = worker_output.get("manuscript") if isinstance(worker_output, dict) else None
+            if not isinstance(sections, list) or not sections:
+                missing.append(node.id)
+                continue
+            if any(
+                not isinstance(section, dict)
+                or not str(section.get("heading", "")).strip()
+                or not str(section.get("objective", "")).strip()
+                or not str(section.get("body", "")).strip()
+                for section in sections
+            ):
+                malformed.append(node.id)
+        return [
+            self._finding(
+                validator="manuscript",
+                passed=not missing,
+                severity="high",
+                pass_message="Every final-synthesis task emits a structured manuscript.",
+                fail_message=f"Final-synthesis tasks lack a manuscript: {sorted(missing)}",
+                metadata={"missing": sorted(missing)},
+            ),
+            self._finding(
+                validator="manuscript",
+                passed=not malformed,
+                severity="high",
+                pass_message="Every manuscript section has heading, objective, and body.",
+                fail_message=f"Malformed manuscript sections found for tasks: {sorted(malformed)}",
+                metadata={"malformed": sorted(malformed)},
+            ),
+        ]
 
     def _manifest_findings(self, manifest: ContextManifest) -> list[ValidationFinding]:
         return [

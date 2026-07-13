@@ -968,6 +968,18 @@ class ValidationFinding(StrictModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class ValidatorPanelReport(StrictModel):
+    schema_version: str = "1.0"
+    run_id: str
+    passed: bool
+    finding_count: int = 0
+    failed_validators: list[str] = Field(default_factory=list)
+    findings: list[ValidationFinding] = Field(default_factory=list)
+    disclosure: str = (
+        "The validator panel is a set of named deterministic checks, not a claim of semantic entailment."
+    )
+
+
 class QualityScore(StrictModel):
     completeness: int = Field(ge=0, le=100)
     parse_confidence: int = Field(ge=0, le=100)
