@@ -981,6 +981,24 @@ class ValidatorPanelReport(StrictModel):
     )
 
 
+class FidelityFinding(StrictModel):
+    kind: str
+    passed: bool
+    severity: Literal["info", "low", "medium", "high", "critical"]
+    message: str
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class FidelityReport(StrictModel):
+    schema_version: str = "1.0"
+    run_id: str
+    passed: bool
+    findings: list[FidelityFinding] = Field(default_factory=list)
+    context_pack_count: int = 0
+    manuscript_section_count: int = 0
+    artifact_count: int = 0
+
+
 class QualityScore(StrictModel):
     completeness: int = Field(ge=0, le=100)
     parse_confidence: int = Field(ge=0, le=100)

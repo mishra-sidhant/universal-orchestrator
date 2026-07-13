@@ -1219,3 +1219,26 @@ Focused verification (2026-07-13, fixture-only):
 ```text
 repository transaction tests: 6 passed
 ```
+
+## Tranche O.7: Context And Artifact Fidelity Bundles
+
+Failing-first transcript:
+
+```text
+no report connected context-pack copies to canonical chunk content hashes
+no check ensured manuscript refs stayed within each task's consumed context
+no single product audit index connected evidence, validator, fidelity, integrity, and quality artifacts
+```
+
+Implemented:
+
+- Added `ContextArtifactFidelityAuditor` to verify context-pack chunk identity, worker evidence consumption, manuscript section consumption, and every recorded artifact's current hash and size.
+- Persisted `fidelity_report.json` and demoted quality when a high-value context or artifact fidelity check fails.
+- Added `product_audit_bundle.json`, an explicit index of the contract, plan, validator, evidence, fidelity, integrity, quality, and primary product artifacts with a non-entailment disclosure.
+- Included both reports in expected artifact names, final integrity validation, and the delivery ZIP.
+
+Focused verification (2026-07-13, fixture-only):
+
+```text
+context tamper and product/audit bundle tests: 2 passed
+```

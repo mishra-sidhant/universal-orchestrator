@@ -16,6 +16,7 @@ from universal_orchestrator.delta import DeltaPlanner
 from universal_orchestrator.evidence import EvidenceAuditor
 from universal_orchestrator.errors import RunCancelledError
 from universal_orchestrator.execution_policy import PolicyCompiler
+from universal_orchestrator.fidelity import ContextArtifactFidelityAuditor
 from universal_orchestrator.ingestion import InputIngestor
 from universal_orchestrator.integrity import ArtifactIntegrityAuditor
 from universal_orchestrator.handoff import HandoffController
@@ -92,6 +93,7 @@ class Orchestrator:
         self.evidence = EvidenceAuditor()
         self.repo_validation = RepoValidationRunner()
         self.repo_editor = TransactionalRepoEditor()
+        self.fidelity = ContextArtifactFidelityAuditor()
         self.repair = RepairPlanner()
         self.product_owner = FinalProductOwner()
         self.artifact_builder = ArtifactBuilder()
@@ -976,6 +978,29 @@ class Orchestrator:
             )
         )
 
+        fidelity_report = self.fidelity.audit(
+            run_id,
+            chunks,
+            context_packs,
+            all_results,
+            chunk_refs_by_task,
+            artifacts,
+        )
+        if not fidelity_report.passed:
+            quality = quality.model_copy(
+                update={
+                    "passed": False,
+                    "violations": [
+                        *quality.violations,
+                        "Context and artifact fidelity audit failed.",
+                    ],
+                }
+            )
+        artifacts.append(
+            self.artifact_store.write_json_artifact(
+                run_id, "fidelity_report.json", fidelity_report.model_dump(mode="json")
+            )
+        )
         integrity_report = self.integrity.audit(
             run_id, artifacts, self._expected_artifact_names(contract)
         )
@@ -985,6 +1010,43 @@ class Orchestrator:
                 "artifact_integrity_report.json",
                 integrity_report.model_dump(mode="json"),
             )
+        )
+        artifacts.append(
+            self.artifact_store.write_json_artifact(
+                run_id,
+                "product_audit_bundle.json",
+                {
+                    "schema_version": "1.0",
+                    "run_id": run_id,
+                    "audit_artifacts": [
+                        "product_contract.json",
+                        "product_plan.json",
+                        "validator_panel.json",
+                        "evidence_audit.json",
+                        "fidelity_report.json",
+                        "artifact_integrity_report.json",
+                        "quality_report.json",
+                    ],
+                    "primary_artifacts": contract.primary_artifacts,
+                    "disclosure": (
+                        "This bundle is an audit index. It does not claim semantic entailment "
+                        "or live-provider superiority."
+                    ),
+                },
+            )
+        )
+        final_integrity_report = self.integrity.audit(
+            run_id,
+            [artifact for artifact in artifacts if artifact.name != "artifact_integrity_report.json"],
+            self._expected_artifact_names(contract),
+        )
+        self._replace_artifact(
+            artifacts,
+            self.artifact_store.write_json_artifact(
+                run_id,
+                "artifact_integrity_report.json",
+                final_integrity_report.model_dump(mode="json"),
+            ),
         )
 
         return self._finalize_delivery(
@@ -1443,6 +1505,8 @@ class Orchestrator:
             "validation_findings.json",
             "validator_panel.json",
             "evidence_audit.json",
+            "fidelity_report.json",
+            "product_audit_bundle.json",
             "quality_report.json",
             "product_package.json",
             "manuscript.json",
