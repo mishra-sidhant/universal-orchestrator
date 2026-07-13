@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 from universal_orchestrator.models import (
     CostTier,
     Criticality,
@@ -22,6 +24,7 @@ class RepairPlanner:
                     title=self._title_for_violation(violation),
                     task_type=TaskType.QUALITY_REPAIR,
                     input_refs=[violation],
+                    repair_target_task_ids=self._target_task_ids(violation),
                     output_schema="repair_result_json",
                     dependencies=[],
                     required_capabilities=self._capabilities_for_violation(violation),
@@ -70,3 +73,5 @@ class RepairPlanner:
             return {"routing": 0.75}
         return {"contract_validation": 0.7, "critique": 0.6}
 
+    def _target_task_ids(self, violation: str) -> list[str]:
+        return sorted(set(re.findall(r"T-[A-Z0-9]+(?:-[A-Z0-9]+)*", violation)))

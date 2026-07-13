@@ -1169,3 +1169,28 @@ validator-panel, product-owner, and cache-contract tests: 4 passed
 ```
 
 The panel integration initially exposed stale scheduler cache entries from pre-manuscript runs. The cache fingerprint now includes an execution-contract version, chapter metadata, objective, and output schema; the regression suite proves an output-contract change cannot reuse the old task result.
+
+## Tranche O.5: Targeted Repair Replacement And Re-Audit
+
+Failing-first transcript:
+
+```text
+repair tasks had no target task IDs
+repair results were appended beside invalid primary results instead of replacing them
+execution_results.json retained the invalid primary fragment after repair
+no before/after repair evidence audit artifact existed
+```
+
+Implemented:
+
+- Added explicit repair target IDs to task nodes and deterministic extraction from quality violations.
+- Added a concrete local quality-repair worker and a targeted replacement applier for malformed or missing manuscript sections.
+- Replaced the affected primary result in memory and rewrote `execution_results.json`; repair results remain separately preserved in `repair_execution_results.json`.
+- Persisted `repair_replacement_report.json` and `repair_reaudit.json`, including replaced task IDs, replacement reasons, pre-repair audit, post-repair audit, and post-repair quality.
+- Re-ran quality and evidence evaluation against the repaired primary result set, so a repair can genuinely improve delivery while unrelated failures remain visible.
+
+Focused verification (2026-07-13, fixture-only):
+
+```text
+target extraction, replacement, and end-to-end re-audit tests: 3 passed
+```

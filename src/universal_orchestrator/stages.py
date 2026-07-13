@@ -137,6 +137,8 @@ class StageWorkerRegistry:
         handler = self.handlers.get(task.id)
         if handler is None and task.task_type == "final_synthesis":
             handler = self._synthesis
+        if handler is None and task.task_type == "quality_repair":
+            handler = self._quality_repair
         if handler is None:
             if reshaped:
                 reason = (
@@ -483,6 +485,25 @@ class StageWorkerRegistry:
             ],
             {"artifact_names": names},
         )
+
+    def _quality_repair(
+        self, task: TaskNode, decision: RoutingDecision, refs: list[str]
+    ) -> tuple[str, list[dict[str, Any]], dict[str, Any]]:
+        del decision, refs
+        targets = task.repair_target_task_ids
+        target_text = ", ".join(targets) if targets else "the recorded quality violation"
+        summary = f"Prepared targeted repair for {target_text}."
+        return summary, [
+            {
+                "kind": "targeted_repair",
+                "severity": "info",
+                "message": summary,
+                "target_task_ids": targets,
+            }
+        ], {
+            "repair_target_task_ids": targets,
+            "repair_action": "replace_targeted_fragment",
+        }
 
     def _quality(
         self, task: TaskNode, decision: RoutingDecision, refs: list[str]

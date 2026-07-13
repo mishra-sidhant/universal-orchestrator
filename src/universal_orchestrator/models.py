@@ -512,6 +512,7 @@ class TaskNode(StrictModel):
     objective: str | None = None
     task_type: TaskType
     input_refs: list[str] = Field(default_factory=list)
+    repair_target_task_ids: list[str] = Field(default_factory=list)
     output_schema: str = "structured_json"
     dependencies: list[str] = Field(default_factory=list)
     required_capabilities: dict[str, float] = Field(default_factory=dict)

@@ -480,6 +480,7 @@ class Orchestrator:
             evidence_audit,
             source_required="source-aware synthesis" in contract.must_have,
         )
+        pre_repair_evidence_audit = evidence_audit
         self.runtime.transition(run_id, RunState.VALIDATION)
         trace.checkpoint("validation", {"quality_passed": quality.passed, "violations": len(quality.violations)})
         if not quality.passed:
@@ -510,7 +511,20 @@ class Orchestrator:
                     record.cache_key,
                 )
             all_decisions.extend(repair_decisions)
-            all_results.extend(repair_results)
+            repaired_primary_results, replacement_report = self._apply_repair_replacements(
+                results,
+                repair_dag,
+                repair_results,
+            )
+            all_results = [*repaired_primary_results, *repair_results]
+            self._replace_artifact(
+                artifacts,
+                self.artifact_store.write_json_artifact(
+                    run_id,
+                    "execution_results.json",
+                    [result.model_dump(mode="json") for result in repaired_primary_results],
+                ),
+            )
             schedule_report = schedule_report.model_copy(
                 update={
                     "records": [*schedule_report.records, *repair_schedule.records],
@@ -555,6 +569,24 @@ class Orchestrator:
                     [result.model_dump(mode="json") for result in repair_results],
                 )
             )
+            artifacts.append(
+                self.artifact_store.write_json_artifact(
+                    run_id,
+                    "repair_replacement_report.json",
+                    {
+                        "schema_version": "1.0",
+                        "run_id": run_id,
+                        "replacements": replacement_report,
+                        "replaced_task_ids": sorted(
+                            {
+                                item["target_task_id"]
+                                for item in replacement_report
+                                if item["replaced"]
+                            }
+                        ),
+                    },
+                )
+            )
             quality = self.quality.evaluate(
                 manifest=manifest,
                 contract=contract,
@@ -563,6 +595,7 @@ class Orchestrator:
                 results=all_results,
                 artifact_paths=[artifact.as_path for artifact in artifacts],
                 repo_validation_report=repo_validation_report,
+                product_plan=product_plan,
             )
             evidence_audit = self.evidence.audit(
                 None,
@@ -577,6 +610,32 @@ class Orchestrator:
                 quality,
                 evidence_audit,
                 source_required="source-aware synthesis" in contract.must_have,
+            )
+            artifacts.append(
+                self.artifact_store.write_json_artifact(
+                    run_id,
+                    "repair_reaudit.json",
+                    {
+                        "schema_version": "1.0",
+                        "run_id": run_id,
+                        "replaced_task_ids": sorted(
+                            {
+                                item["target_task_id"]
+                                for item in replacement_report
+                                if item["replaced"]
+                            }
+                        ),
+                        "replacement_count": sum(
+                            1 for item in replacement_report if item["replaced"]
+                        ),
+                        "replacements": replacement_report,
+                        "pre_repair_evidence_audit": pre_repair_evidence_audit.model_dump(
+                            mode="json"
+                        ),
+                        "post_repair_evidence_audit": evidence_audit.model_dump(mode="json"),
+                        "post_repair_quality": quality.model_dump(mode="json"),
+                    },
+                )
             )
             trace.checkpoint(
                 "repair_execution",
@@ -1258,6 +1317,78 @@ class Orchestrator:
                 artifacts[index] = replacement
                 return
         artifacts.append(replacement)
+
+    def _apply_repair_replacements(
+        self,
+        primary_results: list[ExecutionResult],
+        repair_dag: TaskDAG,
+        repair_results: list[ExecutionResult],
+    ) -> tuple[list[ExecutionResult], list[dict[str, Any]]]:
+        repair_status = {result.task_id: str(result.status) for result in repair_results}
+        by_task = {result.task_id: result for result in primary_results}
+        replacements: list[dict[str, Any]] = []
+        for repair_task in repair_dag.nodes:
+            if repair_task.task_type != "quality_repair":
+                continue
+            repair_completed = repair_status.get(repair_task.id) in {"completed", "cached"}
+            violation_text = " ".join(repair_task.input_refs).lower()
+            for target_task_id in repair_task.repair_target_task_ids:
+                original = by_task.get(target_task_id)
+                replaced = False
+                reason = "Repair did not produce a safe replacement for this target."
+                if original is not None and repair_completed and "manuscript" in violation_text:
+                    worker_output = original.output.get("worker_output", {})
+                    if isinstance(worker_output, dict):
+                        patched_worker_output = dict(worker_output)
+                        sections = patched_worker_output.get("manuscript")
+                        if not isinstance(sections, list) or not sections or any(
+                            not isinstance(section, dict)
+                            or not str(section.get("heading", "")).strip()
+                            or not str(section.get("objective", "")).strip()
+                            or not str(section.get("body", "")).strip()
+                            for section in sections
+                        ):
+                            patched_worker_output["manuscript"] = [
+                                {
+                                    "heading": patched_worker_output.get(
+                                        "chapter_title", target_task_id
+                                    ),
+                                    "objective": patched_worker_output.get(
+                                        "objective", "Repair the targeted product fragment."
+                                    ),
+                                    "body": str(
+                                        patched_worker_output.get(
+                                            "summary", "Targeted repair produced no replacement prose."
+                                        )
+                                    ),
+                                    "evidence_refs": list(
+                                        patched_worker_output.get("evidence_refs", [])
+                                    ),
+                                }
+                            ]
+                            by_task[target_task_id] = original.model_copy(
+                                update={
+                                    "output": {
+                                        **original.output,
+                                        "worker_output": patched_worker_output,
+                                    },
+                                    "warnings": [
+                                        *original.warnings,
+                                        "Targeted repair replaced the invalid manuscript fragment.",
+                                    ],
+                                }
+                            )
+                            replaced = True
+                            reason = "Invalid manuscript replaced from the original grounded summary."
+                replacements.append(
+                    {
+                        "repair_task_id": repair_task.id,
+                        "target_task_id": target_task_id,
+                        "replaced": replaced,
+                        "reason": reason,
+                    }
+                )
+        return [by_task[result.task_id] for result in primary_results], replacements
 
     def _expected_artifact_names(self, contract: ProductContract) -> list[str]:
         expected = [
