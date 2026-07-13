@@ -47,6 +47,7 @@ uv run python -m universal_orchestrator doctor
 uv run python -m universal_orchestrator run "Build an implementation plan from this repo" .
 uv run python -m universal_orchestrator repo "Analyze and improve the current project" .
 uv run python -m universal_orchestrator evals --run --case unsafe_archive
+uv run ai-team release-gate
 uv run python -m unittest discover -s tests
 ```
 
@@ -115,4 +116,4 @@ Run real smoke checks once per configured provider, then one real bench. These a
 
 For subscription execution, authenticate through the official CLI (`claude` login flow or `codex login`). The orchestrator does not read CLI auth files and does not forward API-key environment variables into CLI processes. CLI capacity is exact only when the official surface exposes a structured limit; otherwise it is reported as observed or unknown.
 
-Best practices: start keyless with local runs and fixture evals; keep the default $0.50 ceiling unless you intentionally configure a lower operator limit; use `local_only` for sensitive inputs; run `smoke` before a real job; review `budget_report.json`, `cost_ledger.json`, `evidence_audit.json`, and provider health before trusting a delivery; and treat benchmark output as evidence for human comparison, never as an automatic quality claim.
+Best practices: start keyless with local runs and fixture evals; run `uv run ai-team release-gate` before release; keep the default $0.50 ceiling unless you intentionally configure a lower operator limit; use `local_only` for sensitive inputs; run `smoke` before a real job; review `budget_report.json`, `cost_ledger.json`, `evidence_audit.json`, `fidelity_report.json`, `validator_panel.json`, and provider health before trusting a delivery; and treat benchmark output as evidence for human comparison, never as an automatic quality claim.

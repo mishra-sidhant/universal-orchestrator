@@ -1242,3 +1242,24 @@ Focused verification (2026-07-13, fixture-only):
 ```text
 context tamper and product/audit bundle tests: 2 passed
 ```
+
+## Tranche O.8: Offline Adversarial Release Gate
+
+Failing-first transcript:
+
+```text
+no single runnable release gate combined the built-in eval suite with the critical adversarial boundaries
+no CLI command exposed that fixture-only release decision
+```
+
+Implemented:
+
+- Added `ReleaseGateRunner`, which scrubs provider credentials and runs the built-in evals plus delivery-state consistency, local-only zero-egress with valid-looking configuration, key sweep, fidelity tamper detection, and write-approval checks.
+- Added `ai-team release-gate --root <path>`; the output is persisted as `release_gate.json` and discloses that it is fixture-only with no provider network execution.
+- Updated README usage and best-practice guidance to include the release gate and the new fidelity/validator artifacts.
+
+Focused verification (2026-07-13, fixture-only):
+
+```text
+release-gate parser and adversarial suite tests: 2 passed
+```

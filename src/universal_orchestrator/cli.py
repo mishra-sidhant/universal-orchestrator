@@ -26,6 +26,7 @@ from universal_orchestrator.models import (
     UserOptions,
 )
 from universal_orchestrator.pipeline import Orchestrator
+from universal_orchestrator.release_gate import ReleaseGateRunner
 from universal_orchestrator.routing import CapabilityRegistry
 from universal_orchestrator.runtime import RuntimeStore
 from universal_orchestrator.utils import read_json
@@ -123,6 +124,12 @@ def build_parser() -> argparse.ArgumentParser:
     evals_parser.add_argument("--root", default=".uo/evals", help="Eval artifact root")
     evals_parser.add_argument("--case", action="append", default=[], help="Run only a specific eval case id")
     evals_parser.set_defaults(handler=handle_evals)
+
+    release_parser = sub.add_parser(
+        "release-gate", help="Run the offline adversarial release gate"
+    )
+    release_parser.add_argument("--root", default=".uo/release-gate")
+    release_parser.set_defaults(handler=handle_release_gate)
 
     return parser
 
@@ -320,6 +327,11 @@ def handle_evals(args: argparse.Namespace) -> None:
         print(json.dumps(report.model_dump(mode="json"), indent=2, sort_keys=True))
         return
     print(json.dumps(built_in_suite().model_dump(mode="json"), indent=2, sort_keys=True))
+
+
+def handle_release_gate(args: argparse.Namespace) -> None:
+    report = ReleaseGateRunner().run(args.root)
+    print(json.dumps(report, indent=2, sort_keys=True))
 
 
 def _invocation_from_args(args: argparse.Namespace, command: str) -> HostInvocation:
