@@ -78,6 +78,14 @@ class TrancheF7BenchmarkTests(unittest.TestCase):
                             "evidence_refs": [ref],
                         }
                     ],
+                    "manuscript": [
+                        {
+                            "heading": "Benchmark Fixture",
+                            "objective": "Compare native and orchestrated output.",
+                            "body": "Benchmark evidence is grounded.",
+                            "evidence_refs": [ref],
+                        }
+                    ],
                 }
             )
             transport = FakeTransport(

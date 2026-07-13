@@ -372,6 +372,9 @@ class StageWorkerRegistry:
             model_extra: dict[str, Any] = {
                 "synthesis_path": "model_repaired" if model_result.repaired else "model",
                 "claims": [claim.model_dump(mode="json") for claim in output.claims],
+                "manuscript": [
+                    section.model_dump(mode="json") for section in output.manuscript
+                ],
                 "evidence_refs": evidence_refs,
                 "_warnings": [*model_result.warnings, *handoff_warnings],
                 "degraded_mode_notices": self.context.provider_health_notices,
@@ -426,6 +429,14 @@ class StageWorkerRegistry:
             "chapter_id": task.chapter_id,
             "chapter_title": task.chapter_title,
             "objective": task.objective,
+            "manuscript": [
+                {
+                    "heading": title,
+                    "objective": task.objective or task.title,
+                    "body": summary,
+                    "evidence_refs": refs,
+                }
+            ],
         }
 
     def _artifact_build(

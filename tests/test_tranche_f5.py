@@ -76,6 +76,14 @@ def structured(ref: str) -> str:
                     "evidence_refs": [ref],
                 }
             ],
+            "manuscript": [
+                {
+                    "heading": "Provider Fixture",
+                    "objective": "Report grounded provider behavior.",
+                    "body": "Provider fallback evidence is grounded.",
+                    "evidence_refs": [ref],
+                }
+            ],
         }
     )
 

@@ -68,6 +68,14 @@ def structured_output(ref: str, claim: str = "The kernel uses bounded execution 
                 }
             ],
             "claims": [{"text": claim, "evidence_refs": [ref]}],
+            "manuscript": [
+                {
+                    "heading": "Fixture Manuscript",
+                    "objective": "Answer the supplied chapter objective.",
+                    "body": claim,
+                    "evidence_refs": [ref],
+                }
+            ],
         }
     )
 
@@ -103,6 +111,9 @@ class ChapterAwareTransport(FakeTransport):
         for claim in claims:
             if isinstance(claim, dict) and claim.get("evidence_refs"):
                 claim["evidence_refs"] = [source_ref]
+        for section in output.get("manuscript", []):
+            if isinstance(section, dict) and section.get("evidence_refs"):
+                section["evidence_refs"] = [source_ref]
         envelope["output_text"] = json.dumps(output)
         return HTTPResponse(
             response.status_code,
@@ -162,6 +173,7 @@ class TrancheF4ModelSynthesisTests(unittest.TestCase):
             audit = json.loads((run_dir / "evidence_audit.json").read_text())
             ledger = json.loads((run_dir / "cost_ledger.json").read_text())
             report = (run_dir / "final_report.md").read_text()
+            manuscript = json.loads((run_dir / "manuscript.json").read_text())
             source_refs = {
                 item["id"]
                 for item in json.loads((run_dir / "context_chunks.json").read_text())
@@ -171,6 +183,9 @@ class TrancheF4ModelSynthesisTests(unittest.TestCase):
         worker = synthesis["output"]["worker_output"]
         self.assertEqual(worker["synthesis_path"], "model")
         self.assertIn(worker["claims"][0]["evidence_refs"][0], source_refs)
+        self.assertTrue(worker["manuscript"])
+        self.assertEqual(len(manuscript["chapters"]), 3)
+        self.assertIn("Fixture Manuscript", report)
         self.assertTrue(audit["passed"])
         self.assertEqual(len(ledger["calls"]), 3)
         self.assertEqual(len(transport.requests), 4)
@@ -263,10 +278,13 @@ class TrancheF4ModelSynthesisTests(unittest.TestCase):
             source = root / "source.md"
             source.write_text("Grounded source evidence exists here.")
             invocation = live_invocation(source)
+            ref = source_chunk_id(source, invocation)
+            fabricated_output = json.loads(structured_output("chunk_fabricated"))
+            fabricated_output["manuscript"][0]["evidence_refs"] = [ref]
             result, _ = self._run(
                 root,
                 invocation,
-                [openai_response(structured_output("chunk_fabricated"))],
+                [openai_response(json.dumps(fabricated_output))],
                 retarget_valid=False,
             )
             audit = json.loads(

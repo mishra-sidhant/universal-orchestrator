@@ -97,6 +97,14 @@ class TrancheF6ContainmentTests(unittest.TestCase):
                             "evidence_refs": [ref],
                         }
                     ],
+                    "manuscript": [
+                        {
+                            "heading": "Timeout Fixture",
+                            "objective": "Prove late responses cannot commit.",
+                            "body": "Late provider evidence must never commit.",
+                            "evidence_refs": [ref],
+                        }
+                    ],
                 }
             )
             model_response = HTTPResponse(

@@ -1118,3 +1118,28 @@ impacted prior tests: 41 passed
 ruff check src tests: passed
 mypy src: no issues in 64 source files
 ```
+
+## Tranche O.3: Structured Objective-Specific Manuscripts
+
+Failing-first transcript:
+
+```text
+model output schema accepted summary/findings/claims without a manuscript
+model prompt did not require heading, objective, body, and manuscript evidence refs
+extractive chapters had no structured manuscript section
+final report did not render manuscript body/objective content
+```
+
+Implemented:
+
+- Added a required `ModelManuscriptSection` list to validated model output. Each section carries a heading, objective, body, and optional evidence refs; section refs are checked against the delivered context pack.
+- Updated the model prompt and bounded repair prompt contract so providers are asked for objective-specific manuscript sections rather than only a summary and claims.
+- Made deterministic extractive, provider-fallback, malformed-output fallback, and reshape paths emit the same manuscript shape, preserving an honest `synthesis_path`.
+- Rendered structured manuscript sections in the final report and persisted all chapter manuscripts in `manuscript.json`, which is included in integrity checks and the delivery ZIP.
+- Updated live fixtures for the all-chapter model route and added a regression proving three chapter manuscripts are emitted and report-rendered.
+
+Focused verification (2026-07-13, fixture-only):
+
+```text
+structured manuscript and model-path tests: 11 passed
+```

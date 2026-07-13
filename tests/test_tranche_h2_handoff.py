@@ -130,9 +130,17 @@ class HandoffControllerTests(unittest.TestCase):
                     )
                 return ModelSynthesisResult(
                     ModelSynthesisOutput(
-                        summary='{"summary":"done","findings":[],"claims":[{"text":"done","evidence_refs":["chunk-1"]}]}',
+                        summary='{"summary":"done","findings":[],"claims":[{"text":"done","evidence_refs":["chunk-1"]}],"manuscript":[{"heading":"Handoff","objective":"Preserve the task objective.","body":"done","evidence_refs":["chunk-1"]}]}',
                         findings=[],
                         claims=[ModelClaimOutput(text="done", evidence_refs=["chunk-1"])],
+                        manuscript=[
+                            {
+                                "heading": "Handoff",
+                                "objective": "Preserve the task objective.",
+                                "body": "done",
+                                "evidence_refs": ["chunk-1"],
+                            }
+                        ],
                     ),
                     False,
                     [],

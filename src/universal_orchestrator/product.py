@@ -142,6 +142,20 @@ class FinalProductOwner:
                     lines.extend([f"### {chapter_title}", ""])
                     if objective:
                         lines.extend([f"Objective: {objective}", ""])
+                manuscript = worker_output.get("manuscript", [])
+                if isinstance(manuscript, list):
+                    for section in manuscript:
+                        if not isinstance(section, dict):
+                            continue
+                        heading = str(section.get("heading", "")).strip()
+                        body = str(section.get("body", "")).strip()
+                        section_objective = str(section.get("objective", "")).strip()
+                        if heading:
+                            lines.extend([f"#### {heading}", ""])
+                        if section_objective:
+                            lines.append(f"Section objective: {section_objective}")
+                        if body:
+                            lines.extend([body, ""])
                 summary = worker_output.get("summary", "")
                 risks = worker_output.get("risks", [])
                 risk_text = f" Risks: {', '.join(risks)}." if risks else ""

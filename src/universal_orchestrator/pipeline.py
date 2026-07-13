@@ -659,6 +659,28 @@ class Orchestrator:
             blocked_claims,
             product_plan,
         )
+        manuscript_artifact = self.artifact_store.write_json_artifact(
+            run_id,
+            "manuscript.json",
+            {
+                "schema_version": "1.0",
+                "run_id": run_id,
+                "chapters": [
+                    {
+                        "task_id": result.task_id,
+                        "chapter_id": result.output.get("worker_output", {}).get("chapter_id"),
+                        "chapter_title": result.output.get("worker_output", {}).get("chapter_title"),
+                        "objective": result.output.get("worker_output", {}).get("objective"),
+                        "synthesis_path": result.output.get("worker_output", {}).get("synthesis_path"),
+                        "sections": result.output.get("worker_output", {}).get("manuscript", []),
+                    }
+                    for result in all_results
+                    if isinstance(result.output.get("worker_output"), dict)
+                    and result.output.get("worker_output", {}).get("chapter_id")
+                ],
+            },
+        )
+        artifacts.append(manuscript_artifact)
         artifacts.append(
             self.artifact_store.write_json_artifact(
                 run_id, "product_package.json", product_package.model_dump(mode="json")
@@ -1231,6 +1253,7 @@ class Orchestrator:
             "evidence_audit.json",
             "quality_report.json",
             "product_package.json",
+            "manuscript.json",
             "final_report.md",
             "trace_report.json",
             "debug_bundle_manifest.json",

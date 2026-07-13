@@ -16,10 +16,18 @@ class ModelClaimOutput(StrictModel):
     evidence_refs: list[str] = Field(min_length=1)
 
 
+class ModelManuscriptSection(StrictModel):
+    heading: str = Field(min_length=1)
+    objective: str = Field(min_length=1)
+    body: str = Field(min_length=1)
+    evidence_refs: list[str] = Field(default_factory=list)
+
+
 class ModelSynthesisOutput(StrictModel):
     summary: str = Field(min_length=1)
     findings: list[dict[str, Any]] = Field(default_factory=list)
     claims: list[ModelClaimOutput] = Field(min_length=1)
+    manuscript: list[ModelManuscriptSection] = Field(min_length=1)
 
 
 class ModelOutputValidationError(ValueError):
@@ -52,6 +60,7 @@ class ModelSynthesisRunner:
         raw = str(first.output.get("summary", ""))
         try:
             parsed = self._parse(raw)
+            self._validate_manuscript_refs(parsed, pack)
             return ModelSynthesisResult(parsed, False, self._lexical_warnings(parsed, pack))
         except ModelOutputValidationError as first_error:
             repair_prompt = self._repair_prompt(raw, first_error)
@@ -63,6 +72,7 @@ class ModelSynthesisRunner:
             repaired_raw = str(repaired.output.get("summary", ""))
             try:
                 parsed = self._parse(repaired_raw)
+                self._validate_manuscript_refs(parsed, pack)
             except ModelOutputValidationError as second_error:
                 raise ModelOutputValidationError(
                     "Model output failed schema validation after one bounded repair attempt: "
@@ -115,7 +125,9 @@ class ModelSynthesisRunner:
         return (
             f"Operator objective: {operator_prompt}\n"
             f"{chapter_context}"
-            "Return only one JSON object with keys summary, findings, and claims. "
+            "Return only one JSON object with keys summary, findings, claims, and manuscript. "
+            "Manuscript must be a non-empty list of sections; each section must have heading, "
+            "objective, body, and evidence_refs. Make the section objective-specific. "
             "Each claim must have text and evidence_refs. Evidence refs may only be chunk IDs "
             "present in the supplied context. Do not add markdown fences."
         )
@@ -146,6 +158,24 @@ class ModelSynthesisRunner:
                     f"overlap={overlap:.3f}; this is not an entailment judgment."
                 )
         return warnings
+
+    def _validate_manuscript_refs(
+        self, output: ModelSynthesisOutput, pack: ContextPack
+    ) -> None:
+        valid_refs = {chunk.id for chunk in pack.chunks}
+        invalid_refs = sorted(
+            {
+                ref
+                for section in output.manuscript
+                for ref in section.evidence_refs
+                if ref not in valid_refs
+            }
+        )
+        if invalid_refs:
+            raise ModelOutputValidationError(
+                "Manuscript contains evidence refs outside the delivered context pack: "
+                f"{invalid_refs}"
+            )
 
     def _terms(self, text: str) -> set[str]:
         return {term for term in re.findall(r"[A-Za-z0-9_]+", text.lower()) if len(term) > 2}
