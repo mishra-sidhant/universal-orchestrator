@@ -1091,3 +1091,30 @@ git diff --check: passed
 ```
 
 The desktop shell did not expose the `uv` executable, so the same project environment's `.venv/bin/python` ran the module gates. The isolated build was retried with network access solely to install the declared `hatchling` build dependency. No live provider call was made. Operator smoke and real benchmark evidence remain pending by design.
+
+## Tranche O.2: Product-Specific Plans And Executable Reshape
+
+Failing-first transcript:
+
+```text
+product plan had chapters but no run_type, execution steps, acceptance criteria, or required artifacts
+repository patch plan accepted generic prose without validation status
+RoutingAction.RESHAPE returned SKIPPED instead of an executable bounded local result
+```
+
+Implemented:
+
+- Added run-type-specific execution steps, acceptance criteria, required artifacts, continuity terms, and an explicit reshape policy to `ProductPlan`.
+- Extended product-plan validation to reject plans with no executable steps, acceptance criteria, required artifacts, or task-backed chapters, and to verify contract run-type lineage.
+- Made repository patch-plan artifacts specific to the implementation contract: execution steps, acceptance criteria, validation status, warnings, and final-report context are persisted while the no-write disclosure remains explicit.
+- Made `RESHAPE` an executable local fallback in both the current stage registry and the legacy deterministic executor. The original routing decision remains visible, the result completes through the bounded local form, and the output is labeled `extractive_reshape` or `deterministic_reshape`.
+- Added the plan and reshape contract to the final report so operators can see what was promised and how degradation was handled.
+
+Verification gate (2026-07-13, fixture-only):
+
+```text
+focused O.2 tests: 5 passed
+impacted prior tests: 41 passed
+ruff check src tests: passed
+mypy src: no issues in 64 source files
+```

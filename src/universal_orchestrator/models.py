@@ -415,9 +415,16 @@ class ChapterPlan(StrictModel):
 class ProductPlan(StrictModel):
     run_id: str
     title: str
+    run_type: str = "orchestrated_task"
     chapters: list[ChapterPlan] = Field(default_factory=list)
     artifact_types: list[str] = Field(default_factory=list)
     continuity_terms: list[str] = Field(default_factory=list)
+    execution_steps: list[str] = Field(default_factory=list)
+    acceptance_criteria: list[str] = Field(default_factory=list)
+    required_artifacts: list[str] = Field(default_factory=list)
+    reshape_policy: str = (
+        "If a required provider capability is unavailable, execute the bounded local form and label the degradation."
+    )
 
 
 class SlideSpec(StrictModel):

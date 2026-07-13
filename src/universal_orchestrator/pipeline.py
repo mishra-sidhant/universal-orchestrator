@@ -252,7 +252,7 @@ class Orchestrator:
             contract,
             [node.id for node in dag.topological_order()],
         )
-        product_plan_errors = self.planner.validate_product_plan(product_plan, dag)
+        product_plan_errors = self.planner.validate_product_plan(product_plan, dag, contract)
         plan_review = self.planner.review_plan(run_id, contract, dag)
         self._ensure_not_cancelled(run_id)
         trace.checkpoint(
@@ -657,6 +657,7 @@ class Orchestrator:
             provenance,
             supported_evidence_refs_by_task,
             blocked_claims,
+            product_plan,
         )
         artifacts.append(
             self.artifact_store.write_json_artifact(
@@ -744,7 +745,10 @@ class Orchestrator:
         if "patch" in contract.primary_artifacts or contract.run_type == "repo_implementation":
             patch_path = self.artifact_store.run_dir(run_id) / "patch_plan.md"
             patch_artifact = self.artifact_builder.build_patch_plan(
-                product_package.final_markdown, patch_path
+                product_package.final_markdown,
+                patch_path,
+                product_plan=product_plan,
+                repo_validation_report=repo_validation_report,
             )
             artifacts.append(patch_artifact)
             validation_jobs.append(("patch_plan", patch_path))

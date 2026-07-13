@@ -10,7 +10,13 @@ import tempfile
 import textwrap
 import zipfile
 
-from universal_orchestrator.models import Artifact, ArtifactType, SlideSpec
+from universal_orchestrator.models import (
+    Artifact,
+    ArtifactType,
+    ProductPlan,
+    RepoValidationReport,
+    SlideSpec,
+)
 from universal_orchestrator.utils import sha256_file
 
 
@@ -371,14 +377,65 @@ class ArtifactBuilder:
             if not render_succeeded:
                 shutil.rmtree(temp_dir, ignore_errors=True)
 
-    def build_patch_plan(self, markdown: str, path: Path) -> Artifact:
+    def build_patch_plan(
+        self,
+        markdown: str,
+        path: Path,
+        *,
+        product_plan: ProductPlan | None = None,
+        repo_validation_report: RepoValidationReport | None = None,
+    ) -> Artifact:
         path.parent.mkdir(parents=True, exist_ok=True)
-        content = (
-            "# Repository Patch Plan\n\n"
-            "No repository changes were applied by this deterministic run. "
-            "This file is a plan, not an implementation patch.\n\n"
-            f"{markdown}"
-        )
+        if product_plan is None:
+            content = (
+                "# Repository Patch Plan\n\n"
+                "No repository changes were applied by this deterministic run. "
+                "This file is a plan, not an implementation patch.\n\n"
+                f"{markdown}"
+            )
+        else:
+            validation = repo_validation_report
+            validation_status = (
+                "No validation commands were detected."
+                if validation is None or not validation.command_results
+                else (
+                    f"executed={validation.executed}, passed={validation.passed}; "
+                    + "; ".join(
+                        f"{item.command}: {item.status}"
+                        for item in validation.command_results
+                    )
+                )
+            )
+            validation_notes = (
+                validation.warnings if validation is not None else []
+            )
+            content_lines = [
+                "# Repository Patch Plan",
+                "",
+                "No repository changes were applied by this deterministic run. "
+                "This file is a plan, not an implementation patch.",
+                "",
+                f"Run type: `{product_plan.run_type}`",
+                f"Plan title: {product_plan.title}",
+                "",
+                "## Execution Steps",
+                "",
+                *[f"{index}. {step}" for index, step in enumerate(product_plan.execution_steps, 1)],
+                "",
+                "## Acceptance Criteria",
+                "",
+                *[f"- {criterion}" for criterion in product_plan.acceptance_criteria],
+                "",
+                "## Validation Status",
+                "",
+                validation_status,
+                *[f"- {note}" for note in validation_notes],
+                "",
+                "## Report Context",
+                "",
+                markdown,
+            ]
+            content = "\n".join(content_lines)
         path.write_text(content)
         return self._artifact(path, ArtifactType.REPORT)
 

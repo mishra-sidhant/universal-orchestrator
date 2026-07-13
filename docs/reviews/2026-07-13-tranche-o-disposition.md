@@ -17,3 +17,4 @@ No existing gate was weakened. The O.0 failing-first tests now pass after O.1 im
 | --- | --- | --- | --- |
 | O.0 boundary pinning | closed | `8cbee16` | Six failing-first boundary regressions recorded before implementation. |
 | O.1 honesty and routing closure | closed | Tranche O.1 phase commit | 228-test suite, evals 3/3, doctor, Ruff, mypy, package build, and focused 33-test gate. |
+| O.2 product-specific plans and executable reshape | closed | Tranche O.2 phase commit | Five focused planning/reshape tests; repository patch-plan content includes execution, acceptance, and validation sections; local reshape completes with explicit degradation. |

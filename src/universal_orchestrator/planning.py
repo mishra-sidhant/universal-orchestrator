@@ -63,11 +63,21 @@ class PlannerEnsemble:
         return ProductPlan(
             run_id=run_id,
             title=title,
+            run_type=contract.run_type,
             chapters=chapters,
             artifact_types=contract.primary_artifacts,
+            continuity_terms=self._continuity_terms(contract),
+            execution_steps=self._execution_steps(contract),
+            acceptance_criteria=self._acceptance_criteria(contract),
+            required_artifacts=list(dict.fromkeys(contract.primary_artifacts)),
         )
 
-    def validate_product_plan(self, plan: ProductPlan, dag: TaskDAG) -> list[str]:
+    def validate_product_plan(
+        self,
+        plan: ProductPlan,
+        dag: TaskDAG,
+        contract: ProductContract | None = None,
+    ) -> list[str]:
         known_task_ids = {node.id for node in dag.nodes}
         errors: list[str] = []
         if plan.run_id != dag.run_id:
@@ -84,7 +94,89 @@ class PlannerEnsemble:
                     errors.append(
                         f"Product plan chapter {chapter.id} references unknown task {task_id}."
                     )
+        if not plan.execution_steps:
+            errors.append("Product plan has no executable steps.")
+        if not plan.acceptance_criteria:
+            errors.append("Product plan has no acceptance criteria.")
+        if not plan.required_artifacts:
+            errors.append("Product plan has no required artifacts.")
+        if any(not chapter.task_ids for chapter in plan.chapters):
+            errors.append("Product plan contains a chapter with no executable task.")
+        if contract is not None and plan.run_type != contract.run_type:
+            errors.append(
+                f"Product plan run type {plan.run_type} does not match contract {contract.run_type}."
+            )
         return sorted(errors)
+
+    def _execution_steps(self, contract: ProductContract) -> list[str]:
+        if contract.run_type == "research_report":
+            return [
+                "Inventory and redact every supplied source before retrieval.",
+                "Compile bounded task context packs and exclude prompt-injection-risk chunks.",
+                "Synthesize each chapter with consumed evidence references and audit every claim.",
+                "Validate requested artifacts structurally and through rendered-page inspection.",
+                "Package only after quality, evidence, integrity, and delivery checks agree.",
+            ]
+        if contract.run_type == "repo_implementation":
+            return [
+                "Map repository frameworks, languages, package files, hot files, and detected test commands.",
+                "Produce a scoped implementation plan with explicit files, validation steps, and no unapproved writes.",
+                "Run only the deterministic allowlisted repository validation commands when shell approval exists.",
+                "Report implementation status, residual risks, and a truthful patch-plan artifact.",
+                "Package only after repository, artifact, evidence, integrity, and delivery checks agree.",
+            ]
+        if contract.run_type == "code_review":
+            return [
+                "Map the repository and identify the requested review surface and likely hot files.",
+                "Inspect findings against delivered source locations and classify severity and confidence.",
+                "Validate available tests or commands without treating skipped validation as a pass.",
+                "Assemble findings, risks, remediation actions, and evidence into the requested artifacts.",
+                "Package only after evidence, quality, artifact, integrity, and delivery checks agree.",
+            ]
+        return [
+            "Inventory and redact the supplied context before bounded retrieval.",
+            "Compile task-specific context packs and preserve the operator objective.",
+            "Produce objective-specific chapters with grounded findings and explicit limitations.",
+            "Validate requested artifacts structurally and through rendered-page inspection.",
+            "Package only after quality, evidence, integrity, and delivery checks agree.",
+        ]
+
+    def _acceptance_criteria(self, contract: ProductContract) -> list[str]:
+        common = [
+            "Every evidence-required claim cites only a delivered and consumed source chunk.",
+            "Contradicted or insufficient claims are visibly rejected rather than cited.",
+            "The delivery manifest, quality report, evidence audit, checksums, and ZIP agree on final state.",
+        ]
+        if contract.run_type == "research_report":
+            return [
+                *common,
+                "Each requested primary artifact passes its structural and render-aware validation gate.",
+            ]
+        if contract.run_type == "repo_implementation":
+            return [
+                *common,
+                "Repository scope, planned changes, validation commands, and residual risks are explicit.",
+                "No repository write is implied or performed without the explicit write approval gate.",
+            ]
+        if contract.run_type == "code_review":
+            return [
+                *common,
+                "Each material review finding has a severity, source location when available, and validation status.",
+                "Skipped or blocked validation is disclosed as such and never represented as a pass.",
+            ]
+        return [
+            *common,
+            "The final product answers the operator objective and labels degraded or extractive paths.",
+        ]
+
+    def _continuity_terms(self, contract: ProductContract) -> list[str]:
+        if contract.run_type == "repo_implementation":
+            return ["repository scope", "validation", "residual risks", "implementation status"]
+        if contract.run_type == "code_review":
+            return ["finding", "severity", "location", "validation status", "remediation"]
+        if contract.run_type == "research_report":
+            return ["evidence", "finding", "limitation", "recommendation"]
+        return ["objective", "evidence", "risk", "next action"]
 
     def critical_path(self, dag: TaskDAG) -> list[str]:
         nodes = {node.id: node for node in dag.nodes}

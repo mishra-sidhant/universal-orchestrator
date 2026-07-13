@@ -96,22 +96,44 @@ class StageWorkerRegistry:
             if evidence_required
             else []
         )
-        if decision.action not in {RoutingAction.ROUTE, RoutingAction.ROUTE_DEGRADED}:
-            status = (
-                TaskStatus.WAITING_FOR_USER
-                if decision.action == RoutingAction.PAUSE
-                else TaskStatus.SKIPPED
-            )
+        if decision.action == RoutingAction.PAUSE:
             return self._result(
                 task,
                 decision,
-                status,
+                TaskStatus.WAITING_FOR_USER,
                 decision.reason,
                 [],
                 refs,
                 started_at,
                 warnings=[decision.reason],
             )
+        reshaped = decision.action == RoutingAction.RESHAPE
+        execution_decision = decision
+        if reshaped:
+            execution_decision = decision.model_copy(
+                update={
+                    "action": RoutingAction.ROUTE_DEGRADED,
+                    "provider_id": "deterministic.tools",
+                }
+            )
+        if execution_decision.action not in {RoutingAction.ROUTE, RoutingAction.ROUTE_DEGRADED}:
+            return self._result(
+                task,
+                decision,
+                TaskStatus.SKIPPED,
+                decision.reason,
+                [],
+                refs,
+                started_at,
+                warnings=[decision.reason],
+            )
+        if reshaped:
+            reshape_warning = (
+                "Task was reshaped to the bounded deterministic local form; "
+                "the requested provider capability was unavailable."
+            )
+        else:
+            reshape_warning = None
         handler = self.handlers.get(task.id)
         if handler is None and task.task_type == "final_synthesis":
             handler = self._synthesis
@@ -130,17 +152,20 @@ class StageWorkerRegistry:
         try:
             if task.id == "T-SYNTHESIS":
                 summary, findings, extra = self._synthesis(
-                    task, decision, refs, completion_guard
+                    task, execution_decision, refs, completion_guard
                 )
             elif task.task_type == "final_synthesis":
                 summary, findings, extra = self._synthesis(
-                    task, decision, refs, completion_guard
+                    task, execution_decision, refs, completion_guard
                 )
             else:
-                summary, findings, extra = handler(task, decision, refs)
+                summary, findings, extra = handler(task, execution_decision, refs)
             handler_warnings = list(extra.pop("_warnings", []))
-            effective_provider_id = extra.pop("_provider_id", decision.provider_id)
-            effective_decision = decision.model_copy(update={"provider_id": effective_provider_id})
+            if reshaped:
+                extra["synthesis_path"] = "extractive_reshape" if task.task_type == "final_synthesis" else "deterministic_reshape"
+                handler_warnings.insert(0, reshape_warning or "Task was reshaped.")
+            effective_provider_id = extra.pop("_provider_id", execution_decision.provider_id)
+            effective_decision = execution_decision.model_copy(update={"provider_id": effective_provider_id})
             result = self._result(
                 task,
                 effective_decision,

@@ -59,16 +59,29 @@ class DeterministicExecutor:
                     pack.model_dump(mode="json") if hasattr(pack, "model_dump") else pack
                 )
             warnings: list[str] = []
+            reshaped = decision.action == RoutingAction.RESHAPE
+            execution_decision = decision
+            if reshaped:
+                execution_decision = decision.model_copy(
+                    update={
+                        "action": RoutingAction.ROUTE_DEGRADED,
+                        "provider_id": "deterministic.tools",
+                    }
+                )
+                warnings.append(
+                    "Task was reshaped to the bounded deterministic local form; "
+                    "the requested provider capability was unavailable."
+                )
             status = TaskStatus.COMPLETED
-            if decision.action in {RoutingAction.RESHAPE, RoutingAction.PAUSE}:
-                status = TaskStatus.WAITING_FOR_USER if decision.action == RoutingAction.PAUSE else TaskStatus.SKIPPED
+            if decision.action == RoutingAction.PAUSE:
+                status = TaskStatus.WAITING_FOR_USER
                 warnings.append(decision.reason)
-            elif decision.action == RoutingAction.ROUTE_DEGRADED:
+            elif execution_decision.action == RoutingAction.ROUTE_DEGRADED:
                 warnings.append("Task ran in degraded deterministic mode.")
 
             provider_result = None
-            adapter = self.adapters.get(decision.provider_id) if self.adapters else None
-            if adapter and decision.action in {RoutingAction.ROUTE, RoutingAction.ROUTE_DEGRADED}:
+            adapter = self.adapters.get(execution_decision.provider_id) if self.adapters else None
+            if adapter and execution_decision.action in {RoutingAction.ROUTE, RoutingAction.ROUTE_DEGRADED}:
                 if self._provider_blocked(adapter.descriptor.kind):
                     status = TaskStatus.WAITING_FOR_USER
                     warnings.append("Provider execution blocked by effective execution policy.")
@@ -79,8 +92,8 @@ class DeterministicExecutor:
                             prompt=self.prompt,
                             context={
                                 **task_context,
-                                "routing_score": decision.score,
-                                "routing_reason": decision.reason,
+                            "routing_score": execution_decision.score,
+                            "routing_reason": execution_decision.reason,
                             },
                             dry_run=self.dry_run_external and decision.provider_id != "deterministic.tools",
                             allow_network=self.allow_network,
@@ -91,17 +104,15 @@ class DeterministicExecutor:
                     warnings.extend(provider_result.warnings)
 
             worker_output = self.output_builder.build(
-                task,
-                decision,
-                provider_result,
-                task_context,
-                status,
+                task, execution_decision, provider_result, task_context, status
             )
+            if reshaped:
+                worker_output["synthesis_path"] = "deterministic_reshape"
 
             results.append(
                 ExecutionResult(
                     task_id=task.id,
-                    provider_id=decision.provider_id,
+                    provider_id=execution_decision.provider_id,
                     status=status,
                     output={
                         "title": task.title,

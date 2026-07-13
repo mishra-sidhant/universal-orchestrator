@@ -7,6 +7,7 @@ from universal_orchestrator.models import (
     ExecutionResult,
     ProductContract,
     ProductPackage,
+    ProductPlan,
     ProvenanceRecord,
     QualityGateResult,
     RoutingDecision,
@@ -29,6 +30,7 @@ class FinalProductOwner:
         provenance: list[ProvenanceRecord] | None = None,
         supported_evidence_refs_by_task: dict[str, list[str]] | None = None,
         blocked_claims: list[str] | None = None,
+        product_plan: ProductPlan | None = None,
     ) -> ProductPackage:
         rejected = self._reject_fragments(results)
         markdown = self._render_markdown(
@@ -44,6 +46,7 @@ class FinalProductOwner:
             provenance or [],
             supported_evidence_refs_by_task or {},
             blocked_claims or [],
+            product_plan,
         )
         return ProductPackage(
             run_id=manifest.run_id,
@@ -80,6 +83,7 @@ class FinalProductOwner:
         provenance: list[ProvenanceRecord],
         supported_evidence_refs_by_task: dict[str, list[str]],
         blocked_claims: list[str],
+        product_plan: ProductPlan | None,
     ) -> str:
         lines = [
             "# Universal Orchestrator Final Product",
@@ -112,6 +116,18 @@ class FinalProductOwner:
         if blocked_claims:
             lines.extend(["", "## Rejected Claims", ""])
             lines.extend(f"- {item}" for item in blocked_claims)
+        if product_plan is not None:
+            lines.extend(["", "## Product Acceptance Contract", ""])
+            lines.append(f"- Plan type: `{product_plan.run_type}`")
+            lines.append(f"- Reshape policy: {product_plan.reshape_policy}")
+            lines.extend(
+                f"- Acceptance: {criterion}" for criterion in product_plan.acceptance_criteria
+            )
+            lines.extend(["", "## Planned Execution Steps", ""])
+            lines.extend(
+                f"{index}. {step}"
+                for index, step in enumerate(product_plan.execution_steps, 1)
+            )
         lines.extend(["", "## Key Findings", ""])
         chapter_metadata = {
             node.id: (node.chapter_title, node.objective)
