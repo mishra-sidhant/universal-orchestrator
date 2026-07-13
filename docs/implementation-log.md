@@ -1194,3 +1194,28 @@ Focused verification (2026-07-13, fixture-only):
 ```text
 target extraction, replacement, and end-to-end re-audit tests: 3 passed
 ```
+
+## Tranche O.6: Transactional Repository Edit Boundary
+
+Failing-first transcript:
+
+```text
+no repository edit primitive existed despite an explicit write-approval gate
+no expected-content hash check or path confinement protected a future edit path
+no secret sweep ran on proposed repository content
+no rollback existed for a partial multi-file replacement
+```
+
+Implemented:
+
+- Added `TransactionalRepoEditor` and a public `Orchestrator.apply_repository_edits` boundary.
+- Requires explicit write approval, confines paths beneath the selected repository, rejects protected directories, rejects duplicate targets, and checks optional expected SHA-256 content hashes before any write.
+- Scans proposed content for secret material before staging and never persists rejected content.
+- Writes each file to an fsynced same-directory temporary file, replaces only after all preflight checks pass, verifies post-write hashes, and rolls back every already-replaced file on failure.
+- Emits structured `RepositoryEditReport` and per-file before/after hashes without including file contents or secrets.
+
+Focused verification (2026-07-13, fixture-only):
+
+```text
+repository transaction tests: 6 passed
+```

@@ -60,6 +60,11 @@ from universal_orchestrator.product import FinalProductOwner
 from universal_orchestrator.quality import QualityGateEngine
 from universal_orchestrator.repair import RepairPlanner
 from universal_orchestrator.repo_validation import RepoValidationRunner
+from universal_orchestrator.repo_transaction import (
+    RepositoryEdit,
+    RepositoryEditReport,
+    TransactionalRepoEditor,
+)
 from universal_orchestrator.runtime import RuntimeStore
 from universal_orchestrator.routing import AdaptiveRouter, CapabilityRegistry
 from universal_orchestrator.scheduler import DAGScheduler
@@ -86,6 +91,7 @@ class Orchestrator:
         self.quality = QualityGateEngine()
         self.evidence = EvidenceAuditor()
         self.repo_validation = RepoValidationRunner()
+        self.repo_editor = TransactionalRepoEditor()
         self.repair = RepairPlanner()
         self.product_owner = FinalProductOwner()
         self.artifact_builder = ArtifactBuilder()
@@ -95,6 +101,23 @@ class Orchestrator:
         self.runtime = RuntimeStore(Path(artifact_root) / "runtime.sqlite3")
         self.scheduler = DAGScheduler(self.cache, runtime_store=self.runtime)
         self.capability_registry = capability_registry
+
+    def apply_repository_edits(
+        self,
+        root: Path | str,
+        edits: list[RepositoryEdit],
+        *,
+        run_id: str,
+        allow_repo_writes: bool,
+    ) -> RepositoryEditReport:
+        """Apply operator-approved edits through the transactional write boundary."""
+
+        return self.repo_editor.apply(
+            root,
+            edits,
+            run_id=run_id,
+            allow_repo_writes=allow_repo_writes,
+        )
 
     def run(self, invocation: HostInvocation, run_id: str | None = None) -> RunResult:
         run_id = run_id or new_id("run")
