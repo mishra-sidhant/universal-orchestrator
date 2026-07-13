@@ -628,10 +628,14 @@ class Orchestrator:
             if not claim.citation_eligible:
                 if (
                     claim.verification is not None
-                    and claim.verification.status == ClaimVerificationStatus.CONTRADICTED
+                    and claim.verification.status
+                    in {
+                        ClaimVerificationStatus.CONTRADICTED,
+                        ClaimVerificationStatus.INSUFFICIENT,
+                    }
                 ):
                     blocked_claims.append(
-                        f"{claim.task_id}: {claim.blocked_reason or 'configured verifier contradiction'}"
+                        f"{claim.task_id}: {claim.blocked_reason or 'configured verifier blocked the claim'}"
                     )
                 continue
             supported_evidence_refs_by_task.setdefault(claim.task_id, [])
@@ -876,6 +880,7 @@ class Orchestrator:
         zip_artifact: Artifact | None = None
         zip_errors: list[str] = []
         bundle_inputs: list[Artifact] = []
+        receipt_path.unlink(missing_ok=True)
 
         for attempt in range(1, 3):
             quality_artifact = self.artifact_store.write_json_artifact(
@@ -911,51 +916,56 @@ class Orchestrator:
                 self.integrity.checksums_payload(run_id, checksum_inputs),
             )
             bundle_inputs = [*checksum_inputs, checksums_artifact]
-            zip_artifact = self.artifact_builder.build_zip(bundle_inputs, zip_path)
-            zip_errors = self.artifact_builder.validate_zip(
-                zip_path, [artifact.name for artifact in bundle_inputs]
-            )
+            try:
+                zip_path.unlink(missing_ok=True)
+                zip_artifact = self.artifact_builder.build_zip(bundle_inputs, zip_path)
+                zip_errors = self.artifact_builder.validate_zip(
+                    zip_path, [artifact.name for artifact in bundle_inputs]
+                )
+            except Exception as exc:
+                zip_artifact = None
+                zip_errors = [
+                    "Delivery bundle construction or validation failed: "
+                    f"{type(exc).__name__}: {exc}"
+                ]
+                zip_path.unlink(missing_ok=True)
             zip_attempts.append({"attempt": attempt, "errors": zip_errors})
             if not zip_errors:
                 break
-            if attempt == 1:
-                quality = quality.model_copy(
-                    update={
-                        "passed": False,
-                        "violations": [
-                            *quality.violations,
-                            *[f"delivery_bundle.zip: {error}" for error in zip_errors],
-                        ],
-                    }
+            quality = quality.model_copy(
+                update={
+                    "passed": False,
+                    "violations": [
+                        *quality.violations,
+                        *[f"delivery_bundle.zip: {error}" for error in zip_errors],
+                    ],
+                }
+            )
+            final_state = RunState.NEEDS_ATTENTION
+            trace_path = run_dir / "trace_report.json"
+            if trace_path.exists():
+                trace_payload = read_json(trace_path)
+                trace_payload["final_state"] = final_state
+                trace_payload["warning_count"] = int(trace_payload.get("warning_count", 0)) + len(
+                    zip_errors
                 )
-                final_state = RunState.NEEDS_ATTENTION
-                trace_path = run_dir / "trace_report.json"
-                if trace_path.exists():
-                    trace_payload = read_json(trace_path)
-                    trace_payload["final_state"] = final_state
-                    trace_payload["warning_count"] = int(trace_payload.get("warning_count", 0)) + len(
-                        zip_errors
-                    )
-                    trace_artifact = self.artifact_store.write_json_artifact(
-                        run_id, "trace_report.json", trace_payload
-                    )
-                    artifacts = [
-                        artifact for artifact in artifacts if artifact.name != "trace_report.json"
-                    ]
-                    artifacts.append(trace_artifact)
+                trace_artifact = self.artifact_store.write_json_artifact(
+                    run_id, "trace_report.json", trace_payload
+                )
+                artifacts = [
+                    artifact for artifact in artifacts if artifact.name != "trace_report.json"
+                ]
+                artifacts.append(trace_artifact)
 
         if run_manifest is None or run_manifest_artifact is None or checksums_artifact is None:
             raise RuntimeError("Delivery finalization did not produce a manifest and checksums.")
-        if zip_artifact is None:
-            raise RuntimeError("Delivery finalization did not produce a delivery bundle.")
-
         zip_validation_artifact = self.artifact_store.write_json_artifact(
             run_id,
             "zip_validation.json",
             {
                 "schema_version": "2.0",
                 "path": str(zip_path),
-                "content_hash": sha256_file(zip_path),
+                "content_hash": sha256_file(zip_path) if zip_path.exists() else None,
                 "errors": zip_errors,
                 "attempts": zip_attempts,
             },
@@ -967,13 +977,17 @@ class Orchestrator:
                 "schema_version": "1.0",
                 "run_id": run_id,
                 "state": final_state,
-                "zip_valid": not zip_errors,
-                "receipt_issued": final_state == RunState.DELIVERED and not zip_errors,
+                "zip_valid": zip_artifact is not None and not zip_errors,
+                "receipt_issued": (
+                    final_state == RunState.DELIVERED
+                    and zip_artifact is not None
+                    and not zip_errors
+                ),
                 "attempts": zip_attempts,
             },
         )
         receipt_artifact: Artifact | None = None
-        if final_state == RunState.DELIVERED and not zip_errors:
+        if final_state == RunState.DELIVERED and zip_artifact is not None and not zip_errors:
             receipt_artifact = self.artifact_store.write_json_artifact(
                 run_id,
                 "delivery_receipt.json",
@@ -996,10 +1010,11 @@ class Orchestrator:
             *artifacts,
             run_manifest_artifact,
             checksums_artifact,
-            zip_artifact,
             zip_validation_artifact,
             finalization_artifact,
         ]
+        if zip_artifact is not None:
+            delivery_artifacts.insert(len(artifacts) + 2, zip_artifact)
         if receipt_artifact is not None:
             delivery_artifacts.append(receipt_artifact)
         self.runtime.save_run_summary(

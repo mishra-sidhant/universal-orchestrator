@@ -86,7 +86,7 @@ class FinalProductOwner:
             "",
             f"Run ID: `{manifest.run_id}`",
             f"Run type: `{contract.run_type}`",
-            f"Quality passed: `{quality.passed}`",
+            "Quality assessment: see `quality_report.json`; delivery state is authoritative in `run_manifest.json`.",
             "",
             "## Deliverable Contract",
             "",

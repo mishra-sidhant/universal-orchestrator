@@ -157,6 +157,24 @@ class TrancheF5HealthAndFallbackTests(unittest.TestCase):
                             "usage": {"input_tokens": 25, "output_tokens": 15},
                         },
                     ),
+                    response(
+                        200,
+                        {
+                            "id": "msg_fallback_2",
+                            "model": "anthropic-fixture",
+                            "content": [{"type": "text", "text": structured(ref)}],
+                            "usage": {"input_tokens": 25, "output_tokens": 15},
+                        },
+                    ),
+                    response(
+                        200,
+                        {
+                            "id": "msg_fallback_3",
+                            "model": "anthropic-fixture",
+                            "content": [{"type": "text", "text": structured(ref)}],
+                            "usage": {"input_tokens": 25, "output_tokens": 15},
+                        },
+                    ),
                 ]
             )
             registry = CapabilityRegistry.from_environment(
@@ -173,7 +191,7 @@ class TrancheF5HealthAndFallbackTests(unittest.TestCase):
         synthesis = next(item for item in routes if item["task_id"] == "T-SYNTHESIS")
         self.assertEqual(synthesis["provider_id"], "anthropic.configured")
         self.assertEqual(len(openai.requests), 1)
-        self.assertEqual(len(anthropic.requests), 2)
+        self.assertEqual(len(anthropic.requests), 4)
         self.assertIn("openai.configured", report)
         self.assertIn("degraded", report.lower())
 
@@ -225,6 +243,24 @@ class TrancheF5HealthAndFallbackTests(unittest.TestCase):
                             "eval_count": 10,
                         },
                     ),
+                    response(
+                        200,
+                        {
+                            "model": "local-fixture",
+                            "response": structured(ref),
+                            "prompt_eval_count": 20,
+                            "eval_count": 10,
+                        },
+                    ),
+                    response(
+                        200,
+                        {
+                            "model": "local-fixture",
+                            "response": structured(ref),
+                            "prompt_eval_count": 20,
+                            "eval_count": 10,
+                        },
+                    ),
                 ]
             )
             registry = CapabilityRegistry.from_environment(
@@ -235,7 +271,7 @@ class TrancheF5HealthAndFallbackTests(unittest.TestCase):
                 (Path(result.artifact_dir) / "cost_ledger.json").read_text()
             )
 
-        self.assertEqual(len(transport.requests), 2)
+        self.assertEqual(len(transport.requests), 4)
         self.assertEqual(ledger["calls"][0]["provider_id"], "ollama.local")
         self.assertEqual(ledger["calls"][0]["actual_usd"], 0)
 

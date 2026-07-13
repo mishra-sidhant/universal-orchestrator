@@ -84,7 +84,9 @@ class TrancheF7BenchmarkTests(unittest.TestCase):
                 [
                     HTTPResponse(200, {}, b'{"data": []}'),
                     openai_response("Native fixture output.", "resp_native"),
-                    openai_response(orchestrated, "resp_orchestrated"),
+                    openai_response(orchestrated, "resp_orchestrated_1"),
+                    openai_response(orchestrated, "resp_orchestrated_2"),
+                    openai_response(orchestrated, "resp_orchestrated_3"),
                 ]
             )
             registry = CapabilityRegistry.from_environment(
@@ -114,8 +116,8 @@ class TrancheF7BenchmarkTests(unittest.TestCase):
         self.assertGreaterEqual(comparison["native"]["latency_ms"], 0)
         self.assertGreaterEqual(comparison["orchestrated"]["latency_ms"], 0)
         self.assertEqual(comparison["native"]["actual_cost_usd"], 0.00045)
-        self.assertEqual(comparison["orchestrated"]["actual_cost_usd"], 0.00045)
-        self.assertEqual(len(transport.requests), 3)
+        self.assertEqual(comparison["orchestrated"]["actual_cost_usd"], 0.00135)
+        self.assertEqual(len(transport.requests), 5)
 
 
 if __name__ == "__main__":

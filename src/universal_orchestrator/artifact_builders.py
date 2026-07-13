@@ -169,6 +169,13 @@ class ArtifactBuilder:
                 )
             render_dir = rendered.parent
             page_paths = self._rendered_page_paths(rendered)
+            expected_page_count = self._expected_rendered_page_count(kind, path)
+            if expected_page_count is not None and len(page_paths) != expected_page_count:
+                return self._render_quality_result(
+                    f"Renderer produced {len(page_paths)} rendered pages; "
+                    f"expected {expected_page_count} rendered pages.",
+                    quality_bar,
+                )
             page_errors = self._inspect_rendered_pages(page_paths, render_dir)
             if page_errors:
                 return self._render_quality_result_list(page_errors, quality_bar)
@@ -198,6 +205,20 @@ class ArtifactBuilder:
             key=lambda item: int(item.stem.rsplit("-", 1)[-1]),
         )
         return pages or [first_page]
+
+    def _expected_rendered_page_count(self, kind: str, path: Path) -> int | None:
+        try:
+            if kind == "pdf":
+                from pypdf import PdfReader
+
+                return len(PdfReader(str(path)).pages)
+            if kind == "pptx":
+                from pptx import Presentation
+
+                return len(Presentation(str(path)).slides)
+        except Exception:
+            return None
+        return None
 
     def _inspect_rendered_pages(self, pages: list[Path], render_dir: Path) -> list[str]:
         from PIL import Image, ImageChops, ImageStat
@@ -292,40 +313,63 @@ class ArtifactBuilder:
             return None, "pdftoppm is not installed"
         temp_dir = Path(tempfile.mkdtemp(prefix="uo-render-"))
         source_pdf = path
-        if kind in {"docx", "pptx"}:
-            soffice = os.getenv("UO_SOFFICE_BIN") or shutil.which("soffice")
-            if not soffice:
-                shutil.rmtree(temp_dir, ignore_errors=True)
-                return None, "LibreOffice soffice is not installed"
+        render_succeeded = False
+        try:
+            if kind in {"docx", "pptx"}:
+                soffice = os.getenv("UO_SOFFICE_BIN") or shutil.which("soffice")
+                if not soffice:
+                    return None, "LibreOffice soffice is not installed"
+                completed = subprocess.run(
+                    [
+                        soffice,
+                        "--headless",
+                        "--convert-to",
+                        "pdf",
+                        "--outdir",
+                        str(temp_dir),
+                        str(path),
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                    check=False,
+                )
+                source_pdf = temp_dir / f"{path.stem}.pdf"
+                if completed.returncode != 0 or not source_pdf.exists():
+                    message = (
+                        completed.stderr.strip()
+                        or completed.stdout.strip()
+                        or "conversion failed"
+                    )
+                    return None, f"{kind} conversion failed: {message}"
+            output_prefix = temp_dir / "page"
             completed = subprocess.run(
-                [soffice, "--headless", "--convert-to", "pdf", "--outdir", str(temp_dir), str(path)],
+                [pdftoppm, "-png", str(source_pdf), str(output_prefix)],
                 capture_output=True,
                 text=True,
                 timeout=30,
                 check=False,
             )
-            source_pdf = temp_dir / f"{path.stem}.pdf"
-            if completed.returncode != 0 or not source_pdf.exists():
-                message = completed.stderr.strip() or completed.stdout.strip() or "conversion failed"
+            pages = sorted(
+                temp_dir.glob("page-*.png"),
+                key=lambda item: int(item.stem.rsplit("-", 1)[-1]),
+            )
+            if completed.returncode != 0 or not pages:
+                message = (
+                    completed.stderr.strip()
+                    or completed.stdout.strip()
+                    or "PDF rasterization failed"
+                )
+                return None, message
+            render_succeeded = True
+            return pages[0], None
+        except subprocess.TimeoutExpired as exc:
+            return None, f"render subprocess timed out: {exc.cmd}"
+        except OSError as exc:
+            return None, f"render subprocess failed: {exc}"
+        finally:
+            if not render_succeeded:
                 shutil.rmtree(temp_dir, ignore_errors=True)
-                return None, f"{kind} conversion failed: {message}"
-        output_prefix = temp_dir / "page"
-        completed = subprocess.run(
-            [pdftoppm, "-png", str(source_pdf), str(output_prefix)],
-            capture_output=True,
-            text=True,
-            timeout=30,
-            check=False,
-        )
-        pages = sorted(
-            temp_dir.glob("page-*.png"),
-            key=lambda item: int(item.stem.rsplit("-", 1)[-1]),
-        )
-        if completed.returncode != 0 or not pages:
-            message = completed.stderr.strip() or completed.stdout.strip() or "PDF rasterization failed"
-            shutil.rmtree(temp_dir, ignore_errors=True)
-            return None, message
-        return pages[0], None
 
     def build_patch_plan(self, markdown: str, path: Path) -> Artifact:
         path.parent.mkdir(parents=True, exist_ok=True)

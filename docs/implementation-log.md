@@ -1065,3 +1065,29 @@ tests.test_tranche_o0_boundaries: 6 boundary tests discovered
 ```
 
 The failing-first tests are retained in `tests/test_tranche_o0_boundaries.py`. The disposition ledger is `docs/reviews/2026-07-13-tranche-o-disposition.md`; no existing gate was weakened.
+
+## Tranche O.1: Evidence, Delivery, Rendering, And Chapter Routing Honesty
+
+Implemented:
+
+- Treat `INSUFFICIENT` verification as a blocking verdict alongside `CONTRADICTED`; blocked claims are neither resolved nor citation-eligible, and the audit now reports the honest blocking state.
+- Removed the mutable `Quality passed: True/False` assertion from the final report. The report points to `quality_report.json`, while `run_manifest.json` remains authoritative for delivery state.
+- Made ZIP construction and validation a contained finalization boundary. Exceptions become explicit `needs_attention` delivery errors, stale receipts are removed, invalid bundles are never receipted, and finalization always writes a state-consistent manifest and audit.
+- Counted rendered PDF and PPTX pages against their source artifact and made every render failure, timeout, and conversion failure clean its temporary directory deterministically.
+- Routed chapter-2 and chapter-3 synthesis through the configured `final_synthesis` capability whenever model synthesis is available, preserving extractive mode when it is not.
+- Updated live-model fixtures to cover all model-routed chapters and kept the F.6 timeout fixture focused on the timed-out task's lease boundary.
+
+Verification gate (2026-07-13, fixture-only, no keys and no network from tests):
+
+```text
+focused O.0/O.1 plus live-path regressions: 33 tests passed
+unittest discover: 228 tests passed
+evals --run: 3/3 passed
+doctor: passed with all provider credentials absent
+ruff check src tests: passed
+mypy src: no issues in 64 source files
+python -m build: wheel and source distribution built successfully
+git diff --check: passed
+```
+
+The desktop shell did not expose the `uv` executable, so the same project environment's `.venv/bin/python` ran the module gates. The isolated build was retried with network access solely to install the declared `hatchling` build dependency. No live provider call was made. Operator smoke and real benchmark evidence remain pending by design.

@@ -264,10 +264,12 @@ class PlannerEnsemble:
                 "T-CHAPTER-002",
                 "Synthesize findings and evidence chapter",
                 TaskType.FINAL_SYNTHESIS,
-                {"extractive_synthesis": 0.9},
+                {"final_synthesis": 0.6}
+                if model_synthesis
+                else {"extractive_synthesis": 0.9},
                 ["T-GAP-ANALYSIS"],
                 Criticality.HIGH,
-                CostTier.FREE,
+                CostTier.PREMIUM if model_synthesis else CostTier.FREE,
                 chapter_id=chapter_two[0],
                 chapter_title=chapter_two[1],
                 objective=chapter_two[2],
@@ -277,10 +279,12 @@ class PlannerEnsemble:
                 "T-CHAPTER-003",
                 "Synthesize risks and actions chapter",
                 TaskType.FINAL_SYNTHESIS,
-                {"extractive_synthesis": 0.9},
+                {"final_synthesis": 0.6}
+                if model_synthesis
+                else {"extractive_synthesis": 0.9},
                 ["T-GAP-ANALYSIS"],
                 Criticality.HIGH,
-                CostTier.FREE,
+                CostTier.PREMIUM if model_synthesis else CostTier.FREE,
                 chapter_id=chapter_three[0],
                 chapter_title=chapter_three[1],
                 objective=chapter_three[2],

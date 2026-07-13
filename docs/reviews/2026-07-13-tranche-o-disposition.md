@@ -4,11 +4,16 @@ Baseline: `dcb3eaa`, reviewed against the Universal AI Executive Kernel report a
 
 | Finding | Status | Evidence |
 | --- | --- | --- |
-| Insufficient claims can be cited | pending | O.0 failing-first regression |
-| Late quality demotion leaves a stale final report | pending | O.0 failing-first regression |
-| ZIP construction exceptions escape finalization | pending | O.0 failing-first regression |
-| Renderer can return fewer pages than the source | pending | O.0 failing-first regression |
-| Render timeout escapes and leaks temporary output | pending | O.0 failing-first regression |
-| Model-enabled chapters two and three remain extractive | pending | O.0 failing-first regression |
+| Insufficient claims can be cited | closed | Tranche O.1 phase commit; `tests.test_tranche_o0_boundaries.test_insufficient_verification_blocks_delivery_and_citation` |
+| Late quality demotion leaves a stale final report | closed | Tranche O.1 phase commit; `tests.test_tranche_o0_boundaries.test_late_zip_demotion_report_is_status_neutral` |
+| ZIP construction exceptions escape finalization | closed | Tranche O.1 phase commit; `tests.test_tranche_o0_boundaries.test_zip_construction_failure_is_state_consistent` |
+| Renderer can return fewer pages than the source | closed | Tranche O.1 phase commit; `tests.test_tranche_o0_boundaries.test_renderer_page_count_mismatch_is_blocking` |
+| Render timeout escapes and leaks temporary output | closed | Tranche O.1 phase commit; `tests.test_tranche_o0_boundaries.test_render_timeout_is_reported_and_temp_is_cleaned` |
+| Model-enabled chapters two and three remain extractive | closed | Tranche O.1 phase commit; `tests.test_tranche_o0_boundaries.test_model_enabled_plan_routes_all_chapters` and 33 focused regressions |
 
-No existing gate is weakened. O.0 implementation is intentionally incomplete until every test in `tests/test_tranche_o0_boundaries.py` passes.
+No existing gate was weakened. The O.0 failing-first tests now pass after O.1 implementation. The all-chapter route remains fixture-tested; provider live quality remains operator-only evidence.
+
+| Phase | Status | Commit | Evidence |
+| --- | --- | --- | --- |
+| O.0 boundary pinning | closed | `8cbee16` | Six failing-first boundary regressions recorded before implementation. |
+| O.1 honesty and routing closure | closed | Tranche O.1 phase commit | 228-test suite, evals 3/3, doctor, Ruff, mypy, package build, and focused 33-test gate. |

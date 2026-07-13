@@ -187,16 +187,26 @@ class TrancheE4RuntimeTests(unittest.TestCase):
                 orchestrator = Orchestrator(Path(tmp) / "runs")
                 owner = getattr(orchestrator, owner_name)
                 with patch.object(owner, method_name, side_effect=RuntimeError("forced stage failure")):
-                    with self.assertRaisesRegex(RuntimeError, "forced stage failure"):
-                        orchestrator.run(HostInvocation(prompt=prompt))
+                    if method_name == "build_zip":
+                        result = orchestrator.run(HostInvocation(prompt=prompt))
+                    else:
+                        with self.assertRaisesRegex(RuntimeError, "forced stage failure"):
+                            orchestrator.run(HostInvocation(prompt=prompt))
 
                 run_dir = next(
                     path
                     for path in (Path(tmp) / "runs").iterdir()
                     if path.name.startswith("run_")
                 )
-                failure = json.loads((run_dir / "failure.json").read_text())
-                self.assertEqual(failure["stage"], expected_state)
+                if method_name == "build_zip":
+                    self.assertEqual(result.state, RunState.NEEDS_ATTENTION)
+                    zip_validation = json.loads((run_dir / "zip_validation.json").read_text())
+                    self.assertTrue(
+                        any("forced stage failure" in error for error in zip_validation["errors"])
+                    )
+                else:
+                    failure = json.loads((run_dir / "failure.json").read_text())
+                    self.assertEqual(failure["stage"], expected_state)
 
     def test_failed_quality_enters_repair_execution_state(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

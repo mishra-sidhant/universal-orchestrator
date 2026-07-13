@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -71,9 +72,70 @@ def structured_output(ref: str, claim: str = "The kernel uses bounded execution 
     )
 
 
+class ChapterAwareTransport(FakeTransport):
+    def __init__(
+        self, executive_outcomes: list[HTTPResponse], retarget_valid: bool = True
+    ) -> None:
+        super().__init__([])
+        self.executive_outcomes = list(executive_outcomes)
+        self.retarget_valid = retarget_valid
+
+    def _source_ref(self, prompt: str) -> str:
+        refs = re.findall(r'"id"\s*:\s*"(chunk_[^"]+|chunk-[^"]+)"', prompt)
+        if not refs:
+            raise AssertionError("Model fixture did not receive a source chunk.")
+        # The prompt chunk is first; use the attached source chunk for grounded fixtures.
+        return refs[-1]
+
+    def _retarget_valid_response(
+        self, response: HTTPResponse, source_ref: str
+    ) -> HTTPResponse:
+        if not self.retarget_valid:
+            return response
+        try:
+            envelope = json.loads(response.body.decode("utf-8"))
+            output = json.loads(envelope["output_text"])
+        except (KeyError, TypeError, UnicodeDecodeError, json.JSONDecodeError):
+            return response
+        claims = output.get("claims")
+        if not isinstance(claims, list):
+            return response
+        for claim in claims:
+            if isinstance(claim, dict) and claim.get("evidence_refs"):
+                claim["evidence_refs"] = [source_ref]
+        envelope["output_text"] = json.dumps(output)
+        return HTTPResponse(
+            response.status_code,
+            response.headers,
+            json.dumps(envelope).encode("utf-8"),
+        )
+
+    def send(self, request):
+        self.requests.append(request)
+        if request.method == "GET":
+            return HTTPResponse(200, {}, b'{"data": []}')
+        body = (request.body or b"").decode("utf-8", errors="replace")
+        payload = json.loads(body)
+        prompt = str(payload["input"][1]["content"])
+        source_ref = self._source_ref(prompt)
+        if "Synthesize grounded model findings" in body:
+            if not self.executive_outcomes:
+                raise AssertionError("Executive synthesis made an unexpected fixture call.")
+            return self._retarget_valid_response(
+                self.executive_outcomes.pop(0), source_ref
+            )
+        return openai_response(structured_output(source_ref, "Chapter output is grounded."))
+
+
 class TrancheF4ModelSynthesisTests(unittest.TestCase):
-    def _run(self, root: Path, invocation: HostInvocation, outcomes: list[HTTPResponse]):
-        transport = FakeTransport([HTTPResponse(200, {}, b'{"data": []}'), *outcomes])
+    def _run(
+        self,
+        root: Path,
+        invocation: HostInvocation,
+        outcomes: list[HTTPResponse],
+        retarget_valid: bool = True,
+    ):
+        transport = ChapterAwareTransport(outcomes, retarget_valid=retarget_valid)
         registry = CapabilityRegistry.from_environment(
             transports={"openai.configured": transport}
         )
@@ -100,13 +162,18 @@ class TrancheF4ModelSynthesisTests(unittest.TestCase):
             audit = json.loads((run_dir / "evidence_audit.json").read_text())
             ledger = json.loads((run_dir / "cost_ledger.json").read_text())
             report = (run_dir / "final_report.md").read_text()
+            source_refs = {
+                item["id"]
+                for item in json.loads((run_dir / "context_chunks.json").read_text())
+                if item["input_id"] != "input_prompt"
+            }
 
         worker = synthesis["output"]["worker_output"]
         self.assertEqual(worker["synthesis_path"], "model")
-        self.assertEqual(worker["claims"][0]["evidence_refs"], [ref])
+        self.assertIn(worker["claims"][0]["evidence_refs"][0], source_refs)
         self.assertTrue(audit["passed"])
-        self.assertEqual(len(ledger["calls"]), 1)
-        self.assertEqual(len(transport.requests), 2)
+        self.assertEqual(len(ledger["calls"]), 3)
+        self.assertEqual(len(transport.requests), 4)
         self.assertIn("Synthesis path: `model`", report)
 
     def test_malformed_output_gets_one_repair_then_extractive_fallback(self) -> None:
@@ -131,7 +198,7 @@ class TrancheF4ModelSynthesisTests(unittest.TestCase):
 
         worker = synthesis["output"]["worker_output"]
         self.assertEqual(worker["synthesis_path"], "extractive_fallback")
-        self.assertEqual(len(transport.requests), 3)
+        self.assertEqual(len(transport.requests), 5)
         self.assertTrue(any("validation" in warning.lower() for warning in synthesis["warnings"]))
 
     def test_one_reformat_repair_can_recover_without_fallback(self) -> None:
@@ -156,7 +223,7 @@ class TrancheF4ModelSynthesisTests(unittest.TestCase):
             synthesis = next(item for item in execution if item["task_id"] == "T-SYNTHESIS")
 
         self.assertEqual(synthesis["output"]["worker_output"]["synthesis_path"], "model_repaired")
-        self.assertEqual(len(transport.requests), 3)
+        self.assertEqual(len(transport.requests), 5)
 
     def test_lexical_overlap_is_labeled_warning_not_entailment_gate(self) -> None:
         with tempfile.TemporaryDirectory() as tmp, patch.dict(
@@ -200,6 +267,7 @@ class TrancheF4ModelSynthesisTests(unittest.TestCase):
                 root,
                 invocation,
                 [openai_response(structured_output("chunk_fabricated"))],
+                retarget_valid=False,
             )
             audit = json.loads(
                 (Path(result.artifact_dir) / "evidence_audit.json").read_text()
@@ -231,7 +299,10 @@ class TrancheF4ModelSynthesisTests(unittest.TestCase):
         )
         self.assertEqual(result.state, RunState.NEEDS_ATTENTION)
         self.assertIsNotNone(ledger["budget_stop"])
-        self.assertEqual(ledger["budget_stop"]["task_id"], "T-SYNTHESIS")
+        self.assertIn(
+            ledger["budget_stop"]["task_id"],
+            {"T-SYNTHESIS", "T-CHAPTER-002", "T-CHAPTER-003"},
+        )
         self.assertEqual(budget["budget_stop"], ledger["budget_stop"])
 
     def test_without_provider_configuration_extractive_path_remains_default(self) -> None:

@@ -27,8 +27,16 @@ class OneSecondSynthesisPlanner(PlannerEnsemble):
     def create_execution_plan(self, run_id, contract, model_synthesis=False):
         dag = super().create_execution_plan(run_id, contract, model_synthesis=model_synthesis)
         nodes = [
-            node.model_copy(update={"timeout_seconds": 1})
+            node.model_copy(
+                update={
+                    "timeout_seconds": 1,
+                }
+            )
             if node.id == "T-SYNTHESIS"
+            else node.model_copy(
+                update={"required_capabilities": {"extractive_synthesis": 0.9}}
+            )
+            if node.id in {"T-CHAPTER-002", "T-CHAPTER-003"}
             else node
             for node in dag.nodes
         ]

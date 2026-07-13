@@ -46,7 +46,11 @@ class EvidenceAuditor:
                 for claim in claims
                 if claim.evidence_required
                 and claim.verification is not None
-                and claim.verification.status == ClaimVerificationStatus.CONTRADICTED
+                and claim.verification.status
+                in {
+                    ClaimVerificationStatus.CONTRADICTED,
+                    ClaimVerificationStatus.INSUFFICIENT,
+                }
             }
         )
         unconsumed_evidence_refs = sorted(
@@ -119,9 +123,9 @@ class EvidenceAuditor:
                 passed=not verification_blockers,
                 severity="high" if verification_blockers else "medium",
                 message=(
-                    "Configured claim verification found no contradiction."
+                    "Configured claim verification found no blocking verdict."
                     if not verification_blockers
-                    else "Configured claim verification contradicted one or more claims."
+                    else "Configured claim verification blocked one or more claims."
                 ),
                 metadata={"verification_blockers": verification_blockers},
             ),
@@ -263,20 +267,28 @@ class EvidenceAuditor:
         consumed_ids = consumed_chunk_refs_by_task.get(task_id, set())
         delivered_chunks = [chunk for chunk in chunks if chunk.id in consumed_ids]
         verification = self.claim_verifier.verify(text, refs, delivered_chunks) if delivered_chunks else None
+        blocking_verification = verification is not None and verification.status in {
+            ClaimVerificationStatus.CONTRADICTED,
+            ClaimVerificationStatus.INSUFFICIENT,
+        }
         citation_eligible = bool(text) and evidence_resolved and (
-            verification is None or verification.status != ClaimVerificationStatus.CONTRADICTED
+            not blocking_verification
         )
         blocked_reason = None
         if not evidence_resolved and evidence_required:
             blocked_reason = "Evidence references were not resolved and consumed by this task."
-        elif verification is not None and verification.status == ClaimVerificationStatus.CONTRADICTED:
-            blocked_reason = verification.warning or "Configured claim verifier contradicted the claim."
+        elif blocking_verification and verification is not None:
+            blocked_reason = verification.warning or (
+                "Configured claim verifier returned a blocking verdict."
+            )
         return EvidenceClaim(
             task_id=task_id,
             claim=text,
             evidence_refs=refs,
             evidence_required=evidence_required,
-            resolved=bool(text) and (evidence_resolved if evidence_required else not refs),
+            resolved=bool(text)
+            and (evidence_resolved if evidence_required else not refs)
+            and not blocking_verification,
             citation_eligible=citation_eligible,
             blocked_reason=blocked_reason,
             verification=verification,
