@@ -1046,3 +1046,22 @@ fixture key-sweep and local_only-with-keys regressions: passed within the suite
 ### Operator live evidence
 
 Still pending by design. The operator must add credentials or authenticate official subscription CLIs locally, run one sanctioned smoke per configured provider, and run one real benchmark. Those results belong under the existing `Operator Live Evidence` section and must not be inferred from fixture results.
+
+## Tranche O.0: Core Product Boundary Regressions
+
+Baseline: `dcb3eaa`, with the scope target set to the report-defined core product above 90 percent. The six accepted residuals were pinned before implementation.
+
+Failing-first transcript:
+
+```text
+tests.test_tranche_o0_boundaries: 6 boundary tests discovered
+4 failures and 2 errors
+- INSUFFICIENT verifier result was delivered and citation-eligible
+- late ZIP demotion left final_report.md claiming Quality passed: True
+- ZIP construction exceptions escaped finalization
+- renderer accepted fewer pages than the source artifact
+- render timeout escaped and left temporary output
+- model-enabled chapter nodes 002/003 remained extractive
+```
+
+The failing-first tests are retained in `tests/test_tranche_o0_boundaries.py`. The disposition ledger is `docs/reviews/2026-07-13-tranche-o-disposition.md`; no existing gate was weakened.
