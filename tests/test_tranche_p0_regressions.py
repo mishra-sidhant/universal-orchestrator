@@ -46,6 +46,27 @@ class TrancheP0RegressionTests(unittest.TestCase):
 
         self.assertFalse(report.passed)
 
+    def test_canonical_chunk_with_false_declared_hash_fails(self) -> None:
+        canonical = ContextChunk(
+            id="chunk-1",
+            input_id="input-1",
+            ordinal=0,
+            text="Canonical content.",
+            token_estimate=3,
+            content_hash="sha256:not-the-content",
+        )
+
+        report = ContextArtifactFidelityAuditor().audit(
+            "R",
+            [canonical],
+            {"T-SYNTHESIS": ContextPack(task_id="T-SYNTHESIS", task="Answer", chunks=[canonical])},
+            [],
+            {},
+            [],
+        )
+
+        self.assertFalse(report.passed)
+
     def test_fidelity_failure_blocks_delivery_and_receipt(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             orchestrator = Orchestrator(Path(tmp) / "runs")

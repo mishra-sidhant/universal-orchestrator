@@ -990,10 +990,11 @@ class FidelityFinding(StrictModel):
 
 
 class FidelityReport(StrictModel):
-    schema_version: str = "1.0"
+    schema_version: str = "1.1"
     run_id: str
     passed: bool
     findings: list[FidelityFinding] = Field(default_factory=list)
+    audited_artifact_names: list[str] = Field(default_factory=list)
     context_pack_count: int = 0
     manuscript_section_count: int = 0
     artifact_count: int = 0
