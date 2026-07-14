@@ -28,7 +28,12 @@ class TrancheO8ReleaseGateTests(unittest.TestCase):
                 "delivery_state_consistency",
                 "local_only_no_egress",
                 "key_sweep",
-                "fidelity_tamper_detection",
+                "context_text_tamper_detection",
+                "context_hash_tamper_detection",
+                "fidelity_failure_blocks_delivery",
+                "integrity_failure_blocks_delivery",
+                "repository_mode_preservation",
+                "repository_stale_write_rejection",
                 "write_approval_boundary",
             },
         )

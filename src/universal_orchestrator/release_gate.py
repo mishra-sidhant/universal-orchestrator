@@ -5,16 +5,20 @@ import os
 import zipfile
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterator
+from typing import Any, Iterator
 
 from universal_orchestrator.artifact_builders import ArtifactBuilder
 from universal_orchestrator.evals import EvaluationRunner
 from universal_orchestrator.fidelity import ContextArtifactFidelityAuditor
+from universal_orchestrator.integrity import ArtifactIntegrityAuditor
 from universal_orchestrator.models import (
     Artifact,
     ContextChunk,
     ContextPack,
     ExecutionResult,
+    ArtifactIntegrityReport,
+    FidelityFinding,
+    FidelityReport,
     HostInvocation,
     PrivacyMode,
     TaskStatus,
@@ -24,7 +28,7 @@ from universal_orchestrator.pipeline import Orchestrator
 from universal_orchestrator.providers.transport import FakeTransport
 from universal_orchestrator.repo_transaction import RepositoryEdit, TransactionalRepoEditor
 from universal_orchestrator.routing import CapabilityRegistry
-from universal_orchestrator.utils import write_json
+from universal_orchestrator.utils import sha256_bytes, sha256_file, write_json
 
 
 PROVIDER_ENV = (
@@ -72,9 +76,34 @@ class ReleaseGateRunner:
                     "details": "Planted key material is absent from the run directory and delivery ZIP.",
                 },
                 {
-                    "name": "fidelity_tamper_detection",
-                    "passed": self._fidelity_tamper_check(),
-                    "details": "Tampered context-pack content hashes are detected.",
+                    "name": "context_text_tamper_detection",
+                    "passed": self._fidelity_text_tamper_check(),
+                    "details": "Altered context text cannot pass by retaining its old hash label.",
+                },
+                {
+                    "name": "context_hash_tamper_detection",
+                    "passed": self._fidelity_hash_tamper_check(),
+                    "details": "Altered context hash labels are detected.",
+                },
+                {
+                    "name": "fidelity_failure_blocks_delivery",
+                    "passed": self._fidelity_failure_delivery_check(root_path / "fidelity-failure"),
+                    "details": "A failed fidelity audit produces needs_attention and no receipt.",
+                },
+                {
+                    "name": "integrity_failure_blocks_delivery",
+                    "passed": self._integrity_failure_delivery_check(root_path / "integrity-failure"),
+                    "details": "A failed final integrity audit produces needs_attention and no receipt.",
+                },
+                {
+                    "name": "repository_mode_preservation",
+                    "passed": self._repository_mode_check(root_path / "mode"),
+                    "details": "Transactional edits preserve executable permissions.",
+                },
+                {
+                    "name": "repository_stale_write_rejection",
+                    "passed": self._repository_stale_write_check(root_path / "stale-write"),
+                    "details": "A destination changed after preflight is rejected before replacement.",
                 },
                 {
                     "name": "write_approval_boundary",
@@ -166,16 +195,17 @@ class ReleaseGateRunner:
                 zip_found = any(marker.encode() in archive.read(name) for name in archive.namelist())
         return not transport.requests, not key_found and not zip_found
 
-    def _fidelity_tamper_check(self) -> bool:
+    def _fidelity_text_tamper_check(self) -> bool:
+        canonical_text = "canonical"
         canonical = ContextChunk(
             id="chunk-release",
             input_id="input-release",
             ordinal=0,
-            text="canonical",
+            text=canonical_text,
             token_estimate=2,
-            content_hash="sha256:canonical",
+            content_hash=sha256_bytes(canonical_text.encode("utf-8")),
         )
-        tampered = canonical.model_copy(update={"content_hash": "sha256:tampered"})
+        tampered = canonical.model_copy(update={"text": "tampered payload"})
         report = ContextArtifactFidelityAuditor().audit(
             "R",
             [canonical],
@@ -192,6 +222,117 @@ class ReleaseGateRunner:
             [],
         )
         return not report.passed
+
+    def _fidelity_hash_tamper_check(self) -> bool:
+        canonical_text = "canonical"
+        canonical = ContextChunk(
+            id="chunk-release",
+            input_id="input-release",
+            ordinal=0,
+            text=canonical_text,
+            token_estimate=2,
+            content_hash=sha256_bytes(canonical_text.encode("utf-8")),
+        )
+        tampered = canonical.model_copy(update={"content_hash": "sha256:tampered"})
+        report = ContextArtifactFidelityAuditor().audit(
+            "R",
+            [canonical],
+            {"T-SYNTHESIS": ContextPack(task_id="T-SYNTHESIS", task="Answer", chunks=[tampered])},
+            [],
+            {},
+            [],
+        )
+        return not report.passed
+
+    def _fidelity_failure_delivery_check(self, root: Path) -> bool:
+        class FailingFidelityAuditor(ContextArtifactFidelityAuditor):
+            def audit(self, *args: Any, **kwargs: Any) -> FidelityReport:
+                del args, kwargs
+                return FidelityReport(
+                    run_id="forced",
+                    passed=False,
+                    findings=[
+                        FidelityFinding(
+                            kind="forced",
+                            passed=False,
+                            severity="high",
+                            message="forced fidelity failure",
+                        )
+                    ],
+                )
+
+        orchestrator = Orchestrator(root / "runs")
+        orchestrator.fidelity = FailingFidelityAuditor()
+        result = orchestrator.run(HostInvocation(prompt="Produce a report"))
+        run_dir = Path(result.artifact_dir)
+        return bool(
+            str(result.state) == "needs_attention"
+            and not result.quality.passed
+            and not (run_dir / "delivery_receipt.json").exists()
+        )
+
+    def _integrity_failure_delivery_check(self, root: Path) -> bool:
+        class FailingIntegrityAuditor(ArtifactIntegrityAuditor):
+            def audit(self, *args: Any, **kwargs: Any) -> ArtifactIntegrityReport:
+                del args, kwargs
+                return ArtifactIntegrityReport(
+                    run_id="forced",
+                    passed=False,
+                    missing_expected=["forced-artifact"],
+                )
+
+        orchestrator = Orchestrator(root / "runs")
+        orchestrator.integrity = FailingIntegrityAuditor()
+        result = orchestrator.run(HostInvocation(prompt="Produce a report"))
+        run_dir = Path(result.artifact_dir)
+        return bool(
+            str(result.state) == "needs_attention"
+            and not result.quality.passed
+            and not (run_dir / "delivery_receipt.json").exists()
+        )
+
+    def _repository_mode_check(self, root: Path) -> bool:
+        root.mkdir(parents=True, exist_ok=True)
+        target = root / "run.sh"
+        target.write_text("#!/bin/sh\nexit 0\n")
+        target.chmod(0o755)
+        report = TransactionalRepoEditor().apply(
+            root,
+            [
+                RepositoryEdit(
+                    path=target.name,
+                    content="#!/bin/sh\nexit 1\n",
+                    expected_sha256=sha256_file(target),
+                )
+            ],
+            run_id="R-RELEASE-MODE",
+            allow_repo_writes=True,
+        )
+        return report.committed and target.stat().st_mode & 0o777 == 0o755
+
+    def _repository_stale_write_check(self, root: Path) -> bool:
+        root.mkdir(parents=True, exist_ok=True)
+        target = root / "source.py"
+        target.write_text("before\n")
+
+        class MutatingEditor(TransactionalRepoEditor):
+            def _verify_live_targets(self, prepared: Any) -> None:
+                target.write_text("external change\n")
+                super()._verify_live_targets(prepared)
+
+        report = MutatingEditor().apply(
+            root,
+            [
+                RepositoryEdit(
+                    path=target.name,
+                    content="after\n",
+                    expected_sha256=sha256_file(target),
+                )
+            ],
+            run_id="R-RELEASE-STALE",
+            allow_repo_writes=True,
+        )
+        return not report.committed and "external change\n" == target.read_text()
 
     def _write_approval_check(self, root: Path) -> bool:
         root.mkdir(parents=True, exist_ok=True)

@@ -1263,3 +1263,44 @@ Focused verification (2026-07-13, fixture-only):
 ```text
 release-gate parser and adversarial suite tests: 2 passed
 ```
+
+## Tranche P: Audit Honesty And Transaction Safety Closure
+
+Review findings carried into this tranche:
+
+```text
+fidelity compared declared context hashes but did not recompute hashes from chunk text
+fidelity or final integrity failure could leave a delivered run with a receipt
+transactional replacement dropped executable file modes
+existing repository files could be overwritten without an expected pre-edit hash
+```
+
+P.0 failing-first transcript:
+
+```text
+5 regression tests failed before implementation
+text tamper retained the old hash and passed fidelity
+forced fidelity and integrity failures returned delivered with a receipt
+0755 replacement became 0600
+existing edit without expected_sha256 committed
+```
+
+Implemented:
+
+- Made fidelity recompute canonical and packed text hashes, compare complete chunk identity, reject duplicate canonical IDs, and record the stable artifact snapshot it audited. Raw source text is never written to findings.
+- Reordered final assembly so fidelity and final integrity affect quality before delivery state is derived. `_finalize_delivery` derives state from quality and issues a receipt only for a quality-passing, valid ZIP run.
+- Made integrity failures produce detailed, deduplicated violations and a bounded second audit after state-report rewrites; the run remains needs_attention once a final audit has failed.
+- Made existing repository writes require `expected_sha256`, added explicit/default permission handling, rechecked destination bytes and modes immediately before replacement, fsynced parent directories, verified post-write modes, and structured rollback failures.
+- Expanded the offline release gate with text/hash tamper checks, forced-audit delivery checks, executable-mode preservation, and stale-write rejection.
+
+Phase verification:
+
+```text
+P.0: 5 failing-first regressions recorded; all pass after implementation
+P.1: fidelity and canonical identity tests pass
+P.2: pipeline, boundary, fidelity, and release-gate tests pass
+P.3: 15 focused transaction/regression tests pass
+P.4: release-gate tests pass; Ruff and mypy pass
+```
+
+The fidelity report covers the stable product artifact snapshot supplied to that audit. Final artifact integrity, checksums, ZIP validation, and the delivery receipt cover the complete finalized bundle, including mutable control reports. This separation avoids a self-referential audit while preserving a single authoritative delivery state.
