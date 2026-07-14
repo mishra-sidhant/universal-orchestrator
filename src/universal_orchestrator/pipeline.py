@@ -74,6 +74,16 @@ from universal_orchestrator.stages import KernelStageContext, StageWorkerRegistr
 from universal_orchestrator.utils import read_json, sha256_file
 
 
+FIDELITY_MUTABLE_ARTIFACTS = {
+    "quality_report.json",
+    "trace_report.json",
+    "debug_bundle_manifest.json",
+    "fidelity_report.json",
+    "artifact_integrity_report.json",
+    "product_audit_bundle.json",
+}
+
+
 class Orchestrator:
     def __init__(
         self,
@@ -954,37 +964,21 @@ class Orchestrator:
                 )
             )
 
-        final_state = RunState.DELIVERED if quality.passed else RunState.NEEDS_ATTENTION
         self._ensure_not_cancelled(run_id)
         trace.checkpoint(
             "final_assembly",
             {"artifact_count": len(artifacts), "quality_passed": quality.passed},
         )
-        trace_report = trace.report(
-            final_state=final_state,
-            event_count=len(self.runtime.list_events(run_id)),
-            artifact_count=len(artifacts) + 3,
-            warning_count=len(manifest.warnings) + len(quality.warnings),
-        )
-        artifacts.append(
-            self.artifact_store.write_json_artifact(
-                run_id, "trace_report.json", trace_report.model_dump(mode="json")
-            )
-        )
-        debug_manifest = self.debug_bundle.build(run_id, artifacts)
-        artifacts.append(
-            self.artifact_store.write_json_artifact(
-                run_id, "debug_bundle_manifest.json", debug_manifest.model_dump(mode="json")
-            )
-        )
-
+        fidelity_artifacts = [
+            artifact for artifact in artifacts if artifact.name not in FIDELITY_MUTABLE_ARTIFACTS
+        ]
         fidelity_report = self.fidelity.audit(
             run_id,
             chunks,
             context_packs,
             all_results,
             chunk_refs_by_task,
-            artifacts,
+            fidelity_artifacts,
         )
         if not fidelity_report.passed:
             quality = quality.model_copy(
@@ -996,22 +990,14 @@ class Orchestrator:
                     ],
                 }
             )
-        artifacts.append(
+        self._replace_artifact(
+            artifacts,
             self.artifact_store.write_json_artifact(
                 run_id, "fidelity_report.json", fidelity_report.model_dump(mode="json")
-            )
+            ),
         )
-        integrity_report = self.integrity.audit(
-            run_id, artifacts, self._expected_artifact_names(contract)
-        )
-        artifacts.append(
-            self.artifact_store.write_json_artifact(
-                run_id,
-                "artifact_integrity_report.json",
-                integrity_report.model_dump(mode="json"),
-            )
-        )
-        artifacts.append(
+        self._replace_artifact(
+            artifacts,
             self.artifact_store.write_json_artifact(
                 run_id,
                 "product_audit_bundle.json",
@@ -1033,13 +1019,80 @@ class Orchestrator:
                         "or live-provider superiority."
                     ),
                 },
-            )
+            ),
+        )
+        self._replace_artifact(
+            artifacts,
+            self.artifact_store.write_json_artifact(
+                run_id, "quality_report.json", quality.model_dump(mode="json")
+            ),
+        )
+        final_state = RunState.DELIVERED if quality.passed else RunState.NEEDS_ATTENTION
+        trace_report = trace.report(
+            final_state=final_state,
+            event_count=len(self.runtime.list_events(run_id)),
+            artifact_count=len(artifacts) + 3,
+            warning_count=len(manifest.warnings) + len(quality.warnings),
+        )
+        self._replace_artifact(
+            artifacts,
+            self.artifact_store.write_json_artifact(
+                run_id, "trace_report.json", trace_report.model_dump(mode="json")
+            ),
+        )
+        debug_manifest = self.debug_bundle.build(run_id, artifacts)
+        self._replace_artifact(
+            artifacts,
+            self.artifact_store.write_json_artifact(
+                run_id, "debug_bundle_manifest.json", debug_manifest.model_dump(mode="json")
+            ),
         )
         final_integrity_report = self.integrity.audit(
             run_id,
             [artifact for artifact in artifacts if artifact.name != "artifact_integrity_report.json"],
             self._expected_artifact_names(contract),
         )
+        if not final_integrity_report.passed:
+            quality = quality.model_copy(
+                update={
+                    "passed": False,
+                    "violations": [
+                        *quality.violations,
+                        self._integrity_failure_message(final_integrity_report),
+                    ],
+                }
+            )
+            final_state = RunState.NEEDS_ATTENTION
+            self._replace_artifact(
+                artifacts,
+                self.artifact_store.write_json_artifact(
+                    run_id, "quality_report.json", quality.model_dump(mode="json")
+                ),
+            )
+            trace_report = trace.report(
+                final_state=final_state,
+                event_count=len(self.runtime.list_events(run_id)),
+                artifact_count=len(artifacts) + 3,
+                warning_count=len(manifest.warnings) + len(quality.warnings),
+            )
+            self._replace_artifact(
+                artifacts,
+                self.artifact_store.write_json_artifact(
+                    run_id, "trace_report.json", trace_report.model_dump(mode="json")
+                ),
+            )
+            debug_manifest = self.debug_bundle.build(run_id, artifacts)
+            self._replace_artifact(
+                artifacts,
+                self.artifact_store.write_json_artifact(
+                    run_id, "debug_bundle_manifest.json", debug_manifest.model_dump(mode="json")
+                ),
+            )
+            final_integrity_report = self.integrity.audit(
+                run_id,
+                [artifact for artifact in artifacts if artifact.name != "artifact_integrity_report.json"],
+                self._expected_artifact_names(contract),
+            )
         self._replace_artifact(
             artifacts,
             self.artifact_store.write_json_artifact(
@@ -1056,7 +1109,6 @@ class Orchestrator:
             contract=contract,
             artifacts=artifacts,
             quality=quality,
-            final_state=final_state,
             routing_decisions=all_decisions,
             started_at=started_at,
         )
@@ -1070,12 +1122,12 @@ class Orchestrator:
         contract: ProductContract,
         artifacts: list[Artifact],
         quality: QualityGateResult,
-        final_state: RunState,
         routing_decisions: list[RoutingDecision],
         started_at: datetime,
     ) -> RunResult:
         """Freeze a state-consistent manifest and only issue a receipt for a valid ZIP."""
 
+        final_state = RunState.DELIVERED if quality.passed else RunState.NEEDS_ATTENTION
         self.runtime.transition(run_id, RunState.PACKAGING)
         run_dir = self.artifact_store.run_dir(run_id)
         zip_path = run_dir / "delivery_bundle.zip"
@@ -1402,6 +1454,21 @@ class Orchestrator:
                 artifacts[index] = replacement
                 return
         artifacts.append(replacement)
+
+    def _integrity_failure_message(self, report: Any) -> str:
+        failed_entries = sorted(
+            entry.name
+            for entry in report.entries
+            if not entry.exists or not entry.hash_matches or entry.errors
+        )
+        details: list[str] = []
+        if report.missing_expected:
+            details.append(f"missing={sorted(report.missing_expected)}")
+        if report.duplicate_names:
+            details.append(f"duplicates={sorted(report.duplicate_names)}")
+        if failed_entries:
+            details.append(f"failed_entries={failed_entries}")
+        return "Artifact integrity audit failed: " + ("; ".join(details) or "unspecified failure")
 
     def _apply_repair_replacements(
         self,
