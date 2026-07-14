@@ -108,6 +108,7 @@ class TrancheO6RepoTransactionTests(unittest.TestCase):
             second = root / "second.py"
             first.write_text("first\n")
             second.write_text("second\n")
+            first.chmod(0o755)
             real_replace = __import__("os").replace
             calls = 0
 
@@ -122,19 +123,70 @@ class TrancheO6RepoTransactionTests(unittest.TestCase):
                 report = TransactionalRepoEditor().apply(
                     root,
                     [
-                        RepositoryEdit(path="first.py", content="changed first\n"),
-                        RepositoryEdit(path="second.py", content="changed second\n"),
+                        RepositoryEdit(
+                            path="first.py",
+                            content="changed first\n",
+                            expected_sha256=digest(first),
+                        ),
+                        RepositoryEdit(
+                            path="second.py",
+                            content="changed second\n",
+                            expected_sha256=digest(second),
+                        ),
                     ],
                     run_id="R",
                     allow_repo_writes=True,
                 )
                 first_text = first.read_text()
                 second_text = second.read_text()
+                first_mode = first.stat().st_mode & 0o777
 
         self.assertFalse(report.committed)
         self.assertTrue(report.rolled_back)
         self.assertEqual(first_text, "first\n")
         self.assertEqual(second_text, "second\n")
+        self.assertEqual(first_mode, 0o755)
+
+    def test_rollback_failure_is_reported_without_escaping(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            first = root / "first.py"
+            second = root / "second.py"
+            first.write_text("first\n")
+            second.write_text("second\n")
+            real_replace = __import__("os").replace
+            calls = 0
+
+            def flaky_replace(source, destination):
+                nonlocal calls
+                calls += 1
+                if calls in {2, 3}:
+                    raise OSError("forced replace failure")
+                return real_replace(source, destination)
+
+            with patch("universal_orchestrator.repo_transaction.os.replace", side_effect=flaky_replace):
+                report = TransactionalRepoEditor().apply(
+                    root,
+                    [
+                        RepositoryEdit(
+                            path="first.py",
+                            content="changed first\n",
+                            expected_sha256=digest(first),
+                        ),
+                        RepositoryEdit(
+                            path="second.py",
+                            content="changed second\n",
+                            expected_sha256=digest(second),
+                        ),
+                    ],
+                    run_id="R",
+                    allow_repo_writes=True,
+                )
+
+        self.assertFalse(report.committed)
+        self.assertFalse(report.rolled_back)
+        self.assertTrue(report.rollback_errors)
+        self.assertTrue(any("rollback failed" in error.lower() for error in report.errors))
 
     def test_path_escape_and_protected_path_are_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

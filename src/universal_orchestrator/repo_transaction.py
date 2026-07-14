@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import re
+import stat
 import tempfile
 from pathlib import Path
 
@@ -21,6 +22,7 @@ class RepositoryEdit(StrictModel):
     path: str
     content: str
     expected_sha256: str | None = None
+    mode: int | None = Field(default=None, ge=0, le=0o777)
     reason: str = "Operator-approved repository edit."
 
 
@@ -29,6 +31,8 @@ class RepositoryEditFile(StrictModel):
     existed_before: bool
     before_sha256: str | None = None
     after_sha256: str | None = None
+    before_mode: int | None = None
+    after_mode: int | None = None
 
 
 class RepositoryEditReport(StrictModel):
@@ -41,6 +45,7 @@ class RepositoryEditReport(StrictModel):
     files: list[RepositoryEditFile] = Field(default_factory=list)
     errors: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+    rollback_errors: list[str] = Field(default_factory=list)
 
 
 class TransactionalRepoEditor:
@@ -72,7 +77,7 @@ class TransactionalRepoEditor:
             report.committed = True
             return report
 
-        prepared: list[tuple[RepositoryEdit, Path, bytes | None, int | None]] = []
+        prepared: list[tuple[RepositoryEdit, Path, bytes | None, int | None, int]] = []
         seen: set[Path] = set()
         for edit in edits:
             path, error = self._confined_path(repo_root, edit.path)
@@ -88,6 +93,17 @@ class TransactionalRepoEditor:
                 continue
             current = path.read_bytes() if path.exists() else None
             before_hash = sha256_bytes(current) if current is not None else None
+            before_mode = stat.S_IMODE(path.stat().st_mode) if current is not None else None
+            if current is not None and edit.expected_sha256 is None:
+                report.errors.append(
+                    f"Repository edit requires expected_sha256 for existing file: {edit.path}"
+                )
+                continue
+            if current is None and edit.expected_sha256 is not None:
+                report.errors.append(
+                    f"Repository edit expected_sha256 must be absent for new file: {edit.path}"
+                )
+                continue
             if edit.expected_sha256 is not None and edit.expected_sha256 != before_hash:
                 report.errors.append(
                     f"Repository edit hash mismatch for {edit.path}: "
@@ -105,20 +121,22 @@ class TransactionalRepoEditor:
                     path=edit.path,
                     existed_before=current is not None,
                     before_sha256=before_hash,
+                    before_mode=before_mode,
                 )
             )
-            prepared.append((edit, path, current, path.stat().st_mode if path.exists() else None))
+            effective_mode = edit.mode if edit.mode is not None else (before_mode or 0o644)
+            prepared.append((edit, path, current, before_mode, effective_mode))
 
         if report.errors:
             return report
 
         staged: list[tuple[Path, Path]] = []
         backups: dict[Path, tuple[bytes | None, int | None]] = {
-            path: (current, mode) for _, path, current, mode in prepared
+            path: (current, before_mode) for _, path, current, before_mode, _ in prepared
         }
         replaced: list[Path] = []
         try:
-            for edit, path, _, _ in prepared:
+            for edit, path, _, _, effective_mode in prepared:
                 with tempfile.NamedTemporaryFile(
                     mode="wb",
                     prefix=f".{path.name}.uo-tx-",
@@ -126,25 +144,35 @@ class TransactionalRepoEditor:
                     delete=False,
                 ) as handle:
                     handle.write(edit.content.encode("utf-8"))
+                    os.fchmod(handle.fileno(), effective_mode)
                     handle.flush()
                     os.fsync(handle.fileno())
                     staged.append((Path(handle.name), path))
+            self._verify_live_targets(prepared)
             for temporary, destination in staged:
                 os.replace(temporary, destination)
                 replaced.append(destination)
-            for index, (_, path, _, _) in enumerate(prepared):
+                self._fsync_parent(destination)
+            for index, (_, path, _, _, effective_mode) in enumerate(prepared):
                 after_hash = sha256_bytes(path.read_bytes())
+                after_mode = stat.S_IMODE(path.stat().st_mode)
                 report.files[index] = report.files[index].model_copy(
-                    update={"after_sha256": after_hash}
+                    update={"after_sha256": after_hash, "after_mode": after_mode}
                 )
                 if after_hash != sha256_bytes(prepared[index][0].content.encode("utf-8")):
                     raise OSError(f"Post-commit hash verification failed for {path}")
+                if after_mode != effective_mode:
+                    raise OSError(f"Post-commit mode verification failed for {path}")
             report.committed = True
             return report
         except Exception as exc:
             report.errors.append(f"Repository transaction failed: {type(exc).__name__}: {exc}")
-            self._rollback(replaced, backups)
-            report.rolled_back = bool(replaced)
+            report.rollback_errors.extend(self._rollback(replaced, backups))
+            report.rolled_back = bool(replaced) and not report.rollback_errors
+            if report.rollback_errors:
+                report.errors.extend(
+                    f"Rollback failed: {error}" for error in report.rollback_errors
+                )
             return report
         finally:
             for temporary, _ in staged:
@@ -165,17 +193,49 @@ class TransactionalRepoEditor:
         self,
         replaced: list[Path],
         backups: dict[Path, tuple[bytes | None, int | None]],
-    ) -> None:
+    ) -> list[str]:
+        errors: list[str] = []
         for path in reversed(replaced):
             original, mode = backups[path]
-            if original is None:
-                path.unlink(missing_ok=True)
-                continue
-            with tempfile.NamedTemporaryFile(mode="wb", dir=path.parent, delete=False) as handle:
-                handle.write(original)
-                handle.flush()
-                os.fsync(handle.fileno())
-                rollback_path = Path(handle.name)
-            os.replace(rollback_path, path)
-            if mode is not None:
-                path.chmod(mode)
+            try:
+                if original is None:
+                    path.unlink(missing_ok=True)
+                    self._fsync_parent(path)
+                    continue
+                rollback_path: Path | None = None
+                with tempfile.NamedTemporaryFile(
+                    mode="wb", dir=path.parent, delete=False
+                ) as handle:
+                    handle.write(original)
+                    os.fchmod(handle.fileno(), mode if mode is not None else 0o644)
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                    rollback_path = Path(handle.name)
+                os.replace(rollback_path, path)
+                if mode is not None:
+                    path.chmod(mode)
+                self._fsync_parent(path)
+            except Exception as exc:
+                errors.append(f"{path}: {type(exc).__name__}: {exc}")
+            finally:
+                if rollback_path is not None:
+                    rollback_path.unlink(missing_ok=True)
+        return errors
+
+    def _verify_live_targets(
+        self,
+        prepared: list[tuple[RepositoryEdit, Path, bytes | None, int | None, int]],
+    ) -> None:
+        for _, path, current, before_mode, _ in prepared:
+            live = path.read_bytes() if path.exists() else None
+            live_mode = stat.S_IMODE(path.stat().st_mode) if live is not None else None
+            if live != current or live_mode != before_mode:
+                raise OSError(f"Repository edit target changed after preflight: {path}")
+
+    def _fsync_parent(self, path: Path) -> None:
+        flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+        descriptor = os.open(path.parent, flags)
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)

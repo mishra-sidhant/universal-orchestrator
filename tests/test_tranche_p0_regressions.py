@@ -4,6 +4,7 @@ import hashlib
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from universal_orchestrator.fidelity import ContextArtifactFidelityAuditor
 from universal_orchestrator.models import (
@@ -145,6 +146,66 @@ class TrancheP0RegressionTests(unittest.TestCase):
 
             self.assertTrue(report.committed)
             self.assertEqual(target.stat().st_mode & 0o777, 0o755)
+
+    def test_new_edit_uses_safe_default_mode_and_accepts_explicit_mode(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            default_target = root / "new.py"
+            explicit_target = root / "private.py"
+
+            default_report = TransactionalRepoEditor().apply(
+                root,
+                [RepositoryEdit(path=default_target.name, content="print(1)\n")],
+                run_id="R-default",
+                allow_repo_writes=True,
+            )
+            explicit_report = TransactionalRepoEditor().apply(
+                root,
+                [
+                    RepositoryEdit(
+                        path=explicit_target.name,
+                        content="print(2)\n",
+                        mode=0o700,
+                    )
+                ],
+                run_id="R-explicit",
+                allow_repo_writes=True,
+            )
+
+            self.assertTrue(default_report.committed)
+            self.assertTrue(explicit_report.committed)
+            self.assertEqual(default_target.stat().st_mode & 0o777, 0o644)
+            self.assertEqual(explicit_target.stat().st_mode & 0o777, 0o700)
+
+    def test_destination_change_after_staging_aborts_before_replacement(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            target = root / "source.py"
+            target.write_text("before\n")
+            editor = TransactionalRepoEditor()
+            original_verify = editor._verify_live_targets
+
+            def mutate_then_verify(prepared: object) -> None:
+                target.write_text("external change\n")
+                original_verify(prepared)  # type: ignore[arg-type]
+
+            with patch.object(editor, "_verify_live_targets", side_effect=mutate_then_verify):
+                report = editor.apply(
+                    root,
+                    [
+                        RepositoryEdit(
+                            path=target.name,
+                            content="after\n",
+                            expected_sha256=digest_bytes(b"before\n"),
+                        )
+                    ],
+                    run_id="R",
+                    allow_repo_writes=True,
+                )
+
+            self.assertFalse(report.committed)
+            self.assertIn("changed after preflight", " ".join(report.errors))
+            self.assertEqual(target.read_text(), "external change\n")
 
 
 if __name__ == "__main__":
