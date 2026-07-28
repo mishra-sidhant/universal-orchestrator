@@ -8,6 +8,8 @@ from universal_orchestrator.models import (
     ProductContract,
     ProductPlan,
     ChapterPlan,
+    PlanBlueprint,
+    PlanWorkUnit,
     RetryPolicy,
     TaskDAG,
     TaskNode,
@@ -45,7 +47,7 @@ class PlannerEnsemble:
         """Create a deterministic chapter contract without claiming prose quality."""
 
         title = contract.requested_output[:120] or "Universal Orchestrator Product"
-        chapter_specs = self._chapter_specs(contract)
+        chapter_specs = self._adaptive_chapter_specs(contract, run_id)
         chapters = [
             ChapterPlan(id=chapter_id, title=chapter_title, objective=objective, task_ids=[task_id])
             for chapter_id, chapter_title, objective, task_id in chapter_specs
@@ -70,6 +72,24 @@ class PlannerEnsemble:
             execution_steps=self._execution_steps(contract),
             acceptance_criteria=self._acceptance_criteria(contract),
             required_artifacts=list(dict.fromkeys(contract.primary_artifacts)),
+        )
+
+    def create_blueprint(
+        self, run_id: str, contract: ProductContract, max_parallel_tasks: int = 4
+    ) -> PlanBlueprint:
+        specs = self._adaptive_chapter_specs(contract, run_id)
+        return PlanBlueprint(
+            run_id=run_id,
+            work_units=[
+                PlanWorkUnit(
+                    id=chapter_id,
+                    title=title,
+                    objective=objective,
+                    task_id=task_id,
+                )
+                for chapter_id, title, objective, task_id in specs
+            ],
+            max_parallel_tasks=max_parallel_tasks,
         )
 
     def validate_product_plan(
@@ -306,13 +326,7 @@ class PlannerEnsemble:
         contract: ProductContract,
         model_synthesis: bool = False,
     ) -> TaskDAG:
-        chapter_specs = {
-            task_id: (chapter_id, chapter_title, objective)
-            for chapter_id, chapter_title, objective, task_id in self._chapter_specs(contract)
-        }
-        chapter_one = chapter_specs["T-SYNTHESIS"]
-        chapter_two = chapter_specs["T-CHAPTER-002"]
-        chapter_three = chapter_specs["T-CHAPTER-003"]
+        chapter_specs = self._adaptive_chapter_specs(contract, run_id)
         nodes = [
             self._node(
                 run_id,
@@ -334,60 +348,31 @@ class PlannerEnsemble:
                 Criticality.HIGH,
                 CostTier.FREE,
             ),
-            self._node(
-                run_id,
-                "T-SYNTHESIS",
-                (
-                    "Synthesize grounded model findings"
+            *[
+                self._node(
+                    run_id,
+                    task_id,
+                    self._synthesis_title(task_id, chapter_title, model_synthesis),
+                    TaskType.FINAL_SYNTHESIS,
+                    {"final_synthesis": 0.6}
                     if model_synthesis
-                    else "Synthesize extractive source findings"
-                ),
-                TaskType.FINAL_SYNTHESIS,
-                {"final_synthesis": 0.6} if model_synthesis else {"extractive_synthesis": 0.9},
-                ["T-GAP-ANALYSIS"],
-                Criticality.HIGH,
-                CostTier.PREMIUM if model_synthesis else CostTier.FREE,
-                chapter_id=chapter_one[0],
-                chapter_title=chapter_one[1],
-                objective=chapter_one[2],
-            ),
-            self._node(
-                run_id,
-                "T-CHAPTER-002",
-                "Synthesize findings and evidence chapter",
-                TaskType.FINAL_SYNTHESIS,
-                {"final_synthesis": 0.6}
-                if model_synthesis
-                else {"extractive_synthesis": 0.9},
-                ["T-GAP-ANALYSIS"],
-                Criticality.HIGH,
-                CostTier.PREMIUM if model_synthesis else CostTier.FREE,
-                chapter_id=chapter_two[0],
-                chapter_title=chapter_two[1],
-                objective=chapter_two[2],
-            ),
-            self._node(
-                run_id,
-                "T-CHAPTER-003",
-                "Synthesize risks and actions chapter",
-                TaskType.FINAL_SYNTHESIS,
-                {"final_synthesis": 0.6}
-                if model_synthesis
-                else {"extractive_synthesis": 0.9},
-                ["T-GAP-ANALYSIS"],
-                Criticality.HIGH,
-                CostTier.PREMIUM if model_synthesis else CostTier.FREE,
-                chapter_id=chapter_three[0],
-                chapter_title=chapter_three[1],
-                objective=chapter_three[2],
-            ),
+                    else {"extractive_synthesis": 0.9},
+                    ["T-GAP-ANALYSIS"],
+                    Criticality.HIGH,
+                    CostTier.PREMIUM if model_synthesis else CostTier.FREE,
+                    chapter_id=chapter_id,
+                    chapter_title=chapter_title,
+                    objective=objective,
+                )
+                for chapter_id, chapter_title, objective, task_id in chapter_specs
+            ],
             self._node(
                 run_id,
                 "T-ARTIFACT-BUILD",
                 "Build static run artifacts",
                 TaskType.ARTIFACT_BUILD,
                 {"artifact_build": 0.9, "file_io": 0.9},
-                ["T-SYNTHESIS", "T-CHAPTER-002", "T-CHAPTER-003"],
+                [task_id for _, _, _, task_id in chapter_specs],
                 Criticality.MISSION_CRITICAL,
                 CostTier.FREE,
                 cacheable=False,
@@ -440,6 +425,19 @@ class PlannerEnsemble:
             cacheable=cacheable,
             retry_policy=RetryPolicy(max_attempts=max_attempts),
         )
+
+    def _synthesis_title(self, task_id: str, chapter_title: str, model_synthesis: bool) -> str:
+        if task_id == "T-SYNTHESIS":
+            return (
+                "Synthesize grounded model findings"
+                if model_synthesis
+                else "Synthesize extractive source findings"
+            )
+        if task_id == "T-CHAPTER-002":
+            return "Synthesize findings and evidence chapter"
+        if task_id == "T-CHAPTER-003":
+            return "Synthesize risks and actions chapter"
+        return f"Synthesize {chapter_title.lower()}"
 
     def _chapter_specs(
         self, contract: ProductContract
@@ -508,3 +506,26 @@ class PlannerEnsemble:
                 "T-CHAPTER-003",
             ),
         ]
+
+    def _adaptive_chapter_specs(
+        self, contract: ProductContract, run_id: str
+    ) -> list[tuple[str, str, str, str]]:
+        requested = contract.constraints.get("sections")
+        if not isinstance(requested, list) or not requested:
+            return self._chapter_specs(contract)
+        specs: list[tuple[str, str, str, str]] = []
+        for index, item in enumerate(requested[:12], start=1):
+            if isinstance(item, str):
+                title = item.strip() or f"Section {index}"
+                objective = f"Address the requested section: {title}"
+            elif isinstance(item, dict):
+                title = str(item.get("title", f"Section {index}")).strip() or f"Section {index}"
+                objective = str(item.get("objective", title)).strip() or title
+            else:
+                title = f"Section {index}"
+                objective = title
+            task_id = "T-SYNTHESIS" if index == 1 else f"T-CHAPTER-{index:03d}"
+            specs.append((f"chapter-{index}", title, objective, task_id))
+        if not specs:
+            return self._chapter_specs(contract)
+        return specs

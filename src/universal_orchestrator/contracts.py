@@ -104,6 +104,8 @@ class ProductContractCompiler:
             artifacts.append("pptx")
         if "patch" in prompt and "patch" not in artifacts:
             artifacts.append("patch")
+        if any(word in prompt for word in ["image", "screenshot", "visual"]) and "image" not in artifacts:
+            artifacts.append("image")
         if not artifacts:
             artifacts.append("final_report")
         return artifacts

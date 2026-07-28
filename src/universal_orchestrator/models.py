@@ -54,6 +54,12 @@ class PrivacyMode(StrEnum):
     EXPLICIT_APPROVAL = "explicit_approval"
 
 
+class VerificationMode(StrEnum):
+    STRUCTURAL = "structural"
+    SEMANTIC = "semantic"
+    REQUIRED_SEMANTIC = "required_semantic"
+
+
 class RunState(StrEnum):
     RECEIVED = "received"
     INGESTING = "ingesting"
@@ -265,6 +271,7 @@ class UserOptions(StrictModel):
     allow_repo_writes: bool = False
     allow_shell: bool = False
     privacy_mode: PrivacyMode = PrivacyMode.BALANCED
+    verification_mode: VerificationMode = VerificationMode.STRUCTURAL
     cost_ceiling_usd: float = Field(default=0.50, gt=0)
 
 
@@ -379,6 +386,8 @@ class ClaimVerification(StrictModel):
     evidence_refs: list[str] = Field(default_factory=list)
     lexical_overlap: float = Field(default=0.0, ge=0.0, le=1.0)
     method: str
+    rationale: str = ""
+    confidence: float | None = Field(default=None, ge=0.0, le=1.0)
     warning: str | None = None
 
 
@@ -425,6 +434,24 @@ class ProductPlan(StrictModel):
     reshape_policy: str = (
         "If a required provider capability is unavailable, execute the bounded local form and label the degradation."
     )
+
+
+class PlanWorkUnit(StrictModel):
+    id: str
+    title: str
+    objective: str
+    task_id: str
+    evidence_budget: int = Field(default=8, ge=1)
+    token_budget: int = Field(default=16_000, ge=1)
+
+
+class PlanBlueprint(StrictModel):
+    schema_version: str = "1.0"
+    run_id: str
+    source: str = "deterministic_contract_compiler"
+    work_units: list[PlanWorkUnit] = Field(default_factory=list)
+    max_parallel_tasks: int = Field(default=4, ge=1, le=32)
+    repair_limit_per_unit: int = Field(default=2, ge=0, le=5)
 
 
 class SlideSpec(StrictModel):

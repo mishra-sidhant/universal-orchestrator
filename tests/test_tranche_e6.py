@@ -26,14 +26,14 @@ class TrancheE6BootstrapTests(unittest.TestCase):
         self.assertIn("uv run python -m universal_orchestrator run", readme)
         self.assertIn("uv run python -m unittest discover -s tests", readme)
 
-    def test_ci_keeps_python_matrix_and_visible_nonblocking_mypy_job(self) -> None:
+    def test_ci_keeps_python_matrix_and_blocking_mypy_job(self) -> None:
         workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text()
 
         for version in ('"3.11"', '"3.12"', '"3.13"'):
             self.assertIn(version, workflow)
         self.assertIn("typing:", workflow)
-        self.assertIn("continue-on-error: true", workflow)
         self.assertIn("python -m mypy src", workflow)
+        self.assertNotIn("continue-on-error: true", workflow)
 
     def test_runtime_store_operations_close_sqlite_connections(self) -> None:
         with tempfile.TemporaryDirectory() as tmp, warnings.catch_warnings(record=True) as caught:

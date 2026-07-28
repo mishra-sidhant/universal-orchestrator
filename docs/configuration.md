@@ -1,5 +1,25 @@
 # Configuration
 
+## Application Setup
+
+The product configuration layer is initialized without provider credentials:
+
+```bash
+uv run ai-team init
+uv run ai-team config show
+uv run ai-team config validate
+uv run ai-team profile create local
+uv run ai-team profile select local
+```
+
+Application metadata lives under the platform-specific `ai-team` application directory. Set `AI_TEAM_HOME` for an explicit location. Profiles contain model IDs, endpoint metadata, privacy defaults, routing priors, and keychain references only; secret values are never written there. `config migrate` imports non-secret model and endpoint values from the legacy `.env.local` file.
+
+Provider credentials resolve from process environment, then legacy `.env.local`, then an optional OS keychain reference. `ai-team provider add <provider> --credential` reads a credential without echoing it and stores it only when the optional keychain dependency is available. Otherwise use the documented environment variable.
+
+Repository implementation is a two-step operation. `repo-prepare` creates an approval-digest-bound change set without writing source files; `repo-apply` requires the exact digest and `--allow-repo-writes`; `repo-publish` creates an explicitly named branch from a validated worktree.
+
+Claim verification defaults to `structural`. `--verification-mode semantic` uses an authorized structured provider when available; `required_semantic` blocks delivery when the verifier is unavailable or returns unknown. Unknown is never treated as supported.
+
 The deterministic MVP works without provider keys. Provider configuration is detected from environment variables and `.env.local`; secrets are not printed.
 
 Recommended local secrets file:

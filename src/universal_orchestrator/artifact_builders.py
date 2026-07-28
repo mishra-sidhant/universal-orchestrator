@@ -113,6 +113,38 @@ class ArtifactBuilder:
         presentation.save(str(path))
         return self._artifact(path, ArtifactType.PPTX)
 
+    def build_image(self, title: str, body: str, path: Path) -> Artifact:
+        """Build a deterministic readable raster figure without a model call."""
+
+        from PIL import Image, ImageDraw, ImageFont
+
+        path.parent.mkdir(parents=True, exist_ok=True)
+        image = Image.new("RGB", (1600, 900), "white")
+        draw = ImageDraw.Draw(image)
+        font = ImageFont.load_default()
+        draw.text((80, 70), title[:140], fill="black", font=font)
+        wrapped = textwrap.wrap(body.replace("\n", " "), width=115) or ["No visual content was produced."]
+        draw.multiline_text((80, 150), "\n".join(wrapped[:28]), fill="black", font=font, spacing=12)
+        image.save(path, format="PNG", optimize=True)
+        return self._artifact(path, ArtifactType.IMAGE)
+
+    def validate_image(self, path: Path) -> list[str]:
+        errors: list[str] = []
+        try:
+            from PIL import Image, ImageStat
+
+            with Image.open(path) as image:
+                image.verify()
+            with Image.open(path) as image:
+                if image.width < 1 or image.height < 1:
+                    errors.append("Image has invalid dimensions.")
+                stat = ImageStat.Stat(image.convert("RGB"))
+                if max(stat.var) == 0:
+                    errors.append("Image is blank.")
+        except Exception as exc:
+            errors.append(f"Image validation failed: {exc}")
+        return errors
+
     def validate_pptx(self, path: Path) -> list[str]:
         errors: list[str] = []
         try:
@@ -155,6 +187,7 @@ class ArtifactBuilder:
             "pdf": self.validate_pdf,
             "docx": self.validate_docx,
             "pptx": self.validate_pptx,
+            "image": self.validate_image,
             "patch_plan": self.validate_patch_plan,
         }.get(kind)
         if structural_validator is None:

@@ -17,8 +17,13 @@ from universal_orchestrator.verification import ClaimVerifier, StructuralClaimVe
 
 
 class EvidenceAuditor:
-    def __init__(self, claim_verifier: ClaimVerifier | None = None) -> None:
+    def __init__(
+        self,
+        claim_verifier: ClaimVerifier | None = None,
+        verification_required: bool = False,
+    ) -> None:
         self.claim_verifier = claim_verifier or StructuralClaimVerifier()
+        self.verification_required = verification_required
 
     def audit(
         self,
@@ -40,17 +45,19 @@ class EvidenceAuditor:
         claims = self._claims(results, valid_chunk_ids, consumed, chunks or [])
         evidence_claims = [claim for claim in claims if claim.evidence_required]
         unsupported_task_ids = sorted({claim.task_id for claim in claims if not claim.resolved})
+        verification_blocking_statuses = {
+            ClaimVerificationStatus.CONTRADICTED,
+            ClaimVerificationStatus.INSUFFICIENT,
+        }
+        if self.verification_required:
+            verification_blocking_statuses.add(ClaimVerificationStatus.UNKNOWN)
         verification_blockers = sorted(
             {
                 claim.task_id
                 for claim in claims
                 if claim.evidence_required
                 and claim.verification is not None
-                and claim.verification.status
-                in {
-                    ClaimVerificationStatus.CONTRADICTED,
-                    ClaimVerificationStatus.INSUFFICIENT,
-                }
+                and claim.verification.status in verification_blocking_statuses
             }
         )
         unconsumed_evidence_refs = sorted(

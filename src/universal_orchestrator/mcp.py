@@ -10,8 +10,11 @@ from typing import Any, TextIO
 from universal_orchestrator.cli import _module_available
 from universal_orchestrator.config import configuration_template, load_env_file, provider_config_status
 from universal_orchestrator.evals import EvaluationRunner, built_in_suite
+from universal_orchestrator.integrations import IntegrationManager
 from universal_orchestrator.models import Host, HostInvocation, InputAttachment, UserOptions, new_id
 from universal_orchestrator.pipeline import Orchestrator
+from universal_orchestrator.repo_transaction import RepositoryEdit
+from universal_orchestrator.repo_workflow import RepositoryWorkflow
 from universal_orchestrator.routing import CapabilityRegistry
 from universal_orchestrator.runtime import RuntimeStore
 from universal_orchestrator.utils import read_json
@@ -50,6 +53,11 @@ def tool_definitions() -> list[dict[str, Any]]:
                         "enum": ["local_only", "balanced", "cloud_allowed", "explicit_approval"],
                         "default": "balanced",
                     },
+                    "verification_mode": {
+                        "type": "string",
+                        "enum": ["structural", "semantic", "required_semantic"],
+                        "default": "structural",
+                    },
                 },
             },
         },
@@ -80,6 +88,11 @@ def tool_definitions() -> list[dict[str, Any]]:
                         "type": "string",
                         "enum": ["local_only", "balanced", "cloud_allowed", "explicit_approval"],
                         "default": "balanced",
+                    },
+                    "verification_mode": {
+                        "type": "string",
+                        "enum": ["structural", "semantic", "required_semantic"],
+                        "default": "structural",
                     },
                 },
             },
@@ -179,6 +192,40 @@ def tool_definitions() -> list[dict[str, Any]]:
                 },
             },
         },
+        {
+            "name": "ai_team.integration_status",
+            "description": "Verify an installed MCP host integration without invoking a provider.",
+            "inputSchema": {
+                "type": "object",
+                "required": ["host"],
+                "properties": {
+                    "host": {"type": "string"},
+                    "scope": {"type": "string", "enum": ["user", "project"], "default": "user"},
+                    "path": {"type": "string"},
+                },
+            },
+        },
+        {
+            "name": "ai_team.diagnostics",
+            "description": "Return a redacted local readiness summary without provider calls.",
+            "inputSchema": {"type": "object", "properties": {}},
+        },
+        {
+            "name": "ai_team.repo_prepare",
+            "description": "Prepare a repository implementation change set without writing source files.",
+            "inputSchema": {
+                "type": "object",
+                "required": ["prompt", "path"],
+                "properties": {
+                    "prompt": {"type": "string"},
+                    "path": {"type": "string"},
+                    "run_id": {"type": "string"},
+                    "edits": {"type": "array", "items": {"type": "object"}},
+                    "output": {"type": "string"},
+                    "allow_dirty_snapshot": {"type": "boolean", "default": False},
+                },
+            },
+        },
     ]
 
 
@@ -208,6 +255,12 @@ def call_tool(name: str, arguments: dict[str, Any] | None = None) -> dict[str, A
         return _tool_evals(args)
     if name == "ai_team.resume":
         return _tool_resume(args)
+    if name == "ai_team.integration_status":
+        return _tool_integration_status(args)
+    if name == "ai_team.diagnostics":
+        return _tool_doctor()
+    if name == "ai_team.repo_prepare":
+        return _tool_repo_prepare(args)
     raise ValueError(f"Unknown tool: {name}")
 
 
@@ -325,6 +378,7 @@ def _invocation_from_args(args: dict[str, Any], command: str) -> HostInvocation:
         allow_repo_writes=bool(args.get("allow_repo_writes", False)),
         allow_shell=bool(args.get("allow_shell", False)),
         privacy_mode=args.get("privacy_mode", "balanced"),
+        verification_mode=args.get("verification_mode", "structural"),
         cost_ceiling_usd=float(args.get("cost_ceiling", 0.50)),
     )
     return HostInvocation(
@@ -420,6 +474,50 @@ def _tool_resume(args: dict[str, Any]) -> dict[str, Any]:
         "state": result.state,
         "artifact_dir": result.artifact_dir,
         "quality_passed": result.quality.passed,
+    }
+
+
+def _tool_integration_status(args: dict[str, Any]) -> dict[str, Any]:
+    manager = IntegrationManager()
+    return manager.verify(
+        str(args["host"]),
+        scope=str(args.get("scope", "user")),
+        explicit_path=args.get("path"),
+    )
+
+
+def _tool_repo_prepare(args: dict[str, Any]) -> dict[str, Any]:
+    """Prepare explicit edits; never infer or apply source changes at this boundary."""
+
+    raw_edits = args.get("edits")
+    if not isinstance(raw_edits, list) or not raw_edits:
+        return {
+            "state": "needs_attention",
+            "implemented": False,
+            "reason": "A model edit worker must return explicit validated edits before repository preparation can proceed.",
+            "prompt": str(args["prompt"]),
+            "path": str(args["path"]),
+            "writes_performed": False,
+        }
+    edits = [RepositoryEdit.model_validate(item) for item in raw_edits]
+    run_id = str(args.get("run_id") or new_id("repo"))
+    changeset = RepositoryWorkflow().prepare(
+        args["path"],
+        run_id=run_id,
+        edits=edits,
+        allow_dirty_snapshot=bool(args.get("allow_dirty_snapshot", False)),
+    )
+    output = args.get("output")
+    if output:
+        RepositoryWorkflow().write_changeset(changeset, output)
+    return {
+        "state": "prepared",
+        "implemented": True,
+        "prompt": str(args["prompt"]),
+        "path": str(args["path"]),
+        "writes_performed": False,
+        "changeset": changeset.model_dump(mode="json"),
+        "output": str(output) if output else None,
     }
 
 

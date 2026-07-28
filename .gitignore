@@ -15,4 +15,6 @@ build/
 .uo/runs/
 .uo/evals/
 .uo/cache/
+.uo/release-gate/
+.uo/.DS_Store
 tmp/

@@ -66,12 +66,19 @@ from universal_orchestrator.repo_transaction import (
     RepositoryEditReport,
     TransactionalRepoEditor,
 )
+from universal_orchestrator.repo_workflow import RepositoryChangeSet, RepositoryWorkflow
 from universal_orchestrator.runtime import RuntimeStore
 from universal_orchestrator.routing import AdaptiveRouter, CapabilityRegistry
 from universal_orchestrator.scheduler import DAGScheduler
 from universal_orchestrator.security import redact_text, scan_text
 from universal_orchestrator.stages import KernelStageContext, StageWorkerRegistry
 from universal_orchestrator.utils import read_json, sha256_file
+from universal_orchestrator.verification import (
+    ClaimVerifier,
+    ProviderClaimVerifier,
+    StructuralClaimVerifier,
+    UnknownClaimVerifier,
+)
 
 
 FIDELITY_MUTABLE_ARTIFACTS = {
@@ -89,6 +96,7 @@ class Orchestrator:
         self,
         artifact_root: Path | str = ".uo/runs",
         capability_registry: CapabilityRegistry | None = None,
+        claim_verifier: ClaimVerifier | None = None,
     ) -> None:
         self.artifact_store = ArtifactStore(Path(artifact_root))
         self.ingestor = InputIngestor()
@@ -101,8 +109,10 @@ class Orchestrator:
         self.delta = DeltaPlanner()
         self.quality = QualityGateEngine()
         self.evidence = EvidenceAuditor()
+        self.claim_verifier = claim_verifier
         self.repo_validation = RepoValidationRunner()
         self.repo_editor = TransactionalRepoEditor()
+        self.repo_workflow = RepositoryWorkflow(self.repo_editor)
         self.fidelity = ContextArtifactFidelityAuditor()
         self.repair = RepairPlanner()
         self.product_owner = FinalProductOwner()
@@ -129,6 +139,36 @@ class Orchestrator:
             edits,
             run_id=run_id,
             allow_repo_writes=allow_repo_writes,
+        )
+
+    def prepare_repository_change_set(
+        self,
+        root: Path | str,
+        edits: list[RepositoryEdit],
+        *,
+        run_id: str,
+        allow_dirty_snapshot: bool = False,
+    ) -> RepositoryChangeSet:
+        return self.repo_workflow.prepare(
+            root,
+            run_id=run_id,
+            edits=edits,
+            allow_dirty_snapshot=allow_dirty_snapshot,
+        )
+
+    def apply_repository_change_set(
+        self,
+        changeset: RepositoryChangeSet,
+        *,
+        approval_digest: str,
+        allow_repo_writes: bool,
+        root_override: Path | str | None = None,
+    ) -> RepositoryEditReport:
+        return self.repo_workflow.apply(
+            changeset,
+            approval_digest=approval_digest,
+            allow_repo_writes=allow_repo_writes,
+            root_override=root_override,
         )
 
     def run(self, invocation: HostInvocation, run_id: str | None = None) -> RunResult:
@@ -252,6 +292,7 @@ class Orchestrator:
         )
         registry.cost_ledger = cost_ledger
         registry.bind_runtime(self.runtime)
+        self._configure_claim_verifier(invocation, registry, run_id)
         handoff_controller = HandoffController(registry.capacity_broker, self.runtime)
         registry.refresh_health(
             execution_policy,
@@ -895,6 +936,15 @@ class Orchestrator:
             pptx_artifact = self.artifact_builder.build_pptx(slides, pptx_path)
             artifacts.append(pptx_artifact)
             validation_jobs.append(("pptx", pptx_path))
+        if "image" in contract.primary_artifacts:
+            image_path = self.artifact_store.run_dir(run_id) / "final_report.png"
+            image_artifact = self.artifact_builder.build_image(
+                "Universal Orchestrator Product",
+                product_package.final_markdown,
+                image_path,
+            )
+            artifacts.append(image_artifact)
+            validation_jobs.append(("image", image_path))
         if "patch" in contract.primary_artifacts or contract.run_type == "repo_implementation":
             patch_path = self.artifact_store.run_dir(run_id) / "patch_plan.md"
             patch_artifact = self.artifact_builder.build_patch_plan(
@@ -1422,6 +1472,37 @@ class Orchestrator:
         if self.runtime.is_cancel_requested(run_id):
             raise RunCancelledError(f"Run {run_id} was cancelled.")
 
+    def _configure_claim_verifier(
+        self,
+        invocation: HostInvocation,
+        registry: CapabilityRegistry,
+        run_id: str,
+    ) -> None:
+        mode = invocation.user_options.verification_mode
+        verifier: ClaimVerifier | None
+        existing_verifier = getattr(self.evidence, "claim_verifier", None)
+        if self.claim_verifier is not None:
+            verifier = self.claim_verifier
+        elif existing_verifier is not None and not isinstance(existing_verifier, StructuralClaimVerifier):
+            verifier = existing_verifier
+        elif mode == "structural":
+            verifier = StructuralClaimVerifier()
+        else:
+            verifier = None
+            for provider in registry.providers:
+                if not provider.enabled or not provider.supports({"structured_output": 0.8}):
+                    continue
+                if provider.kind.value == "hosted_model" and not invocation.user_options.allow_cloud:
+                    continue
+                adapter = registry.adapter_registry().get(provider.id)
+                if adapter is not None:
+                    verifier = ProviderClaimVerifier(adapter, run_id)
+                    break
+            if verifier is None:
+                verifier = UnknownClaimVerifier()
+        self.evidence.claim_verifier = verifier
+        self.evidence.verification_required = mode == "required_semantic"
+
     def _redacted_invocation(self, invocation: HostInvocation) -> HostInvocation:
         return invocation.model_copy(update={"prompt": redact_text(invocation.prompt)})
 
@@ -1587,6 +1668,8 @@ class Orchestrator:
             expected.extend(["final_report.docx", "docx_validation.json"])
         if "pptx" in contract.primary_artifacts:
             expected.extend(["final_report.pptx", "pptx_validation.json"])
+        if "image" in contract.primary_artifacts:
+            expected.extend(["final_report.png", "image_validation.json"])
         if "patch" in contract.primary_artifacts or contract.run_type == "repo_implementation":
             expected.extend(["patch_plan.md", "patch_plan_validation.json"])
         return expected

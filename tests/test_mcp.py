@@ -121,6 +121,26 @@ class MCPAdapterTests(unittest.TestCase):
         self.assertEqual(capacity["snapshots"], [])
         self.assertEqual(events["events"], [])
 
+    def test_repo_prepare_accepts_explicit_edits_without_writing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "repo"
+            root.mkdir()
+            target = root / "note.md"
+            result = call_tool(
+                "ai_team.repo_prepare",
+                {
+                    "prompt": "Add a note",
+                    "path": str(root),
+                    "edits": [{"path": "note.md", "content": "prepared\n"}],
+                },
+            )
+
+            self.assertEqual(result["state"], "prepared")
+            self.assertTrue(result["implemented"])
+            self.assertFalse(result["writes_performed"])
+            self.assertFalse(target.exists())
+            self.assertTrue(result["changeset"]["approval_digest"])
+
     def test_run_start_returns_immediately_and_can_be_polled(self) -> None:
         import time
 

@@ -20,7 +20,8 @@ SECRET_ASSIGNMENT = re.compile(
 
 class RepositoryEdit(StrictModel):
     path: str
-    content: str
+    content: str = ""
+    delete: bool = False
     expected_sha256: str | None = None
     mode: int | None = Field(default=None, ge=0, le=0o777)
     reason: str = "Operator-approved repository edit."
@@ -94,6 +95,9 @@ class TransactionalRepoEditor:
             current = path.read_bytes() if path.exists() else None
             before_hash = sha256_bytes(current) if current is not None else None
             before_mode = stat.S_IMODE(path.stat().st_mode) if current is not None else None
+            if edit.delete and current is None:
+                report.errors.append(f"Repository delete target does not exist: {edit.path}")
+                continue
             if current is not None and edit.expected_sha256 is None:
                 report.errors.append(
                     f"Repository edit requires expected_sha256 for existing file: {edit.path}"
@@ -110,7 +114,7 @@ class TransactionalRepoEditor:
                     f"expected {edit.expected_sha256}, found {before_hash}."
                 )
                 continue
-            findings = scan_text(edit.content, location=edit.path)
+            findings = [] if edit.delete else scan_text(edit.content, location=edit.path)
             if findings or SECRET_ASSIGNMENT.search(edit.content):
                 report.errors.append(
                     f"Repository edit content contains secret material and was rejected: {edit.path}"
@@ -137,6 +141,8 @@ class TransactionalRepoEditor:
         replaced: list[Path] = []
         try:
             for edit, path, _, _, effective_mode in prepared:
+                if edit.delete:
+                    continue
                 with tempfile.NamedTemporaryFile(
                     mode="wb",
                     prefix=f".{path.name}.uo-tx-",
@@ -149,19 +155,27 @@ class TransactionalRepoEditor:
                     os.fsync(handle.fileno())
                     staged.append((Path(handle.name), path))
             self._verify_live_targets(prepared)
+            for edit, path, _, _, effective_mode in prepared:
+                if edit.delete:
+                    path.unlink()
+                    replaced.append(path)
+                    self._fsync_parent(path)
             for temporary, destination in staged:
                 os.replace(temporary, destination)
                 replaced.append(destination)
                 self._fsync_parent(destination)
-            for index, (_, path, _, _, effective_mode) in enumerate(prepared):
-                after_hash = sha256_bytes(path.read_bytes())
-                after_mode = stat.S_IMODE(path.stat().st_mode)
+            for index, (edit, path, _, _, effective_mode) in enumerate(prepared):
+                after_exists = path.exists()
+                after_hash = sha256_bytes(path.read_bytes()) if after_exists else None
+                after_mode = stat.S_IMODE(path.stat().st_mode) if after_exists else None
                 report.files[index] = report.files[index].model_copy(
                     update={"after_sha256": after_hash, "after_mode": after_mode}
                 )
-                if after_hash != sha256_bytes(prepared[index][0].content.encode("utf-8")):
+                if edit.delete and after_exists:
+                    raise OSError(f"Post-commit delete verification failed for {path}")
+                if not edit.delete and after_hash != sha256_bytes(edit.content.encode("utf-8")):
                     raise OSError(f"Post-commit hash verification failed for {path}")
-                if after_mode != effective_mode:
+                if not edit.delete and after_mode != effective_mode:
                     raise OSError(f"Post-commit mode verification failed for {path}")
             report.committed = True
             return report

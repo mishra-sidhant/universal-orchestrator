@@ -7,6 +7,8 @@ The current milestone is a deterministic local runtime with fixture-validated li
 ## What Works Now
 
 - Local CLI with `run`, `repo`, `doctor`, `providers`, `artifacts`, `status`, `cancel`, `smoke`, `bench`, and executable `evals` commands.
+- Versioned user configuration with `init`, profile selection, non-secret migration from `.env.local`, and optional OS-keychain credential references.
+- Receipt-backed MCP installers for Codex, Claude Code, Cursor, VS Code/Copilot, Windsurf, and generic MCP hosts; installation is scoped and idempotent.
 - Typed Pydantic data models for invocations, manifests, product contracts, DAGs, routing, execution, quality, artifacts, and run manifests.
 - Universal input ingestion MVP for prompts, text/markdown, PDFs, folders, repositories, URLs, images, Office files, spreadsheets, archives, and unknown files.
 - Safe archive extraction with traversal/link/size guards, plus optional fixture-tested Tesseract OCR and local Whisper timestamped transcription boundaries; optional tools never download models automatically.
@@ -30,6 +32,9 @@ The current milestone is a deterministic local runtime with fixture-validated li
 - Quality telemetry is provenance-limited: parse coverage, consumed-reference coverage, task continuity, routing efficiency, artifact presence, and executed code validation. It does not claim factuality or style scoring.
 - Quality failures execute repair tasks through the scheduler; unresolved runs terminate as `needs_attention` and never receive a delivery receipt.
 - Model synthesis accepts only strict structured output, allows one metered reformat repair, audits each claim against delivered chunk IDs, and degrades honestly to extractive synthesis after validation failure.
+- Bounded semantic verification is opt-in: structured provider verdicts are cached and redacted, malformed or unavailable verification is `unknown`, and `required_semantic` blocks delivery rather than claiming support.
+- Repository change sets carry source fingerprints and approval digests; transactional create/update/delete operations, stale-write rejection, isolated-worktree preparation, and explicit branch publication are exposed through dedicated commands.
+- Deterministic nonblank PNG figures are available for visual requests and pass the same artifact integrity and delivery gates as other outputs.
 - Immutable delivery finalization with a frozen run manifest, checksums, validated ZIP, integrity report, and hash-bound delivery receipt.
 - PDF, DOCX, and PPTX delivery includes structural checks plus bitmap validation of every rendered page. Serious/max quality bars block on render failure, blank pages, or unavailable render tooling; fast/standard record a warning. Rich reports are assembled from independently synthesized, run-type-specific chapters rather than a single cosmetic slide.
 - A native-versus-orchestrated benchmark bundle with side-by-side outputs, per-path cost and latency, plus orchestrated quality/evidence reports. It makes no automated superiority claim; comparison requires human judgment.
@@ -43,6 +48,7 @@ On a bare macOS host, install [`uv`](https://docs.astral.sh/uv/getting-started/i
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
 uv sync --all-extras --dev
+uv run ai-team init
 uv run python -m universal_orchestrator doctor
 uv run python -m universal_orchestrator run "Build an implementation plan from this repo" .
 uv run python -m universal_orchestrator repo "Analyze and improve the current project" .
@@ -93,7 +99,7 @@ Capacity observations follow the same honesty rule: exact structured provider wi
 
 The kernel is headless. Codex, Claude Code, VS Code/Copilot, compatible desktop agents, and the terminal are host surfaces; MCP and CLI expose the same run, status, capacity, and artifact contract. A separate dashboard is not required.
 
-Use `uv run ai-team integrate --host codex|claude-code|vscode|generic` to print a read-only MCP configuration. See [Headless Host Integrations](docs/host-integrations.md).
+Use `uv run ai-team integrate --host codex --install` to install the MCP server with a receipt, then `--verify` to check it. See [Headless Host Integrations](docs/host-integrations.md).
 
 The kernel is headless. Codex, Claude Code, VS Code/Copilot, compatible desktop agents, and the terminal are host surfaces; MCP and CLI expose the same run/status/capacity/artifact contract. A separate dashboard is not required.
 
@@ -119,3 +125,11 @@ For subscription execution, authenticate through the official CLI (`claude` logi
 Best practices: start keyless with local runs and fixture evals; run `uv run ai-team release-gate` before release; keep the default $0.50 ceiling unless you intentionally configure a lower operator limit; use `local_only` for sensitive inputs; run `smoke` before a real job; review `budget_report.json`, `cost_ledger.json`, `evidence_audit.json`, `fidelity_report.json`, `validator_panel.json`, and provider health before trusting a delivery; and treat benchmark output as evidence for human comparison, never as an automatic quality claim.
 
 Repository implementation writes are approval-gated and transactional. Existing files require their current `expected_sha256`; new files must omit it. Proposed content is secret-scanned, target bytes and modes are rechecked immediately before replacement, executable permissions are preserved, and stale or failed transactions are rejected or rolled back with a structured report. Run the offline release gate after changing this boundary.
+
+For a prepared change set:
+
+```bash
+uv run ai-team repo-prepare ./repo --edits-json edits.json
+uv run ai-team repo-apply .uo/repo/<run-id>.json --approval-digest <digest> --allow-repo-writes
+uv run ai-team repo-publish /path/to/isolated-worktree --branch ai-team/approved-change
+```

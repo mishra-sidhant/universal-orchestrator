@@ -1,5 +1,34 @@
 # Implementation Log
 
+# Completion Tranche Q-U: Local Product Closure
+
+Implementation landmarks:
+
+```text
+uv: command not found
+Failure: desktop shell does not expose uv; verification used the repository .venv executables.
+AssertionError: application configuration serialized capability_prior_overrides as the string "{}"
+Fixed: recursive TOML table emission with empty-map omission.
+AssertionError: injected claim verifier was overwritten by run policy setup
+Fixed: externally supplied verifiers remain authoritative.
+```
+
+Implemented the first local-product completion boundary: versioned application configuration and profiles, non-secret `.env.local` migration, optional keychain references, receipt-backed MCP host installation/verification/uninstallation, adaptive bounded plan blueprints, explicit semantic verification modes, transactional repository create/update/delete change sets with approval-digest and stale-write fencing, deterministic PNG artifact output, and versioned/auth-capable daemon routes. Existing legacy commands and safety defaults remain compatible.
+
+Offline evidence for this continuation:
+
+```text
+284 tests: the first full run exposed verifier-injection regressions and the CI typing-contract assertion; each was repaired and the suite passed. The MCP explicit-edit preparation boundary was then added and pinned by a focused regression.
+Focused configuration, integration, planning, semantic, repository, image, and daemon boundaries: passed.
+Ruff: All checks passed
+Strict mypy: Success
+Built-in eval suite: passed
+Release gate: 11/11 checks passed
+Package build: sdist and wheel passed with Hatchling 1.31.0 before the final MCP explicit-edit boundary; the final rebuild was blocked by this desktop session's network escalation policy.
+```
+
+The desktop session cannot create Git commits because `.git/index.lock` is not writable in this environment. Workspace changes remain unstaged and must be committed by an operator or a session with Git metadata write permission. No provider key, provider network call, or live validation was used. CI now promotes `mypy src` to a blocking check because the strict source check passes with no issues.
+
 ## Tranche J.2-L.3: Complete Rich Media And Strict Typing Boundaries
 
 Failing-first landmarks:

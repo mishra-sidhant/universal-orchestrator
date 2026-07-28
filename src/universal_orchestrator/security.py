@@ -19,7 +19,11 @@ SECRET_PATTERNS: list[tuple[str, re.Pattern[str], SecretSeverity]] = [
         "critical",
     ),
     ("google_api_key", re.compile(r"\bAIza[A-Za-z0-9_-]{30,}\b"), "critical"),
-    ("slack_token", re.compile(r"\bxox[baprs]-[A-Za-z0-9-]{20,}\b"), "critical"),
+    (
+        "slack_token",
+        re.compile(r"\b(?:xox[baprs]-[A-Za-z0-9-]{20,}|SLACK_API_TOKEN_[A-Za-z0-9_]{8,})\b"),
+        "critical",
+    ),
     (
         "jwt",
         re.compile(r"\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b"),

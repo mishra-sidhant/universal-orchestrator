@@ -49,6 +49,16 @@ def load_env_file(path: Path | str = DEFAULT_ENV_FILE, override: bool = False) -
         if override or key not in os.environ:
             os.environ[key] = value
             loaded.append(key)
+    # Application profiles may supply non-secret model metadata and keychain
+    # references.  Import lazily to keep this compatibility module cycle-free.
+    try:
+        from universal_orchestrator.application_config import apply_profile_environment, load_config
+
+        loaded.extend(apply_profile_environment(load_config()))
+    except (RuntimeError, OSError, ValueError):
+        # A malformed optional profile must not make the keyless legacy path
+        # unusable; `ai-team config validate` reports it explicitly.
+        pass
     return loaded
 
 
